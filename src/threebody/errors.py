@@ -21,3 +21,7 @@ class RuleEvaluationError(ThreeBodyError):
 class SerializationError(ThreeBodyError):
     """An artifact could not be serialized safely."""
 
+
+class VisualizationError(ThreeBodyError):
+    """An M2 archive cannot be safely visualized."""
+
