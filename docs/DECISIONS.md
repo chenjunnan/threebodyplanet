@@ -105,3 +105,17 @@
 - No hierarchy ratio, stability, survival, escape rejection, or habitability criterion is implicit in
   generation. Research screening reports unusual initial states without silently filtering them.
 
+## 0.4.1 — 2026-11-16
+
+- G2.1 uses a separate strict `stochastic_conics/0.4.1` configuration. Version 0.4.0 accepts no new
+  fields and retains its resolved hash, PCG64 entropy layout and generated states.
+- Bounded generation checks the completed Cartesian state after velocity kicks and barycentric
+  normalization. It never clamps a sampled velocity or distance. Attempts use independent
+  `SeedSequence([seed, candidate_index, attempt, stream_id])` substreams and stop at `max_attempts`.
+- Absolute planet speed is measured relative to the three-star COM. The selected-host escape proxy is
+  an explicit two-body/concentrated-mass approximation; the combined-potential proxy is an instantaneous
+  frozen-position speed scale. Neither proves permanent binding or future survival.
+- Initial contact has explicit priority: it is retained as the existing terminal t=0 outcome when
+  `allow_initial_contact=true`, otherwise that attempt is rejected. The M2 guard remains unchanged and
+  rejects all initial contact before IAS15.
+
