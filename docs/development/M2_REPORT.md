@@ -90,5 +90,6 @@ samples and one observed event. Maximum scaled energy error was `4.4380280277216
 angular-momentum relative error was `3.9420480910091846e-16`. All archive JSON/JSONL parsed and none
 contained `NaN` or `Infinity`.
 
-The execution host provides Python 3.10.12, while package metadata requires Python 3.11+. Tests also
-passed on the older host interpreter, but the supported deployment floor remains 3.11.
+A dedicated Conda environment using Python 3.11.18 was subsequently created and isolated from the
+host ROS Python path. In that supported environment, all 55 tests, Ruff 0.17.5, `pip check`, and
+`compileall` passed with NumPy 2.4.6, Pydantic 2.14.3, PyYAML 6.0.3, and REBOUND 4.6.0.

@@ -10,6 +10,25 @@ P0-M2 使用 REBOUND IAS15 从原始 SI 笛卡尔状态进行真实 Newtonian �
 
 ## 安装与验证
 
+使用 Conda（推荐）：
+
+```bash
+conda env create -f environment.yml
+conda activate threebody-py311
+pytest -q
+ruff check .
+```
+
+如宿主机设置了其他 Python 版本的 `PYTHONPATH`（例如 ROS），建议为环境隔离该变量：
+
+```bash
+conda env config vars set -n threebody-py311 PYTHONPATH= PYTHONNOUSERSITE=1
+conda deactivate
+conda activate threebody-py311
+```
+
+也可以使用标准虚拟环境或已有 Python 3.11 环境：
+
 ```bash
 python -m pip install -e '.[dev,physics]'
 ruff check .
