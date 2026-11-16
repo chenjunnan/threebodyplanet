@@ -1,0 +1,23 @@
+schema_version: "0.2.0"
+backend: rebound_ias15
+start_time_s: 0.0
+duration_s: 31557600.0
+output_interval_s: 86400.0
+epsilon: 1.0e-9
+collision:
+  mode: terminate
+encounter:
+  enabled: true
+  threshold_mode: radius_multiple
+  radius_multiplier: 5.0
+escape:
+  enabled: true
+  boundary_radius_m: 1.0e+14
+  require_outward_velocity: true
+  require_positive_specific_energy: true
+  minimum_duration_s: 86400.0
+require_positive_radius: false
+max_samples: 10000
+max_wall_seconds: 300.0
+softening_m: 0.0
+
