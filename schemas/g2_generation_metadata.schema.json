@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/threebody/g2_generation_metadata.schema.json",
+  "title": "Three Body Planet P0-G2 generation replay metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "generator_id", "generator_version", "world_id", "seed",
+    "candidate_index", "rng_algorithm", "substream_scheme", "distribution_schema_version",
+    "sampled_physical", "selected_planet_host", "conics", "post_kick_elements_claimed",
+    "scientific_claim"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.4.0"},
+    "generator_id": {"const": "stochastic_conics"},
+    "generator_version": {"const": "0.4.0"},
+    "world_id": {"type": "string"},
+    "seed": {"type": "integer"},
+    "candidate_index": {"type": "integer", "minimum": 0},
+    "rng_algorithm": {"const": "PCG64"},
+    "substream_scheme": {"const": "SeedSequence([seed,candidate_index,stream_id])"},
+    "distribution_schema_version": {"const": "0.4.0"},
+    "sampled_physical": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stellar_mass_solar", "planet_mass_earth", "planet_density_kg_m3",
+        "host_probabilities"
+      ],
+      "properties": {
+        "stellar_mass_solar": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "items": {"type": "number", "exclusiveMinimum": 0}
+        },
+        "planet_mass_earth": {"type": "number", "exclusiveMinimum": 0},
+        "planet_density_kg_m3": {"type": "number", "exclusiveMinimum": 0},
+        "host_probabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["star-1", "star-2", "star-3", "barycenter"],
+          "properties": {
+            "star-1": {"type": "number", "minimum": 0, "maximum": 1},
+            "star-2": {"type": "number", "minimum": 0, "maximum": 1},
+            "star-3": {"type": "number", "minimum": 0, "maximum": 1},
+            "barycenter": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        }
+      }
+    },
+    "selected_planet_host": {"enum": ["star-1", "star-2", "star-3", "barycenter"]},
+    "conics": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "object"}},
+    "post_kick_elements_claimed": {"const": false},
+    "scientific_claim": {"type": "string"}
+  }
+}

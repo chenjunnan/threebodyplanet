@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/threebody/g2_experiment.schema.json",
+  "title": "Three Body Planet P0-G2 stochastic experiment configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "experiment", "world_generation", "screening", "runtime", "output"],
+  "properties": {
+    "schema_version": {"const": "0.4.0"},
+    "experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "seed", "candidate_count"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "seed": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "candidate_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "world_generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body_count", "generator"],
+      "properties": {
+        "body_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stars", "planets"],
+          "properties": {"stars": {"const": 3}, "planets": {"const": 1}}
+        },
+        "generator": {"$ref": "#/$defs/stochastic_generator"}
+      }
+    },
+    "screening": {"type": "object"},
+    "runtime": {"type": "object"},
+    "output": {"type": "object"}
+  },
+  "$defs": {
+    "distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max", "distribution"],
+      "properties": {
+        "min": {"type": "number"},
+        "max": {"type": "number"},
+        "distribution": {"enum": ["uniform", "log_uniform"]}
+      }
+    },
+    "conic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["periapsis_m", "eccentricity"],
+      "properties": {
+        "periapsis_m": {"$ref": "#/$defs/distribution"},
+        "eccentricity": {"$ref": "#/$defs/distribution"}
+      }
+    },
+    "stochastic_generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "version", "stars", "planet", "geometry"],
+      "properties": {
+        "type": {"const": "stochastic_conics"},
+        "version": {"const": "0.4.0"},
+        "stars": {
+          "type": "object", "additionalProperties": false, "required": ["mass_solar"],
+          "properties": {"mass_solar": {"$ref": "#/$defs/distribution"}}
+        },
+        "planet": {
+          "type": "object", "additionalProperties": false,
+          "required": ["mass_earth", "density_kg_m3"],
+          "properties": {
+            "mass_earth": {"$ref": "#/$defs/distribution"},
+            "density_kg_m3": {"$ref": "#/$defs/distribution"}
+          }
+        },
+        "geometry": {
+          "type": "object", "additionalProperties": false,
+          "required": ["inner", "outer", "planet", "orientation", "anomaly", "velocity_kick"],
+          "properties": {
+            "inner": {"$ref": "#/$defs/conic"},
+            "outer": {"$ref": "#/$defs/conic"},
+            "planet": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["periapsis_m", "eccentricity", "host_weights"],
+              "properties": {
+                "periapsis_m": {"$ref": "#/$defs/distribution"},
+                "eccentricity": {"$ref": "#/$defs/distribution"},
+                "host_weights": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["star-1", "star-2", "star-3", "barycenter"],
+                  "properties": {
+                    "star-1": {"type": "number", "minimum": 0},
+                    "star-2": {"type": "number", "minimum": 0},
+                    "star-3": {"type": "number", "minimum": 0},
+                    "barycenter": {"type": "number", "minimum": 0}
+                  }
+                }
+              }
+            },
+            "orientation": {
+              "type": "object", "additionalProperties": false,
+              "required": ["normal", "node", "periapsis_argument"],
+              "properties": {
+                "normal": {"const": "isotropic"}, "node": {"const": "uniform"},
+                "periapsis_argument": {"const": "uniform"}
+              }
+            },
+            "anomaly": {
+              "type": "object", "additionalProperties": false, "required": ["distribution"],
+              "properties": {"distribution": {"const": "true_anomaly_uniform_on_valid_domain"}}
+            },
+            "velocity_kick": {
+              "type": "object", "additionalProperties": false,
+              "required": ["distribution", "speed_scale_fraction"],
+              "properties": {
+                "distribution": {"enum": ["none", "isotropic_speed_fraction"]},
+                "speed_scale_fraction": {"$ref": "#/$defs/distribution"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

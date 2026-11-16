@@ -1,4 +1,4 @@
-# 三体星（Three-Body Planet）P0-M0/M1/M2/M3 + VIS1
+# 三体星（Three-Body Planet）P0-M0/M1/M2/M3 + G2/VIS1
 
 这是一个可安装的 Python 3.11+ 工程，用于生成可复现的“三颗恒星 + 一颗岩石行星”
 **初始状态**，执行不可关闭的 S0 数据校验与可配置的 S1 初始物理筛选，并输出机器可读
@@ -81,6 +81,29 @@ runs/sample/
 `manifest.json` 记录完整解析配置、配置哈希、Python/NumPy/生成器/RNG/常数集版本。
 `summary.json` 包含 `total`、`accepted`、`rejected`、`invalid`、逐规则统计和每个候选的
 决策。所有 JSON 都拒绝 NaN 与 Infinity，并通过临时文件加原子替换写入。
+
+## G2 全随机四体初态
+
+G2 新增独立的 `stochastic_conics/0.4.0` 生成器；旧 `cartesian` 和
+`hierarchical_orbit/0.1.0` 的算法、解析结果和配置哈希保持不变。生成一批宽分布探索初态：
+
+```bash
+threebody world generate \
+  --config configs/g2_chaotic_worlds.yaml \
+  --count 100 \
+  --out-dir runs/g2-chaotic
+```
+
+每个成功候选除原有 `.initial.json` 和 `.screening.json` 外，还会写出
+`.generation_metadata.json`，其中记录质量/密度抽样、随机宿主、三个构造圆锥、三维方向、
+真近点角、速度扰动向量和随机子流协议。`summary.json` 的 `g2_generation` 汇总宿主、偏心率、
+圆锥类型、瞬时距离、速度、失败原因码和初始接触计数。
+
+生成器允许椭圆和双曲初态，不施加层级比、长期生存、稳定性或宜居性默认筛选。`e=1` 的
+抛物线模式在 0.4.0 中明确拒绝；双曲真近点角只从有效开区间抽样。若球形天体在 `t=0`
+接触或重叠，会额外归档 `.initial_outcome.json`，标记为未执行积分的终止结局；M2 输入 Guard
+仍会拒绝把它交给 IAS15。研究预置可保留并报告这类游戏结局，不代表点质量积分对接触后状态
+有效。
 
 ## M2 四体轨道演进
 
@@ -182,7 +205,7 @@ C1 使用 `x=sin(latitude)` 等面积有限体积扩散和 BDF 隐式积分。�
 ## 工程结构与边界
 
 - `src/threebody/config`：安全 YAML、预置合并、严格模型、规则参数校验和配置哈希。
-- `src/threebody/world`：SI 数据模型、`cartesian` 与 `hierarchical_orbit` 初态生成器。
+- `src/threebody/world`：SI 数据模型、旧生成器与 G2 随机圆锥初态生成器。
 - `src/threebody/screening`：强制 S0、五条 S1 规则、决策聚合和筛选报告。
 - `src/threebody/experiments`：批量候选运行、manifest 和统计汇总。
 - `src/threebody/physics/nbody`：REBOUND IAS15、强制输入 Guard、诊断与事件观察器。

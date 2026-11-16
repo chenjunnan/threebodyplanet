@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -64,9 +64,122 @@ class GeneratorConfig(StrictModel):
         return self
 
 
+class ScalarDistributionConfig(StrictModel):
+    min: float
+    max: float
+    distribution: Literal["uniform", "log_uniform"]
+
+    @model_validator(mode="after")
+    def valid_bounds(self) -> ScalarDistributionConfig:
+        if not math.isfinite(self.min) or not math.isfinite(self.max):
+            raise ValueError("distribution bounds must be finite")
+        if self.max < self.min:
+            raise ValueError("distribution max must be greater than or equal to min")
+        if self.distribution == "log_uniform" and self.min <= 0.0:
+            raise ValueError("log_uniform distribution requires min > 0")
+        return self
+
+
+class StellarDistributionConfig(StrictModel):
+    mass_solar: ScalarDistributionConfig
+
+    @model_validator(mode="after")
+    def positive_mass(self) -> StellarDistributionConfig:
+        if self.mass_solar.min <= 0.0:
+            raise ValueError("mass_solar requires min > 0")
+        return self
+
+
+class PlanetDistributionConfig(StrictModel):
+    mass_earth: ScalarDistributionConfig
+    density_kg_m3: ScalarDistributionConfig
+
+    @model_validator(mode="after")
+    def positive_physical_values(self) -> PlanetDistributionConfig:
+        if self.mass_earth.min <= 0.0:
+            raise ValueError("mass_earth requires min > 0")
+        if self.density_kg_m3.min <= 0.0:
+            raise ValueError("density_kg_m3 requires min > 0")
+        return self
+
+
+class ConicDistributionConfig(StrictModel):
+    periapsis_m: ScalarDistributionConfig
+    eccentricity: ScalarDistributionConfig
+
+    @model_validator(mode="after")
+    def physical_bounds(self) -> ConicDistributionConfig:
+        if self.periapsis_m.min <= 0.0:
+            raise ValueError("periapsis_m requires min > 0")
+        if self.eccentricity.min < 0.0:
+            raise ValueError("eccentricity requires min >= 0")
+        if self.eccentricity.min == self.eccentricity.max == 1.0:
+            raise ValueError("parabolic eccentricity e=1 is not supported by generator 0.4.0")
+        return self
+
+
+class PlanetConicDistributionConfig(ConicDistributionConfig):
+    host_weights: dict[Literal["star-1", "star-2", "star-3", "barycenter"], float]
+
+    @field_validator("host_weights")
+    @classmethod
+    def valid_host_weights(cls, value: dict[str, float]) -> dict[str, float]:
+        expected = {"star-1", "star-2", "star-3", "barycenter"}
+        if set(value) != expected:
+            raise ValueError("host_weights must contain all four canonical hosts")
+        if any(not math.isfinite(weight) or weight < 0.0 for weight in value.values()):
+            raise ValueError("host weights must be finite and non-negative")
+        if sum(value.values()) <= 0.0:
+            raise ValueError("at least one host weight must be positive")
+        return value
+
+
+class OrientationDistributionConfig(StrictModel):
+    normal: Literal["isotropic"]
+    node: Literal["uniform"]
+    periapsis_argument: Literal["uniform"]
+
+
+class AnomalyDistributionConfig(StrictModel):
+    distribution: Literal["true_anomaly_uniform_on_valid_domain"]
+
+
+class VelocityKickConfig(StrictModel):
+    distribution: Literal["none", "isotropic_speed_fraction"]
+    speed_scale_fraction: ScalarDistributionConfig
+
+    @model_validator(mode="after")
+    def non_negative_fraction(self) -> VelocityKickConfig:
+        if self.speed_scale_fraction.min < 0.0:
+            raise ValueError("speed_scale_fraction requires min >= 0")
+        return self
+
+
+class StochasticGeometryConfig(StrictModel):
+    inner: ConicDistributionConfig
+    outer: ConicDistributionConfig
+    planet: PlanetConicDistributionConfig
+    orientation: OrientationDistributionConfig
+    anomaly: AnomalyDistributionConfig
+    velocity_kick: VelocityKickConfig
+
+
+class StochasticConicsGeneratorConfig(StrictModel):
+    type: Literal["stochastic_conics"]
+    version: Literal["0.4.0"]
+    stars: StellarDistributionConfig
+    planet: PlanetDistributionConfig
+    geometry: StochasticGeometryConfig
+
+
+AnyGeneratorConfig = Annotated[
+    GeneratorConfig | StochasticConicsGeneratorConfig, Field(discriminator="type")
+]
+
+
 class WorldGenerationConfig(StrictModel):
     body_count: BodyCountConfig
-    generator: GeneratorConfig
+    generator: AnyGeneratorConfig
 
 
 class RuleConfig(StrictModel):
@@ -109,7 +222,7 @@ class OutputConfig(StrictModel):
 
 
 class ResolvedExperimentConfig(StrictModel):
-    schema_version: Literal["0.1.0"]
+    schema_version: Literal["0.1.0", "0.4.0"]
     experiment: ExperimentConfig
     world_generation: WorldGenerationConfig
     screening: ScreeningConfig
@@ -118,6 +231,12 @@ class ResolvedExperimentConfig(StrictModel):
 
     @model_validator(mode="after")
     def cross_constraints(self) -> ResolvedExperimentConfig:
+        is_g2 = isinstance(self.world_generation.generator, StochasticConicsGeneratorConfig)
+        expected_schema = "0.4.0" if is_g2 else "0.1.0"
+        if self.schema_version != expected_schema:
+            raise ValueError(
+                f"schema_version must be {expected_schema!r} for the selected generator"
+            )
         if self.experiment.candidate_count > self.output.max_candidates:
             raise ValueError("candidate_count exceeds output.max_candidates")
         if self.screening.exploration.enabled:
