@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/threebody/simulation.schema.json",
+  "title": "Three Body Planet P0-M2 IAS15 simulation configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "backend", "start_time_s", "duration_s", "output_interval_s",
+    "epsilon", "collision", "encounter", "escape", "require_positive_radius",
+    "max_samples", "softening_m"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.2.0"},
+    "backend": {"const": "rebound_ias15"},
+    "start_time_s": {"type": "number"},
+    "duration_s": {"type": "number", "exclusiveMinimum": 0},
+    "output_interval_s": {"type": "number", "exclusiveMinimum": 0},
+    "epsilon": {"type": "number", "minimum": 1e-15, "maximum": 1e-4},
+    "collision": {
+      "type": "object", "additionalProperties": false, "required": ["mode"],
+      "properties": {"mode": {"const": "terminate"}}
+    },
+    "encounter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "threshold_mode"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "threshold_mode": {"enum": ["absolute_m", "radius_multiple"]},
+        "distance_m": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "radius_multiplier": {"type": ["number", "null"], "exclusiveMinimum": 1}
+      }
+    },
+    "escape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled", "boundary_radius_m", "require_outward_velocity",
+        "require_positive_specific_energy", "minimum_duration_s"
+      ],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "boundary_radius_m": {"type": "number", "exclusiveMinimum": 0},
+        "require_outward_velocity": {"type": "boolean"},
+        "require_positive_specific_energy": {"type": "boolean"},
+        "minimum_duration_s": {"type": "number", "minimum": 0}
+      }
+    },
+    "require_positive_radius": {"type": "boolean"},
+    "max_samples": {"type": "integer", "minimum": 2, "maximum": 1000000},
+    "max_wall_seconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "softening_m": {"const": 0.0}
+  }
+}
