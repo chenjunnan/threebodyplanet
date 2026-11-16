@@ -87,6 +87,7 @@ def test_pure_diffusion_reduces_variance_with_zero_polar_flux_and_conserves_mean
     assert float(np.mean(final)) == pytest.approx(float(np.mean(initial)), abs=1.0e-9)
     assert float(np.var(final)) < float(np.var(initial))
     assert abs(result.energy_budget.meridional_transport_energy_j_m2) < 1.0e-8
+    assert abs(result.energy_budget.residual_j_m2) < 1.0e-6
     assert result.energy_budget.normalized_residual < 1.0e-9
 
 

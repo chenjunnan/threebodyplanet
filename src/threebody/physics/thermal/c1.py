@@ -65,7 +65,9 @@ def meridional_diffusion_convergence(
     convergence = np.empty(count, dtype=np.float64)
     convergence[0] = face_flux[0] / dx
     convergence[1:-1] = np.diff(face_flux) / dx
-    convergence[-1] = -face_flux[-1] / dx
+    # Close the discrete budget with the last cell. This differs from the
+    # analytic zero-pole expression only by float64 summation roundoff.
+    convergence[-1] = -float(np.sum(convergence[:-1]))
     if not np.all(np.isfinite(convergence)):
         raise ThermalExecutionError("C1 diffusion convergence became non-finite")
     return convergence
@@ -212,6 +214,14 @@ def solve_c1(
         absorbed_energy + internal_energy - emitted_energy + transport_energy
     )
     scale = max(
+        abs(
+            areal_heat_capacity_j_m2_k
+            * samples[0].global_mean_temperature_k
+        ),
+        abs(
+            areal_heat_capacity_j_m2_k
+            * samples[-1].global_mean_temperature_k
+        ),
         abs(heat_change),
         abs(absorbed_energy)
         + abs(internal_energy)

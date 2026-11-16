@@ -75,11 +75,11 @@ real short IAS15 archive followed by both thermal solvers and validates all six 
 - C0 Earth-like no-greenhouse equilibrium for `F=1361 W/m2`, `A=0.3`, emissivity 1 and `Q=0`:
   `254.5781401165717 K`.
 - C0 analytic zero-flux cooling benchmark: energy residual `-4.410743713378906e-06 J/m2`, normalized
-  residual `7.530852110446098e-15`.
+  residual `1.4702479044596354e-15` relative to the maximum heat-content/energy-flow scale.
 - C1 36-band dynamic benchmark: energy residual `2.752058207988739e-07 J/m2`, normalized residual
-  `5.981564597891415e-15`.
-- C1 signed global meridional transport energy was `1.5077064577101367e-13 J/m2`; maximum instantaneous
-  global transport imbalance was `3.700743415417188e-17 W/m2`.
+  `2.7515920528395887e-17` on the same scale.
+- C1 signed global meridional transport energy and maximum instantaneous global transport imbalance
+  were both `0.0` in the 36-band reference after conservative last-cell roundoff closure.
 
 These values are deterministic reference-test results for the recorded environment, not universal
 accuracy guarantees for chaotic orbital forcing or arbitrary climate parameters.

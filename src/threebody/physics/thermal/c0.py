@@ -167,6 +167,8 @@ def solve_c0(
     emitted_energy = float(solution.y[3, -1])
     residual = heat_change - (absorbed_energy + internal_energy - emitted_energy)
     scale = max(
+        abs(areal_heat_capacity_j_m2_k * samples[0].temperature_k),
+        abs(areal_heat_capacity_j_m2_k * samples[-1].temperature_k),
         abs(heat_change),
         abs(absorbed_energy) + abs(internal_energy) + abs(emitted_energy),
         1.0,
