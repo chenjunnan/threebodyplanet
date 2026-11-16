@@ -1,0 +1,1 @@
+"""Rigid-planet rotation geometry."""
