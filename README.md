@@ -154,6 +154,26 @@ threebody viz trajectory \
 播放速度也不代表物理时间流速。`STOPPED`/`FAILED` 若有完整采样仍可显示，但页面会醒目标为
 部分轨迹。
 
+## VIS2 多物理场联动观察器
+
+用同一模拟时间轴联动 M2 四体轨道和 M3 辐射/C0/C1 数据：
+
+```bash
+threebody viz dashboard \
+  --m2-run runs/sample/simulations/000000 \
+  --m3-run runs/sample/thermal/000000 \
+  --out runs/sample/dashboard.html
+```
+
+可选 `--m4-run` 加载经来源哈希验证的世界结局时间线；`--units au|m` 控制轨道单位，
+`--frame-cap` 限制显示帧。HTML 默认内嵌 Plotly，可离线打开。桌面布局包含 3D 四体轨道、
+三颗恒星独立及总辐照度、C0 温度和 C1 纬度热图；移动端自动堆叠。播放倍率只表示视觉速度。
+
+权威时间范围严格取 M2/M3 重叠区间。轨道与温度的线性插值只用于显示，不是新的 N 体积分
+或热求解；不在数据末端外推。碰撞归档在最后科学样本停止，逃逸候选若仍有 M2/M3 数据则
+继续播放。质心/行星相对相机只是坐标显示变换。事件文字使用安全 JSON 和 DOM `textContent`，
+不会作为 HTML 执行。原 `threebody viz trajectory` 命令保持不变。
+
 ## M3 辐射、自转和热模型
 
 在 M2 完整归档可用后，复制并修改 `configs/m3_thermal.yaml` 中的输入路径，然后运行：
