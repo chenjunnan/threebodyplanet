@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/threebody/experiment.schema.json",
+  "title": "Three Body Planet P0 M1 experiment configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "experiment",
+    "world_generation",
+    "screening",
+    "runtime",
+    "output"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "seed",
+        "candidate_count"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "world_generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "body_count",
+        "generator"
+      ],
+      "properties": {
+        "body_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "stars",
+            "planets"
+          ],
+          "properties": {
+            "stars": {
+              "const": 3
+            },
+            "planets": {
+              "const": 1
+            }
+          }
+        },
+        "generator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "version",
+            "stellar_mass_solar",
+            "planet_mass_earth",
+            "planet_density_kg_m3",
+            "characteristic_length_m"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "cartesian",
+                "hierarchical_orbit"
+              ]
+            },
+            "version": {
+              "type": "string"
+            },
+            "stellar_mass_solar": {
+              "$ref": "#/$defs/range"
+            },
+            "planet_mass_earth": {
+              "$ref": "#/$defs/range"
+            },
+            "planet_density_kg_m3": {
+              "$ref": "#/$defs/range"
+            },
+            "characteristic_length_m": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "inner_orbit_radius_m": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "outer_orbit_radius_m": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "planet_orbit_radius_m": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "planet_orbit_host": {
+              "enum": [
+                "star-1",
+                "star-2",
+                "star-3",
+                "barycenter"
+              ]
+            },
+            "velocity_scale_factor": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "screening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preset",
+        "default_rule_state",
+        "fail_fast",
+        "initial_physics",
+        "exploration"
+      ],
+      "properties": {
+        "preset": {
+          "enum": [
+            "strict",
+            "research",
+            "raw"
+          ]
+        },
+        "default_rule_state": {
+          "const": "disabled"
+        },
+        "fail_fast": {
+          "type": "boolean"
+        },
+        "initial_physics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "rules": {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "body.mass.positive",
+                  "body.radius.positive",
+                  "body.density.bounds",
+                  "system.initial_overlap",
+                  "system.barycenter"
+                ]
+              },
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "severity": {
+                    "enum": [
+                      "error",
+                      "warning",
+                      "info"
+                    ]
+                  },
+                  "failure_action": {
+                    "enum": [
+                      "reject",
+                      "report"
+                    ]
+                  },
+                  "params": {
+                    "type": "object"
+                  }
+                },
+                "required": []
+              }
+            }
+          }
+        },
+        "exploration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ],
+          "properties": {
+            "enabled": {
+              "const": false
+            }
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "simulation_enabled"
+      ],
+      "properties": {
+        "simulation_enabled": {
+          "const": false
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_candidates",
+        "format"
+      ],
+      "properties": {
+        "max_candidates": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "format": {
+          "const": "json"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "range": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "number",
+        "exclusiveMinimum": 0
+      }
+    }
+  }
+}

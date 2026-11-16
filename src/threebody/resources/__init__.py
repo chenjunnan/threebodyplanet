@@ -1,0 +1,2 @@
+"""Packaged, version-controlled resources."""
+

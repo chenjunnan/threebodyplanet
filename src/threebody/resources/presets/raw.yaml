@@ -1,0 +1,21 @@
+preset_version: "0.1.0"
+initial_physics:
+  enabled: false
+  rules:
+    body.mass.positive: {enabled: false, severity: error, failure_action: report, params: {}}
+    body.radius.positive: {enabled: false, severity: error, failure_action: report, params: {}}
+    body.density.bounds:
+      enabled: false
+      severity: warning
+      failure_action: report
+      params: {min_kg_m3: 3500.0, max_kg_m3: 7000.0, kinds: [PLANET]}
+    system.initial_overlap:
+      enabled: false
+      severity: warning
+      failure_action: report
+      params: {minimum_surface_gap_m: 0.0}
+    system.barycenter:
+      enabled: false
+      severity: warning
+      failure_action: report
+      params: {max_relative_position_error: 1.0e-10, max_relative_velocity_error: 1.0e-10}

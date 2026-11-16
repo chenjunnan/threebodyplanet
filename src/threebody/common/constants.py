@@ -1,0 +1,6 @@
+CONSTANT_SET_VERSION = "iau-codata-p0-v1"
+G = 6.67430e-11
+M_SUN_KG = 1.98847e30
+R_SUN_M = 6.957e8
+M_EARTH_KG = 5.9722e24
+
