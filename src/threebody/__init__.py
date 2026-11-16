@@ -1,4 +1,4 @@
-"""Three Body Planet P0-M0/M1 package."""
+"""Three Body Planet scientific reference package."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 

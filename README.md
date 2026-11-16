@@ -1,11 +1,12 @@
-# 三体星（Three-Body Planet）P0-M0/M1/M2 + VIS1
+# 三体星（Three-Body Planet）P0-M0/M1/M2/M3 + VIS1
 
 这是一个可安装的 Python 3.11+ 工程，用于生成可复现的“三颗恒星 + 一颗岩石行星”
 **初始状态**，执行不可关闭的 S0 数据校验与可配置的 S1 初始物理筛选，并输出机器可读
 JSON 产物。
 
 P0-M2 使用 REBOUND IAS15 从原始 SI 笛卡尔状态进行真实 Newtonian 四体引力积分，记录
-轨迹、运行期事件和守恒诊断。它不证明长期轨道稳定，也不计算气候或宜居性；
+轨迹、运行期事件和守恒诊断。P0-M3 只读 M2 轨迹，计算三恒星总辐射、刚性行星自转、
+C0 全球灰体热平衡和 C1 纬向扩散热模型。它不证明长期轨道稳定，也不提供天气或宜居性结论；
 `hierarchical_orbit` 仍只是构造初始状态的近似方法。
 
 ## 安装与验证
@@ -30,13 +31,13 @@ conda activate threebody-py311
 也可以使用标准虚拟环境或已有 Python 3.11 环境：
 
 ```bash
-python -m pip install -e '.[dev,physics]'
+python -m pip install -e '.[dev,physics,viz]'
 ruff check .
 pytest -q
 threebody --help
 ```
 
-项目要求 Python 3.11 或更新版本。M0/M1 核心依赖 NumPy、Pydantic v2 和 PyYAML；
+项目要求 Python 3.11 或更新版本。核心依赖 NumPy、SciPy、Pydantic v2 和 PyYAML；
 M2 的 `physics` extra 安装 REBOUND 4.x。不依赖数据库、服务端或前端框架。
 轨道查看器是独立的 `viz` extra；需要时使用
 `python -m pip install -e '.[dev,physics,viz]'` 安装 Plotly。
@@ -130,6 +131,32 @@ threebody viz trajectory \
 播放速度也不代表物理时间流速。`STOPPED`/`FAILED` 若有完整采样仍可显示，但页面会醒目标为
 部分轨迹。
 
+## M3 辐射、自转和热模型
+
+在 M2 完整归档可用后，复制并修改 `configs/m3_thermal.yaml` 中的输入路径，然后运行：
+
+```bash
+threebody world thermal \
+  --config configs/m3_thermal.yaml \
+  --out-dir runs/sample/thermal/000000
+```
+
+归档包含：
+
+```text
+stellar_flux.jsonl                 # 每颗恒星距离、方向、中心辐照度与三源总和
+c0_temperature.jsonl              # C0 全球平均灰体温度和瞬时能量通量
+c1_latitude_temperature.jsonl      # 等面积纬带温度、日照、发射与扩散收敛
+energy_budget.json                 # C0/C1 积分能量残差和纬向输送守恒
+resolved_thermal_config.json       # 完整 0.3.0 严格配置
+thermal_manifest.json              # 输入哈希、版本、插值诊断、假设与状态
+```
+
+恒星中心辐照度采用 `L/(4πd²)`；局地顶层入射使用球面法向投影。C0 使用 SciPy RK45，
+C1 使用 `x=sin(latitude)` 等面积有限体积扩散和 BDF 隐式积分。轨道节点之间采用位置与速度
+约束的分段三次 Hermite 插值；它不是新的 N 体积分，近距离遭遇需要提高 M2 输出频率。
+模型不包含日食、有限星盘、光谱输运、温室气体、潮汐/进动、海洋、风、降水或风暴。
+
 ## 配置与筛选语义
 
 配置合并优先级为内置预置配置，然后是实验 YAML 的显式覆盖。未知字段、未知规则 ID、
@@ -160,6 +187,9 @@ threebody viz trajectory \
 - `src/threebody/experiments`：批量候选运行、manifest 和统计汇总。
 - `src/threebody/physics/nbody`：REBOUND IAS15、强制输入 Guard、诊断与事件观察器。
 - `src/threebody/visualization`：M2 归档校验、显示变换和独立 Plotly 3D 查看器。
+- `src/threebody/physics/stellar`：三恒星各向同性总辐射和球面/纬带入射。
+- `src/threebody/physics/rotation`：固定转轴的刚性球体自转几何。
+- `src/threebody/physics/thermal`：C0 全球与 C1 纬向科学参考模型及能量诊断。
 - `src/threebody/integrator.py`：稳定 Protocol 门面和 M2 具体类型导出。
 - `tests`：对应 `docs/06_TEST_AND_ACCEPTANCE.md` 的单元与端到端测试。
 

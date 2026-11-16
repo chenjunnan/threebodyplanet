@@ -103,3 +103,11 @@ S0失败到无法构造初态时允许省略 `.initial.json`，但必须存在�
 - 每个候选有稳定、唯一的 `world_id`，与随机seed + index映射规则公开。
 - 生成器输出质心位置与质心速度接近0，提供相对误差诊断；不是通过“把第四个天体放在原点”实现。
 - `properties` 不允许嵌入任意对象实例或不受控表达式。
+
+## 7. M3 辐射与热归档（0.3.0）
+
+M3 不修改上述 0.1.0 初态或 M2 的 0.2.0 契约。独立配置使用 SI 字段后缀，输出
+`thermal_manifest.json`、`stellar_flux.jsonl`、`c0_temperature.jsonl`、
+`c1_latitude_temperature.jsonl` 和 `energy_budget.json`。manifest 记录初态与 M2 manifest
+哈希、Hermite 插值版本、旋转相位参考、SciPy/NumPy/项目版本和模型假设。温度为 K，辐射与
+热通量为 W/m²，面热容为 J/m²/K，积分能量为 J/m²；所有结构化数值必须有限。

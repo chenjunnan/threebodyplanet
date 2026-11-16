@@ -25,3 +25,7 @@ class SerializationError(ThreeBodyError):
 class VisualizationError(ThreeBodyError):
     """An M2 archive cannot be safely visualized."""
 
+
+class ThermalExecutionError(ThreeBodyError):
+    """A radiation or thermal solve failed to produce a valid result."""
+

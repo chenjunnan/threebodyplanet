@@ -52,12 +52,13 @@ Main baseline: M2 merge `589f11d`
 
 ## Verification
 
-Local environment: Python 3.11.18, NumPy 2.4.6, Pydantic 2.14.3, REBOUND 4.6.0,
-Plotly 6.9.0, Ruff 0.17.5.
+Local environment: Python 3.11.18, NumPy 2.4.6, SciPy 1.17.1, Pydantic 2.14.3,
+REBOUND 4.6.0, Plotly 6.9.0, Ruff 0.17.5. The final run includes the M3 code now merged
+into `main`; VIS1 remains a separate package and has no M3 imports.
 
 ```text
 pytest -q
-84 passed in 1.26s
+103 passed in 3.41s
 
 ruff check .
 All checks passed!
@@ -66,7 +67,8 @@ python -m compileall -q src tests
 completed with exit code 0
 ```
 
-The 22 new VIS1 tests cover archive corruption/limits, unit conversion, event interpolation and ID
+The full suite contains 103 tests; 22 VIS1 tests cover archive corruption/limits, unit conversion,
+event interpolation and ID
 attribution, distributed frame selection, trace/frame structure, single/partial archives, script
 injection, offline/CDN resources, overwrite policy, and a real IAS15-to-HTML CLI path.
 
