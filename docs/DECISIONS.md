@@ -53,3 +53,20 @@
 - Pair-distance archives use `minimum_observed_pair_distances_m` and explicitly identify internal-step
   endpoint semantics. They are not continuous-trajectory minima or exact threshold-crossing times.
 
+## 0.3.0 — 2026-11-16
+
+- M3 is a one-way consumer of version 0.1.0 initial states and version 0.2.0 M2 archives. It does not
+  modify REBOUND state, N-body settings, or any existing M0/M1/M2 field meaning.
+- Orbit positions between M2 output nodes use piecewise cubic Hermite interpolation constrained by
+  stored positions and velocities. The midpoint Hermite-versus-linear difference is recorded only as
+  a diagnostic, not a rigorous interpolation error bound; configured cadence excess is rejected.
+- Stellar radiation uses three positive, explicit `luminosity_w` values and isotropic bolometric
+  `L/(4*pi*d^2)` point sources. Occultations, spectra, and finite stellar disks remain unimplemented.
+- Rotation inputs must already form a unit, orthogonal right-handed basis. M3 never silently normalizes
+  them. Large-epoch phase reduction uses decimal modulo arithmetic before returning to float64.
+- C0 uses SciPy RK45. C1 uses an equal-area `x=sin(latitude)` finite-volume grid, zero polar flux, and
+  SciPy BDF. Absorbed, internal, emitted, and transport energies are integrated alongside temperature
+  so archived energy residuals are independently visible.
+- C1 forcing is longitude averaged and finite-volume-band averaged. C0/C1 are grey-body energy-balance
+  reference models, not local weather, atmospheric circulation, or habitability proofs.
+

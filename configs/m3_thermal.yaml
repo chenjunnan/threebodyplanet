@@ -1,0 +1,34 @@
+schema_version: "0.3.0"
+input:
+  initial_state: ../runs/sample/candidates/000000.initial.json
+  m2_archive: ../runs/sample/simulations/000000
+  allow_collision_terminated: false
+  max_orbit_sample_interval_s: 86400.0
+planet:
+  id: planet-1
+  rotation:
+    axis_inertial_unit: [0.0, 0.0, 1.0]
+    prime_meridian_inertial_unit: [1.0, 0.0, 0.0]
+    rotation_epoch_s: 0.0
+    initial_phase_rad: 0.0
+    rotation_rate_rad_s: 7.2921159e-5
+radiation:
+  model: isotropic_bolometric_v1
+  occultation: disabled
+thermal:
+  mode: both
+  initial_temperature_k: 288.0
+  bond_albedo: 0.3
+  effective_emissivity: 1.0
+  areal_heat_capacity_j_m2_k: 4.0e+7
+  internal_heat_flux_w_m2: 0.0
+  c1:
+    latitude_bands: 36
+    diffusivity_w_m2_k: 0.6
+  integrator:
+    rtol: 1.0e-7
+    atol_k: 1.0e-5
+    max_step_s: 3600.0
+output:
+  sample_interval_s: 86400.0
+  max_samples: 10000

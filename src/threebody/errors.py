@@ -21,3 +21,7 @@ class RuleEvaluationError(ThreeBodyError):
 class SerializationError(ThreeBodyError):
     """An artifact could not be serialized safely."""
 
+
+class ThermalExecutionError(ThreeBodyError):
+    """A radiation or thermal solve failed to produce a valid result."""
+

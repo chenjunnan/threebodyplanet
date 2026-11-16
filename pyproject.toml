@@ -4,11 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "three-body-planet"
-version = "0.2.0"
-description = "Reproducible four-body initial-state generation, screening, and IAS15 evolution"
+version = "0.3.0"
+description = "Reproducible three-star orbital, radiation, and thermal reference models"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.24", "pydantic>=2.5", "PyYAML>=6.0"]
+dependencies = [
+  "numpy>=1.24,<3",
+  "pydantic>=2.5,<3",
+  "PyYAML>=6.0,<7",
+  "scipy>=1.11,<2",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "ruff>=0.4", "rebound>=4.4,<5"]
