@@ -95,15 +95,17 @@ threebody world simulate \
 ```text
 trajectory.jsonl                    # 严格递增时间的流式轨迹样本
 events.json                         # 碰撞、近距离遭遇、逃逸候选
-diagnostics.json                    # 守恒误差与每对天体最小距离
+diagnostics.json                    # 守恒误差与每对天体最小已观察距离
 resolved_simulation_config.json     # 完整 M2 数值配置
 simulation_manifest.json            # 输入哈希、版本、状态和产物引用
 ```
 
 IAS15 显式使用 SI 引力常数 `G=6.67430e-11`，不进行 `move_to_com`，不启用引力软化。
 求解器输入 Guard 始终启用，独立于 S0/S1 筛选配置。物理接触使用 REBOUND swept-line
-碰撞检测并默认终止；碰撞时间是求解器内步检测精度，不声称无限精确。近接检测不改变
-动力学；`ESCAPE_CANDIDATE` 使用边界、向外速度、近似比能和持续时间，只是启发式分类，
+碰撞检测并默认终止，碰撞双方直接来自 REBOUND 回调的粒子索引，不从终止状态猜测；
+碰撞时间是求解器内步检测精度，不声称无限精确。近接检测不改变
+动力学；近接距离只是在 IAS15 内步端点观察到的最小值，不是连续轨道的严格数学极小值。
+`ESCAPE_CANDIDATE` 使用边界、向外速度、近似比能和持续时间，只是启发式分类，
 不等同于永久逃逸证明。
 
 ## 配置与筛选语义

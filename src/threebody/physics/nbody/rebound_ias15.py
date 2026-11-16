@@ -7,7 +7,11 @@ import numpy as np
 
 from threebody.common.constants import G
 from threebody.errors import ThreeBodyError
-from threebody.physics.nbody.diagnostics import DiagnosticTracker, compute_diagnostics
+from threebody.physics.nbody.diagnostics import (
+    DiagnosticTracker,
+    NumericalSafetyError,
+    compute_diagnostics,
+)
 from threebody.physics.nbody.events import EventObserver
 from threebody.physics.nbody.guard import ReboundInputGuard
 from threebody.physics.nbody.models import (
@@ -34,10 +38,26 @@ class IntegrationRunData:
     t_final_s: float
     sample_count: int
     events: tuple[SimulationEvent, ...]
-    minimum_distances_m: dict[str, float]
+    minimum_observed_pair_distances_m: dict[str, float]
     diagnostic_summary: DiagnosticSummary
     rebound_version: str
     error: str | None = None
+
+
+@dataclass
+class CollisionCapture:
+    """Capture REBOUND's causal collision pair without modifying particle state."""
+
+    particle_indices: tuple[int, int] | None = None
+    t_s: float | None = None
+
+    def resolve(self, simulation_pointer, collision) -> int:
+        simulation = simulation_pointer.contents
+        if self.particle_indices is None:
+            self.particle_indices = (int(collision.p1), int(collision.p2))
+            self.t_s = float(simulation.t)
+        simulation.stop()
+        return 0
 
 
 def _import_rebound():
@@ -99,8 +119,9 @@ def _build_simulation(initial_state: WorldInitialState, settings: IntegrationSet
     # LINE includes a linearized swept-path check over the last internal step and
     # is less likely than endpoint-only DIRECT to miss a high-speed crossing.
     simulation.collision = "line"
-    simulation.collision_resolve = "halt"
-    return rebound, simulation
+    collision_capture = CollisionCapture()
+    simulation.collision_resolve = collision_capture.resolve
+    return rebound, simulation, collision_capture
 
 
 def integrate_stream(
@@ -109,14 +130,24 @@ def integrate_stream(
     on_sample: Callable[[TrajectorySample], None],
 ) -> IntegrationRunData:
     ReboundInputGuard().validate(initial_state, settings)
-    rebound, simulation = _build_simulation(initial_state, settings)
+    rebound, simulation, collision_capture = _build_simulation(initial_state, settings)
     body_ids = tuple(body.id for body in initial_state.bodies)
     radii = tuple(body.radius_m for body in initial_state.bodies)
     observer = EventObserver(body_ids=body_ids, radii_m=radii, settings=settings)
     simulation.heartbeat = observer.heartbeat
-    observer.observe(simulation, "initial_state")
+    try:
+        observer.observe(simulation, "initial_state")
+    except (ArithmeticError, NumericalSafetyError, ValueError) as exc:
+        raise IntegrationExecutionError(
+            f"initial event observation failed: {exc}"
+        ) from exc
 
-    initial_sample = _sample(simulation, body_ids)
+    try:
+        initial_sample = _sample(simulation, body_ids)
+    except NumericalSafetyError as exc:
+        raise IntegrationExecutionError(
+            f"initial numerical diagnostics failed: {exc}"
+        ) from exc
     tracker = DiagnosticTracker(initial_sample.diagnostics)
     on_sample(initial_sample)
     sample_count = 1
@@ -132,23 +163,43 @@ def integrate_stream(
         )
         try:
             simulation.integrate(target, exact_finish_time=1)
-        except rebound.Collision:
-            status = "COLLISION"
-            observer.observe(simulation, "collision_halt_state")
-            observer.collision_event(simulation)
         except Exception as exc:
             raise IntegrationExecutionError(
                 f"REBOUND IAS15 failed at t={float(simulation.t)} s: {exc}"
             ) from exc
 
-        if observer.timed_out:
+        if observer.numerical_error is not None:
+            raise IntegrationExecutionError(
+                f"numerical safety stop at t={float(simulation.t)} s: "
+                f"{observer.numerical_error}"
+            )
+        if collision_capture.particle_indices is not None:
+            status = "COLLISION"
+            try:
+                observer.observe(simulation, "collision_callback_halt_state")
+                observer.collision_event(simulation, collision_capture.particle_indices)
+            except (ArithmeticError, NumericalSafetyError, ValueError) as exc:
+                raise IntegrationExecutionError(
+                    f"collision-state observation failed at t={float(simulation.t)} s: {exc}"
+                ) from exc
+        elif observer.timed_out:
             status = "STOPPED"
             error = "max_wall_seconds reached"
 
         current_time = float(simulation.t)
         if current_time > last_sample_time:
-            sample = _sample(simulation, body_ids)
-            tracker.update(sample.diagnostics)
+            try:
+                sample = _sample(simulation, body_ids)
+            except NumericalSafetyError as exc:
+                raise IntegrationExecutionError(
+                    f"numerical diagnostics failed at t={current_time} s: {exc}"
+                ) from exc
+            try:
+                tracker.update(sample.diagnostics)
+            except NumericalSafetyError as exc:
+                raise IntegrationExecutionError(
+                    f"diagnostic comparison failed at t={current_time} s: {exc}"
+                ) from exc
             on_sample(sample)
             sample_count += 1
             last_sample_time = current_time
@@ -160,13 +211,20 @@ def integrate_stream(
             )
         output_index += 1
 
-    summary = tracker.summary(conservation_applicable=status != "COLLISION")
+    try:
+        summary = tracker.summary(conservation_applicable=status != "COLLISION")
+    except NumericalSafetyError as exc:
+        raise IntegrationExecutionError(
+            f"diagnostic summary failed at t={float(simulation.t)} s: {exc}"
+        ) from exc
     return IntegrationRunData(
         status=status,
         t_final_s=float(simulation.t),
         sample_count=sample_count,
         events=tuple(observer.events),
-        minimum_distances_m=dict(observer.minimum_distances_m),
+        minimum_observed_pair_distances_m=dict(
+            observer.minimum_observed_pair_distances_m
+        ),
         diagnostic_summary=summary,
         rebound_version=rebound.__version__,
         error=error,

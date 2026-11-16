@@ -97,7 +97,7 @@ def run_simulation_archive(
                 rebound_version = run.rebound_version
                 events = run.events
                 diagnostics = run.diagnostic_summary
-                minimum_distances = run.minimum_distances_m
+                minimum_observed_distances = run.minimum_observed_pair_distances_m
                 final_time = run.t_final_s
             except IntegrationExecutionError as exc:
                 status = "FAILED"
@@ -110,7 +110,7 @@ def run_simulation_archive(
                     rebound_version = "unavailable"
                 events = ()
                 diagnostics = None
-                minimum_distances = {}
+                minimum_observed_distances = {}
                 final_time = last_sample_time
             trajectory.flush()
             os.fsync(trajectory.fileno())
@@ -120,7 +120,8 @@ def run_simulation_archive(
             diagnostics_path,
             {
                 "summary": None if diagnostics is None else diagnostics.model_dump(mode="json"),
-                "minimum_pair_distances_m": minimum_distances,
+                "minimum_observed_pair_distances_m": minimum_observed_distances,
+                "distance_semantics": "internal_step_endpoint_observation",
             },
         )
         write_json_atomic(settings_path, settings)

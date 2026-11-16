@@ -7,7 +7,9 @@ import pytest
 
 from threebody.errors import CandidateInvalid, ConfigError
 from threebody.physics.nbody.config import load_integration_settings
+from threebody.physics.nbody.diagnostics import DiagnosticTracker, NumericalSafetyError
 from threebody.physics.nbody.guard import ReboundInputGuard
+from threebody.physics.nbody.models import DiagnosticSnapshot
 from threebody.world.generators import generate_initial_state
 
 
@@ -123,4 +125,40 @@ def test_guard_requires_start_time_to_match_reference_epoch(resolved):
     settings = settings.model_copy(update={"start_time_s": 1.0})
     with pytest.raises(CandidateInvalid, match="start_time_s"):
         ReboundInputGuard().validate(state, settings)
+
+
+@pytest.mark.parametrize(
+    ("body_updates", "message"),
+    [
+        ({"mass_kg": 1.0e308}, "mechanical diagnostics are unsafe"),
+        ({"velocity_mps": (1.0e308, 0.0, 0.0)}, "mechanical diagnostics are unsafe"),
+        ({"position_m": (1.0e308, 0.0, 0.0)}, "separation exceeds"),
+    ],
+)
+def test_guard_rejects_finite_values_outside_float64_mechanics_domain(
+    resolved, body_updates, message
+):
+    state = _replace_body(_initial_state(resolved), 0, **body_updates)
+    with pytest.raises(CandidateInvalid, match=message) as caught:
+        ReboundInputGuard().validate(state)
+    error_text = str(caught.value).lower()
+    assert "nan" not in error_text
+    assert "infinity" not in error_text
+
+
+def test_diagnostic_tracker_rejects_finite_snapshots_whose_difference_overflows():
+    initial = DiagnosticSnapshot(
+        t_s=0.0,
+        kinetic_energy_j=1.0e308,
+        potential_energy_j=0.0,
+        total_energy_j=1.0e308,
+        energy_scale_j=1.0e308,
+        linear_momentum_kg_mps=(0.0, 0.0, 0.0),
+        angular_momentum_kg_m2_s=(0.0, 0.0, 0.0),
+        barycenter_position_m=(0.0, 0.0, 0.0),
+        barycenter_velocity_mps=(0.0, 0.0, 0.0),
+    )
+    later = initial.model_copy(update={"t_s": 1.0, "total_energy_j": -1.0e308})
+    with pytest.raises(NumericalSafetyError, match="scaled energy error"):
+        DiagnosticTracker(initial).update(later)
 

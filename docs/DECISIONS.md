@@ -28,8 +28,9 @@
 - Solver-domain validation is mandatory and independent of configurable S1 screening. It rejects
   non-positive or non-finite masses, negative/non-finite radii, coordinate singularities, initial
   contact/overlap, incompatible units/frame, and a start epoch mismatch.
-- Collision handling uses REBOUND's swept-line collision search with halt resolution. Event time and
-  state are documented as internal-step precision, not an exact mathematical first-contact proof.
+- Collision handling uses REBOUND's swept-line collision search; a custom resolver captures the causal
+  particle indices and requests a stop without mutating state. Event time and state are documented as
+  internal-step precision, not an exact mathematical first-contact proof.
 - Close-encounter observations do not modify dynamics. Escape events are named `ESCAPE_CANDIDATE` and
   require a boundary crossing plus configured outward-velocity, positive two-body-specific-energy,
   and persistence checks; they do not prove permanent escape in a four-body system.
@@ -39,4 +40,16 @@
 - Conservation reports use the scaled energy denominator `max(|E0|, |K0|+|U0|)`. Traditional relative
   energy error is present only when `|E0|` is safely separated from zero. Collision-terminated runs mark
   isolated-system conservation interpretation as not applicable after contact.
+
+## 0.2.0 review corrections — 2026-11-16
+
+- Collision participants are captured from REBOUND's `collision_resolve` callback `p1/p2` indices.
+  The callback records causality and requests a stop without changing particle state; no terminal-state
+  nearest-pair inference is permitted.
+- `max_wall_seconds` uses REBOUND's user-stop path and produces `STOPPED`, a partial valid trajectory,
+  and CLI exit code 1. It is distinct from both collision and solver failure.
+- The mandatory input guard evaluates initial mechanical diagnostics and representable pair separation/
+  acceleration limits. Finite values outside the float64 mechanics domain are rejected before REBOUND.
+- Pair-distance archives use `minimum_observed_pair_distances_m` and explicitly identify internal-step
+  endpoint semantics. They are not continuous-trajectory minima or exact threshold-crossing times.
 

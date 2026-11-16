@@ -75,8 +75,60 @@ def test_low_and_high_speed_collision_terminates_between_output_samples(
     assert samples[-1].t_s == run.t_final_s
     collision = next(event for event in run.events if event.event_type == "COLLISION")
     assert collision.body_ids == ("star-1", "star-2")
-    assert collision.detection_method == "rebound_line_internal_step"
+    assert collision.detection_method == "rebound_line_collision_callback"
+    assert set(collision.observed["rebound_particle_indices"]) == {0, 1}
     assert run.diagnostic_summary.conservation_applicable is False
+
+
+def test_collision_uses_callback_pair_not_closest_pair_at_halt():
+    state = _collision_world(1000.0)
+    bodies = list(state.bodies)
+    bodies[2] = bodies[2].model_copy(
+        update={"mass_kg": 1.0e-30, "position_m": (1.0e6, 0.0, 0.0), "radius_m": 0.0}
+    )
+    bodies[3] = bodies[3].model_copy(
+        update={
+            "mass_kg": 1.0e-30,
+            "position_m": (1.0e6 + 0.1, 0.0, 0.0),
+            "radius_m": 0.0,
+        }
+    )
+    adversarial_state = state.model_copy(update={"bodies": tuple(bodies)})
+    run, samples = ReboundIAS15Integrator().integrate(
+        adversarial_state, _settings(1.0, 1.0)
+    )
+    assert run.status == "COLLISION"
+    collision = next(event for event in run.events if event.event_type == "COLLISION")
+    assert collision.body_ids == ("star-1", "star-2")
+    assert set(collision.observed["rebound_particle_indices"]) == {0, 1}
+    assert tuple(body.id for body in samples[-1].bodies) == (
+        "star-1",
+        "star-2",
+        "star-3",
+        "planet-1",
+    )
+    assert samples[-1].bodies[2].position_m[0] < samples[-1].bodies[3].position_m[0]
+
+
+def test_collision_event_never_reassigns_callback_pair_to_closest_gap():
+    observer = EventObserver(
+        body_ids=("a", "b", "c", "d"),
+        radii_m=(1.0, 1.0, 1.0, 1.0),
+        settings=_settings(10.0, 1.0),
+    )
+    simulation = _fake_simulation(
+        1.0,
+        [
+            (1.0, -5.0, 0.0),
+            (1.0, 5.0, 0.0),
+            (1.0, 100.0, 0.0),
+            (1.0, 100.1, 0.0),
+        ],
+    )
+    event = observer.collision_event(simulation, (1, 0))
+    assert event.body_ids == ("a", "b")
+    assert event.observed["rebound_particle_indices"] == [1, 0]
+    assert event.observed["surface_gap_at_halt_m"] == 8.0
 
 
 def _fake_simulation(t_s, body_specs):
@@ -109,7 +161,12 @@ def test_close_encounter_records_first_observed_crossing_and_minimum_distance():
     encounters = [event for event in observer.events if event.event_type == "CLOSE_ENCOUNTER"]
     assert len(encounters) == 1
     assert encounters[0].t_s == 1.0
-    assert observer.minimum_distances_m["a:b"] == 2.0
+    assert observer.minimum_observed_pair_distances_m["a:b"] == 2.0
+    assert encounters[0].observed["observed_distance_m"] == 4.0
+    assert (
+        encounters[0].observed["distance_semantics"]
+        == "internal_step_endpoint_observation"
+    )
 
 
 def test_escape_requires_persistence_and_is_only_a_candidate():

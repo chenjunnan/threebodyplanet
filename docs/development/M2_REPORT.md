@@ -30,10 +30,11 @@ Baseline: `main` at `7adb6f703aea0582ab77f84e501975d41de27920`
 
 ### M2-04 — runtime events
 
-- Collision: REBOUND swept-line detection and halt resolution, including collisions between output
-  samples. Reported timing is limited by the solver's internal collision step.
+- Collision: REBOUND swept-line detection with causal participants captured from the custom resolver
+  callback, including collisions between output samples. Reported timing is limited by the solver's
+  internal collision step.
 - Close encounter: threshold by absolute distance or radius multiple, first observed crossing and pair
-  minimum distances; no force modification.
+  minimum observed distances; no force modification and no continuous-minimum claim.
 - Escape candidate: remaining-system COM distance, outward radial velocity, two-body specific energy and
   persistence. This is a heuristic candidate, not a permanent-escape proof.
 
@@ -49,6 +50,24 @@ Baseline: `main` at `7adb6f703aea0582ab77f84e501975d41de27920`
 - Added mandatory-input, physical benchmark, full-mass, conservation, event, archive, CLI and M1
   regression coverage.
 - Updated README, project version and architecture decisions.
+
+## PR #1 review corrections
+
+- Collision attribution now comes directly from a retained custom REBOUND `collision_resolve`
+  callback. The callback records `p1/p2`, requests `simulation.stop()`, returns without changing any
+  particle, and the event preserves both callback indices and canonical body IDs. Regression coverage
+  proves a closer terminal pair cannot replace the causal callback pair.
+- A real IAS15 integration and archive test uses a deterministic sub-nanosecond wall limit. It verifies
+  `STOPPED`, CLI exit code 1, a partial valid trajectory, and exact agreement between manifest
+  `t_final_s` and the final trajectory sample.
+- The mandatory guard now evaluates representable pair separation/acceleration and complete initial
+  mechanical diagnostics. Extreme finite masses, velocities, and coordinates outside float64 mechanics
+  are rejected with an input-domain explanation. Runtime observer/diagnostic non-finite values request a
+  safe stop and archive as `FAILED` rather than emitting invalid JSON.
+- Close-encounter output now uses `minimum_observed_pair_distances_m` and carries
+  `internal_step_endpoint_observation` semantics. It is explicitly not a continuous-orbit minimum.
+- GitHub Actions runs mandatory physics tests and Ruff on Python 3.11 and 3.12, explicitly imports
+  REBOUND, and does not permit dependency-based test skipping.
 
 ## Scientific limits
 
@@ -74,13 +93,13 @@ Baseline: `main` at `7adb6f703aea0582ab77f84e501975d41de27920`
 Commands executed on the development branch:
 
 ```text
-PYTHONPATH=src:/tmp/threebody-m2-deps python3 -m pytest -q
-55 passed
+pytest -q
+62 passed
 
-PYTHONPATH=/tmp/threebody-ruff python3 -m ruff check .
+ruff check .
 All checks passed!
 
-PYTHONPATH=src:/tmp/threebody-m2-deps python3 -m compileall -q src tests
+python -m compileall -q src tests
 completed with exit code 0
 ```
 
@@ -91,5 +110,5 @@ angular-momentum relative error was `3.9420480910091846e-16`. All archive JSON/J
 contained `NaN` or `Infinity`.
 
 A dedicated Conda environment using Python 3.11.18 was subsequently created and isolated from the
-host ROS Python path. In that supported environment, all 55 tests, Ruff 0.17.5, `pip check`, and
+host ROS Python path. In that supported environment, all 62 tests, Ruff 0.17.5, `pip check`, and
 `compileall` passed with NumPy 2.4.6, Pydantic 2.14.3, PyYAML 6.0.3, and REBOUND 4.6.0.
