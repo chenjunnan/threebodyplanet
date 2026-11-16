@@ -204,6 +204,56 @@ def test_initial_contact_policy_is_explicit_and_m2_guard_remains_mandatory(g21_r
     with pytest.raises(ConstraintExhausted) as caught:
         generate_initial_state_with_metadata(reject, config.experiment.seed, 0, digest)
     assert all(
-        attempt["reason_codes"] == ["INITIAL_CONTACT_NOT_ALLOWED"]
+        "INITIAL_CONTACT_NOT_ALLOWED" in attempt["reason_codes"]
         for attempt in caught.value.metadata["attempts"]
     )
+
+
+def test_allowed_contact_does_not_bypass_distance_speed_or_escape_bounds(g21_resolved):
+    config, digest = g21_resolved
+    generator = config.world_generation.generator
+    inner = generator.geometry.inner.model_copy(
+        update={
+            "periapsis_m": generator.geometry.inner.periapsis_m.model_copy(
+                update={"min": 1.0e6, "max": 1.0e6, "distribution": "uniform"}
+            ),
+            "eccentricity": generator.geometry.inner.eccentricity.model_copy(
+                update={"min": 0.0, "max": 0.0, "distribution": "uniform"}
+            ),
+        }
+    )
+    geometry = generator.geometry.model_copy(update={"inner": inner})
+    distances = generator.initial_constraints.planet_star_distance_m.model_copy(
+        update={"max_nearest": 1.0}
+    )
+    speed = generator.initial_constraints.planet_speed.model_copy(
+        update={
+            "absolute_max_mps": 1.0e-12,
+            "escape_mode": "combined_potential",
+            "escape_speed_fraction_max": 1.0e-12,
+        }
+    )
+    constraints = generator.initial_constraints.model_copy(
+        update={
+            "allow_initial_contact": True,
+            "max_attempts": 2,
+            "planet_star_distance_m": distances,
+            "planet_speed": speed,
+        }
+    )
+    generator = generator.model_copy(
+        update={"geometry": geometry, "initial_constraints": constraints}
+    )
+
+    with pytest.raises(ConstraintExhausted) as caught:
+        generate_initial_state_with_metadata(generator, config.experiment.seed, 0, digest)
+
+    expected = {
+        "NEAREST_STAR_DISTANCE_ABOVE_MAX",
+        "PLANET_SPEED_ABOVE_ABSOLUTE_MAX",
+        "COMBINED_POTENTIAL_ESCAPE_FRACTION_ABOVE_MAX",
+    }
+    for attempt in caught.value.metadata["attempts"]:
+        assert attempt["metrics"]["initial_contact_count"] > 0
+        assert "INITIAL_CONTACT_NOT_ALLOWED" not in attempt["reason_codes"]
+        assert expected.issubset(attempt["reason_codes"])

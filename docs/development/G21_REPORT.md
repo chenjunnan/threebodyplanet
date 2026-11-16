@@ -1,7 +1,7 @@
 # P0-G2.1 development report
 
-Date: 2026-11-16  
-Branch: `feature/p0-g21-bounded-initials`  
+Date: 2026-11-16
+Branch: `feature/p0-g21-bounded-initials`
 Generator/config version: `stochastic_conics/0.4.1`
 
 ## Implementation
@@ -54,9 +54,9 @@ Executed from a clean clone with Python 3.11:
 
 ```text
 pytest -q
-........................................................................ [ 59%]
-..................................................                       [100%]
-122 passed
+........................................................................ [ 58%]
+...................................................                      [100%]
+123 tests collected; exit code 0
 
 ruff check .
 All checks passed!
@@ -68,3 +68,14 @@ completed with exit code 0
 G2.1-specific tests cover replay/order independence, post-kick final-state metrics, every enabled bound,
 unrestricted behavior, selected-host proxy equations, finite exhaustion/batch continuation, and
 contact/guard separation.
+
+## Review fix
+
+The initial implementation returned immediately when an initial contact was present. In bounded mode,
+`allow_initial_contact: true` therefore accepted the draw without evaluating enabled planet/star
+distance, absolute speed or escape-speed-proxy constraints; the false branch also hid simultaneous
+constraint failures. Contact policy is now one independent reason in the same complete evaluation pass.
+Allowing contact suppresses only `INITIAL_CONTACT_NOT_ALLOWED` and never suppresses another configured
+bound. A combined regression forces an initial contact while simultaneously violating nearest-distance,
+absolute-speed and combined-potential escape-fraction limits, and verifies finite exhaustion records all
+three active reasons.

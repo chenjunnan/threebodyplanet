@@ -591,11 +591,9 @@ def _constraint_reasons(
     metrics: ConstraintMetrics,
 ) -> tuple[str, ...]:
     constraints = config.initial_constraints
-    if metrics.initial_contact_count and not constraints.allow_initial_contact:
-        return ("INITIAL_CONTACT_NOT_ALLOWED",)
-    if metrics.initial_contact_count and constraints.allow_initial_contact:
-        return ()
     reasons: list[str] = []
+    if metrics.initial_contact_count and not constraints.allow_initial_contact:
+        reasons.append("INITIAL_CONTACT_NOT_ALLOWED")
     distances = constraints.planet_star_distance_m
     if distances.min is not None and any(
         value < distances.min for value in metrics.planet_star_distances_m.values()
