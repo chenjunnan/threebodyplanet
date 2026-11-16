@@ -180,6 +180,24 @@ C1 使用 `x=sin(latitude)` 等面积有限体积扩散和 BDF 隐式积分。�
 约束的分段三次 Hermite 插值；它不是新的 N 体积分，近距离遭遇需要提高 M2 输出频率。
 模型不包含日食、有限星盘、光谱输运、温室气体、潮汐/进动、海洋、风、降水或风暴。
 
+## M4 环境暴露与世界结局
+
+M4 只读并交叉验证初态、M2 和 M3 归档，生成多轴世界报告：
+
+```bash
+threebody world assess \
+  --initial runs/sample/candidates/000000.initial.json \
+  --m2-archive runs/sample/simulations/000000 \
+  --m3-archive runs/sample/thermal/000000 \
+  --config configs/m4_world_outcomes.yaml \
+  --out-dir runs/sample/outcomes/000000
+```
+
+输出包含来源哈希、覆盖时间窗、环境事件、暴露持续时间、动力学事件时间线、独立的动力学/
+环境分类和偏好排名。C0 冷热持续时间使用相邻采样间的线性阈值交点估算，采样极值不会描述为
+连续极值。`ESCAPE_CANDIDATE` 仍不是永久逃逸证明；恒星碰撞不会被错误标记为行星碰撞；
+碰撞后不外推轨道或温度。G2 初始接触可在没有 M2/M3 时生成明确的、不完整报告。
+
 ## 配置与筛选语义
 
 配置合并优先级为内置预置配置，然后是实验 YAML 的显式覆盖。未知字段、未知规则 ID、
