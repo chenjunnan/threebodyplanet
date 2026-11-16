@@ -10,6 +10,7 @@ from threebody.config.loader import load_and_resolve
 from threebody.errors import ThreeBodyError
 from threebody.experiments.runner import run_experiment
 from threebody.experiments.simulation import run_simulation_archive
+from threebody.experiments.thermal import run_thermal_archive
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_argument("--initial", type=Path, required=True)
     simulate.add_argument("--config", type=Path, required=True)
     simulate.add_argument("--out-dir", type=Path, required=True)
+    thermal = world_commands.add_parser(
+        "thermal", help="Run M3 radiation and C0/C1 thermal reference models"
+    )
+    thermal.add_argument("--config", type=Path, required=True)
+    thermal.add_argument("--out-dir", type=Path, required=True)
     return parser
 
 
@@ -66,6 +72,10 @@ def execute(args: argparse.Namespace) -> int:
             result = run_simulation_archive(args.initial, args.config, args.out_dir)
             print(result.model_dump_json())
             return 1 if result.status in {"FAILED", "STOPPED"} else 0
+        if args.command == "thermal":
+            result = run_thermal_archive(args.config, args.out_dir)
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 1 if result["status"] == "FAILED" else 0
     raise AssertionError("unreachable command")
 
 

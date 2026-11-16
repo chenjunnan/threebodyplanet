@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/threebody/thermal.schema.json",
+  "title": "Three Body Planet P0-M3 radiation and thermal configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "input", "planet", "radiation", "thermal", "output"],
+  "properties": {
+    "schema_version": {"const": "0.3.0"},
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initial_state", "m2_archive", "allow_collision_terminated",
+        "max_orbit_sample_interval_s"
+      ],
+      "properties": {
+        "initial_state": {"type": "string", "minLength": 1},
+        "m2_archive": {"type": "string", "minLength": 1},
+        "allow_collision_terminated": {"type": "boolean"},
+        "max_orbit_sample_interval_s": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "planet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "rotation"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "rotation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "axis_inertial_unit", "prime_meridian_inertial_unit", "rotation_epoch_s",
+            "initial_phase_rad", "rotation_rate_rad_s"
+          ],
+          "properties": {
+            "axis_inertial_unit": {"$ref": "#/$defs/vector3"},
+            "prime_meridian_inertial_unit": {"$ref": "#/$defs/vector3"},
+            "rotation_epoch_s": {"type": "number"},
+            "initial_phase_rad": {"type": "number"},
+            "rotation_rate_rad_s": {"type": "number"}
+          }
+        }
+      }
+    },
+    "radiation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "occultation"],
+      "properties": {
+        "model": {"const": "isotropic_bolometric_v1"},
+        "occultation": {"const": "disabled"}
+      }
+    },
+    "thermal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode", "initial_temperature_k", "bond_albedo", "effective_emissivity",
+        "areal_heat_capacity_j_m2_k", "internal_heat_flux_w_m2", "c1", "integrator"
+      ],
+      "properties": {
+        "mode": {"enum": ["c0", "c1", "both"]},
+        "initial_temperature_k": {"type": "number", "exclusiveMinimum": 0},
+        "bond_albedo": {"type": "number", "minimum": 0, "maximum": 1},
+        "effective_emissivity": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "areal_heat_capacity_j_m2_k": {"type": "number", "exclusiveMinimum": 0},
+        "internal_heat_flux_w_m2": {"type": "number", "minimum": 0},
+        "c1": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["latitude_bands", "diffusivity_w_m2_k"],
+          "properties": {
+            "latitude_bands": {"type": "integer", "minimum": 4, "maximum": 720},
+            "diffusivity_w_m2_k": {"type": "number", "minimum": 0}
+          }
+        },
+        "integrator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rtol", "atol_k", "max_step_s"],
+          "properties": {
+            "rtol": {"type": "number", "exclusiveMinimum": 0, "maximum": 0.01},
+            "atol_k": {"type": "number", "exclusiveMinimum": 0},
+            "max_step_s": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sample_interval_s", "max_samples"],
+      "properties": {
+        "sample_interval_s": {"type": "number", "exclusiveMinimum": 0},
+        "max_samples": {"type": "integer", "minimum": 2, "maximum": 1000000}
+      }
+    }
+  },
+  "$defs": {
+    "vector3": {
+      "type": "array",
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}],
+      "minItems": 3,
+      "maxItems": 3
+    }
+  }
+}
