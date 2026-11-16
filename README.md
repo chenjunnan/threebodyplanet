@@ -1,4 +1,4 @@
-# 三体星（Three-Body Planet）P0-M0/M1/M2
+# 三体星（Three-Body Planet）P0-M0/M1/M2 + VIS1
 
 这是一个可安装的 Python 3.11+ 工程，用于生成可复现的“三颗恒星 + 一颗岩石行星”
 **初始状态**，执行不可关闭的 S0 数据校验与可配置的 S1 初始物理筛选，并输出机器可读
@@ -38,6 +38,8 @@ threebody --help
 
 项目要求 Python 3.11 或更新版本。M0/M1 核心依赖 NumPy、Pydantic v2 和 PyYAML；
 M2 的 `physics` extra 安装 REBOUND 4.x。不依赖数据库、服务端或前端框架。
+轨道查看器是独立的 `viz` extra；需要时使用
+`python -m pip install -e '.[dev,physics,viz]'` 安装 Plotly。
 
 ## 使用
 
@@ -108,6 +110,26 @@ IAS15 显式使用 SI 引力常数 `G=6.67430e-11`，不进行 `move_to_com`，�
 `ESCAPE_CANDIDATE` 使用边界、向外速度、近似比能和持续时间，只是启发式分类，
 不等同于永久逃逸证明。
 
+## VIS1 四体轨道查看器
+
+对已有 M2 归档生成可离线打开的交互式 3D HTML：
+
+```bash
+threebody viz trajectory \
+  --run runs/sample/simulations/000000 \
+  --out runs/sample/simulations/000000/trajectory.html
+```
+
+默认以 AU 显示质心惯性系坐标，并内嵌 Plotly JavaScript。可使用 `--units m` 保留米，
+`--frame-cap` 限制动画帧，`--max-input-samples` 限制读取规模，或用 `--cdn` 生成依赖网络的
+较小文件。输出文件默认不覆盖；只有显式 `--overwrite` 才会替换。
+
+查看器严格读取现有 `TrajectorySample`、`SimulationEvent` 和 `IntegrationResult`，不会修改、
+补算或重新积分轨道。事件没有原生坐标，因此标记位置是依据 `event.body_ids` 在相邻归档采样
+间做的线性显示估算，不是精确碰撞位置。天体点大小是屏幕符号尺寸，不代表物理半径；动画
+播放速度也不代表物理时间流速。`STOPPED`/`FAILED` 若有完整采样仍可显示，但页面会醒目标为
+部分轨迹。
+
 ## 配置与筛选语义
 
 配置合并优先级为内置预置配置，然后是实验 YAML 的显式覆盖。未知字段、未知规则 ID、
@@ -137,6 +159,7 @@ IAS15 显式使用 SI 引力常数 `G=6.67430e-11`，不进行 `move_to_com`，�
 - `src/threebody/screening`：强制 S0、五条 S1 规则、决策聚合和筛选报告。
 - `src/threebody/experiments`：批量候选运行、manifest 和统计汇总。
 - `src/threebody/physics/nbody`：REBOUND IAS15、强制输入 Guard、诊断与事件观察器。
+- `src/threebody/visualization`：M2 归档校验、显示变换和独立 Plotly 3D 查看器。
 - `src/threebody/integrator.py`：稳定 Protocol 门面和 M2 具体类型导出。
 - `tests`：对应 `docs/06_TEST_AND_ACCEPTANCE.md` 的单元与端到端测试。
 

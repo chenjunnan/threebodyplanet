@@ -53,3 +53,19 @@
 - Pair-distance archives use `minimum_observed_pair_distances_m` and explicitly identify internal-step
   endpoint semantics. They are not continuous-trajectory minima or exact threshold-crossing times.
 
+## P0-VIS1 — 2026-11-16
+
+- VIS1 is a read-only consumer of the existing M2 `TrajectorySample`, `SimulationEvent`, and
+  `IntegrationResult` contracts. It never imports M3, changes REBOUND state, or recomputes an orbit.
+- Plotly is isolated in the optional `viz` dependency extra and imported lazily. Existing generation
+  and simulation commands remain usable without Plotly.
+- Archived positions remain authoritative SI meters. Display conversion uses the exact defined AU value
+  `149597870700 m`; the page identifies `BARYCENTRIC_INERTIAL` and uses equal 3D axis scaling.
+- Event display positions use only declared `event.body_ids` and piecewise-linear sampling interpolation.
+  They are labeled estimates, not exact collision/contact locations or new physics results.
+- Animation frames update only four current-position traces. Static paths are stored once; endpoints and
+  event-adjacent samples are mandatory when frame downsampling is requested.
+- `STOPPED` and `FAILED` archives with complete samples are explicitly labeled partial. Empty failed
+  archives, inconsistent counts/times/IDs, out-of-range events, non-finite data, and oversized input are
+  rejected rather than repaired or extrapolated.
+
