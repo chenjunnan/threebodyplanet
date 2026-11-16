@@ -86,3 +86,22 @@
 - C1 forcing is longitude averaged and finite-volume-band averaged. C0/C1 are grey-body energy-balance
   reference models, not local weather, atmospheric circulation, or habitability proofs.
 
+## 0.4.0 — 2026-11-16
+
+- G2 is a new discriminated `stochastic_conics/0.4.0` configuration and generator. The legacy
+  `GeneratorConfig` remains version `0.1.0`; no new defaults are injected into legacy resolved configs,
+  preserving their canonical hashes and deterministic outputs.
+- Each physical draw and each conic construction uses a fixed independent PCG64 substream derived from
+  `SeedSequence([seed, candidate_index, stream_id])`. Replay values and distribution versions live in a
+  separate generation metadata artifact; `WorldInitialState/0.1.0` is unchanged.
+- Relative states use periapsis, eccentricity, explicit uniform true anomaly over the conic's valid
+  domain, and isotropic angular-momentum directions. Version 0.4.0 supports elliptic and hyperbolic
+  conics and explicitly rejects exact parabolic `e=1` rather than approximating it.
+- Velocity kicks are bounded fractions of the constructed relative speed and are recorded as vectors.
+  Metadata does not claim that pre-kick Keplerian elements describe the resulting instantaneous state.
+- Initial spherical contact is a versioned, terminal `INITIAL_CONTACT`/`INITIAL_COLLISION` outcome at
+  `t=0`; no IAS15 trajectory is fabricated. The existing mandatory M2 guard remains unchanged and still
+  rejects contact independently of S1 policy.
+- No hierarchy ratio, stability, survival, escape rejection, or habitability criterion is implicit in
+  generation. Research screening reports unusual initial states without silently filtering them.
+

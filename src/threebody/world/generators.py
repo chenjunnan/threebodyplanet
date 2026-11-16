@@ -7,7 +7,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from threebody.common.constants import M_EARTH_KG, M_SUN_KG, R_SUN_M, G
-from threebody.config.models import GeneratorConfig
+from threebody.config.models import AnyGeneratorConfig, GeneratorConfig
 from threebody.world.models import BodyKind, CelestialBody, WorldInitialState
 
 FloatArray = NDArray[np.float64]
@@ -206,12 +206,27 @@ GENERATORS: dict[str, InitialStateGenerator] = {
 
 
 def generate_initial_state(
-    config: GeneratorConfig, seed: int, candidate_index: int, config_sha256: str
+    config: AnyGeneratorConfig, seed: int, candidate_index: int, config_sha256: str
 ) -> WorldInitialState:
+    if config.type == "stochastic_conics":
+        from threebody.world.stochastic_conics import generate_stochastic_state
+
+        return generate_stochastic_state(config, seed, candidate_index, config_sha256).state
     generator = GENERATORS[config.type]
     if config.version != generator.version:
         raise ValueError(
             f"unsupported generator version {config.version!r}; expected {generator.version!r}"
         )
     return generator.generate(config, seed, candidate_index, config_sha256)
+
+
+def generate_initial_state_with_metadata(
+    config: AnyGeneratorConfig, seed: int, candidate_index: int, config_sha256: str
+) -> tuple[WorldInitialState, object | None, tuple[object, ...]]:
+    if config.type == "stochastic_conics":
+        from threebody.world.stochastic_conics import generate_stochastic_state
+
+        generated = generate_stochastic_state(config, seed, candidate_index, config_sha256)
+        return generated.state, generated.metadata, generated.initial_contacts
+    return generate_initial_state(config, seed, candidate_index, config_sha256), None, ()
 
