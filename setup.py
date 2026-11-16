@@ -15,6 +15,7 @@ setup(
     extras_require={
         "dev": ["pytest>=7.4", "ruff>=0.4", "rebound>=4.4,<5"],
         "physics": ["rebound>=4.4,<5"],
+        "viz": ["plotly>=5.18,<7"],
     },
     entry_points={"console_scripts": ["threebody=threebody.cli:main"]},
 )

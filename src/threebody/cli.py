@@ -10,6 +10,7 @@ from threebody.config.loader import load_and_resolve
 from threebody.errors import ThreeBodyError
 from threebody.experiments.runner import run_experiment
 from threebody.experiments.simulation import run_simulation_archive
+from threebody.visualization.plotly_viewer import export_trajectory_html
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,6 +44,20 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_argument("--initial", type=Path, required=True)
     simulate.add_argument("--config", type=Path, required=True)
     simulate.add_argument("--out-dir", type=Path, required=True)
+
+    viz = groups.add_parser("viz", help="Read-only visualization of scientific archives")
+    viz_commands = viz.add_subparsers(dest="command", required=True)
+    trajectory = viz_commands.add_parser(
+        "trajectory", help="Export an interactive M2 four-body trajectory as HTML"
+    )
+    trajectory.add_argument("--run", type=Path, required=True)
+    trajectory.add_argument("--out", type=Path, required=True)
+    trajectory.add_argument("--frame-cap", type=int, default=1000)
+    trajectory.add_argument("--max-input-samples", type=int, default=100_000)
+    trajectory.add_argument("--units", choices=("au", "m"), default="au")
+    trajectory.add_argument("--center", choices=("barycentric",), default="barycentric")
+    trajectory.add_argument("--cdn", action="store_true")
+    trajectory.add_argument("--overwrite", action="store_true")
     return parser
 
 
@@ -66,6 +81,19 @@ def execute(args: argparse.Namespace) -> int:
             result = run_simulation_archive(args.initial, args.config, args.out_dir)
             print(result.model_dump_json())
             return 1 if result.status in {"FAILED", "STOPPED"} else 0
+    if args.group == "viz" and args.command == "trajectory":
+        summary = export_trajectory_html(
+            args.run,
+            args.out,
+            units=args.units,
+            frame_cap=args.frame_cap,
+            max_input_samples=args.max_input_samples,
+            center=args.center,
+            cdn=args.cdn,
+            overwrite=args.overwrite,
+        )
+        print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+        return 0
     raise AssertionError("unreachable command")
 
 
