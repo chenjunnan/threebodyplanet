@@ -215,6 +215,33 @@ for (const action of ['pause','resume','cancel']) {
 }
 
 /* M5B-04a: exact committed M5A samples, client-side orientation only. */
+const webglCanvas = document.querySelector('#orbit-webgl');
+const webglToggle = document.querySelector('#enable-webgl');
+const webglStatus = document.querySelector('#webgl-status');
+let webglRenderer = null;
+function deactivateWebGL(reason) {
+  webglToggle.checked = false;
+  orbitCanvas.hidden = false;
+  webglCanvas.hidden = true;
+  if (webglRenderer) {webglRenderer.dispose();webglRenderer = null;}
+  webglStatus.textContent = reason || '已切换回Canvas，已归档物理数据不变。';
+}
+webglToggle.addEventListener('change',()=>{
+  if(!webglToggle.checked){deactivateWebGL();orbitDraw();return;}
+  try {
+    if(!window.createM63WebGL || !window.ThreeBodyScienceAdapter) {
+      throw new Error('WebGL渲染模块不可用');
+    }
+    webglRenderer=window.createM63WebGL(webglCanvas,deactivateWebGL);
+    orbitCanvas.hidden=true;
+    webglCanvas.hidden=false;
+    webglRenderer.load(orbitSamples);
+    webglRenderer.draw(orbitIndex);
+    webglStatus.textContent='WebGL2已启用 · 仅使用已验证轨道点，无外推；拖动旋转、滚轮缩放。';
+  } catch(error) {
+    deactivateWebGL('WebGL不可用，保留Canvas观察器：'+error.message);
+  }
+});
 const orbitCanvas = document.querySelector('#orbit-canvas');
 const orbitContext = orbitCanvas.getContext('2d');
 const orbitSlider = document.querySelector('#orbit-time');
@@ -236,6 +263,10 @@ function projectOrbit(position, scale, center) {
   return [x*ca-y*sa, (x*sa+y*ca)*se-z*ce];
 }
 function orbitDraw() {
+  if(webglRenderer){
+    webglRenderer.draw(orbitIndex);
+    return;
+  }
   const ctx=orbitContext, w=orbitCanvas.width, h=orbitCanvas.height;
   ctx.clearRect(0,0,w,h);
   ctx.fillStyle='#080c0d'; ctx.fillRect(0,0,w,h);
@@ -287,9 +318,15 @@ async function loadOrbit() {
     const t=await fetch(base+'/trajectory?'+suffix);
     const trajectory=await t.json();
     if(!t.ok)throw Error(trajectory.message||trajectory.error);
+    const validatedTrajectory=window.ThreeBodyScienceAdapter.validateTrajectory(
+      trajectory,id
+    );
     const e=await fetch(base+'/events?'+suffix.replace(/&?max_points=[^&]*/,''));
     const events=await e.json();
     if(!e.ok)throw Error(events.message||events.error);
+    window.ThreeBodyScienceAdapter.matchLinkedArchive(
+      validatedTrajectory,events,'events'
+    );
     let scienceJob = null;
     try {
       const jobResponse = await fetch('/api/v1/jobs/' + encodeURIComponent(id));
@@ -310,7 +347,9 @@ async function loadOrbit() {
         if(environment.world_id!==trajectory.world_id || environment.run_id!==id) {
           throw Error('派生环境数据的世界/运行ID与轨道不符');
         }
-        linkedThermal=environment;
+        linkedThermal=window.ThreeBodyScienceAdapter.matchLinkedArchive(
+          validatedTrajectory,environment,'environment'
+        );
         document.querySelector('#environment-status').textContent=
           'M5A已验证派生数据 · '+environment.thermal_mode+
           ' · '+environment.sample_count+'物理点 · 显示'+environment.display_count+'点'+
@@ -331,8 +370,9 @@ async function loadOrbit() {
         '温度/辐射无法载入：'+thermalError.message;
       linkedThermal=null;
     }
-    orbitSamples=trajectory.samples;
+    orbitSamples=validatedTrajectory.samples;
     orbitEventItems=events.events;
+    if(webglRenderer)webglRenderer.load(orbitSamples);
     try {
       const response=await fetch(base+'/outcome');
       if(response.ok){
@@ -382,6 +422,7 @@ async function loadOrbit() {
     if(!orbitSamples.length)orbitDraw();
   } catch(error) {
     orbitSamples=[];orbitEventItems=[];
+    if(webglRenderer)webglRenderer.load(orbitSamples);
     orbitStatus.textContent='无法载入：'+error.message;
     orbitDraw();
   }

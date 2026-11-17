@@ -40,6 +40,8 @@ jobs:
               for path in (
                   "threebody/web/static/m3_default.yaml",
                   "threebody/web/static/m4_default.yaml",
+                  "threebody/web/static/science-adapter.js",
+                  "threebody/web/static/webgl-observer.js",
               ):
                   assert path in names, f"packaged wheel misses {path}"
           PY

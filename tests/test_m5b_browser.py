@@ -162,6 +162,50 @@ def test_real_browser_world_3d_drag_science_and_report():
         page.mouse.up()
         after = canvas.evaluate("(node) => node.toDataURL()")
         assert before != after, "mouse drag did not affect the 3D projection"
+        # Adapter rejects any synthetic or tampered cross-run/foreign-unit data.
+        rejected=page.evaluate("""() => {
+          const a=window.ThreeBodyScienceAdapter;
+          for(const candidate of [
+            {run_id:'wrong',world_id:'w',units:{time:'s',position:'m'},
+              display_sampling:'uniform_record_index_no_interpolation',
+              display_count:0,samples:[]},
+            {run_id:'ok',world_id:'w',units:{time:'s',position:'km'},
+              display_sampling:'uniform_record_index_no_interpolation',
+              display_count:0,samples:[]}
+          ]){
+            try{a.validateTrajectory(candidate,'ok');return false;}
+            catch(error){if(!error.message.includes('M6.3 science'))return false;}
+          }
+          return true;
+        }""")
+        assert rejected
+        toggle=page.locator("#enable-webgl")
+        # A host without WebGL2 intentionally unchecks itself and falls back;
+        # Playwright .check() would incorrectly treat that as a test failure.
+        toggle.click()
+        if toggle.is_checked():
+            assert page.locator("#orbit-webgl").is_visible()
+            glcanvas=page.locator("#orbit-webgl")
+            assert glcanvas.evaluate(
+                "(node) => node.getContext('webgl2') !== null"
+            )
+            glbefore=glcanvas.evaluate("(node) => node.toDataURL()")
+            glbox=glcanvas.bounding_box()
+            assert glbox is not None
+            gx,gy=glbox["x"]+glbox["width"]*.5,glbox["y"]+glbox["height"]*.5
+            page.mouse.move(gx,gy)
+            page.mouse.down()
+            page.mouse.move(gx+120,gy+70,steps=6)
+            page.mouse.up()
+            glafter=glcanvas.evaluate("(node) => node.toDataURL()")
+            assert glbefore != glafter
+            toggle.uncheck()
+            assert canvas.is_visible()
+            assert not glcanvas.is_visible()
+        else:
+            # Headless hosts may disable WebGL2; deterministic fallback required.
+            assert canvas.is_visible()
+            assert "Canvas" in page.locator("#webgl-status").inner_text()
         page.locator("#comparison-run-ids").fill("browser-e2e")
         page.locator("#compare-runs").click()
         page.wait_for_function(
@@ -178,4 +222,61 @@ def test_real_browser_world_3d_drag_science_and_report():
         assert report["runs"][0]["classification"] is not None
         assert not errors, errors
         context.close()
+        browser.close()
+
+
+@pytest.mark.browser
+def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
+    """Exercise the real GPU/WebGL shader path, independent of fallback QA.
+
+    Synthetic coordinates here are *only a graphics fixture*, not science data.
+    Real IAS15 source binding is tested by the main browser workflow above.
+    """
+    with _live_server() as url, sync_playwright() as api:
+        browser=api.chromium.launch(
+            headless=True,
+            args=["--enable-unsafe-swiftshader","--use-angle=swiftshader"],
+        )
+        page=browser.new_page(viewport={"width":1300,"height":900})
+        errors=[]
+        page.on("pageerror",lambda error:errors.append(str(error)))
+        page.goto(url,wait_until="domcontentloaded")
+        page.locator("#enable-webgl").click()
+        assert page.locator("#enable-webgl").is_checked(), (
+            "Forced SwiftShader WebGL2 should remain enabled"
+        )
+        canvas=page.locator("#orbit-webgl")
+        assert canvas.is_visible()
+        assert canvas.evaluate("(node) => node.getContext('webgl2')!==null")
+        page.evaluate("""() => {
+          const ids=['star-1','star-2','star-3','planet-1'];
+          const points=[
+            [[-100,0,0],[100,0,0],[0,100,0],[0,0,100]],
+            [[-90,20,5],[90,-20,-5],[15,80,20],[20,10,85]]
+          ];
+          const samples=points.map((row,index)=>({
+            t_s:index*10,positions_m:Object.fromEntries(
+              row.map((position,i)=>[ids[i],position])
+            )
+          }));
+          const verified=window.ThreeBodyScienceAdapter.validateTrajectory({
+            world_id:'graphics-fixture-not-physics',run_id:'gpu-fixture',
+            units:{time:'s',position:'m'},
+            display_sampling:'uniform_record_index_no_interpolation',
+            display_count:2,samples
+          },'gpu-fixture');
+          webglRenderer.load(verified.samples);
+          webglRenderer.draw(1);
+        }""")
+        before=canvas.evaluate("(node) => node.toDataURL()")
+        bounds=canvas.bounding_box()
+        assert bounds is not None
+        x,y=bounds["x"]+bounds["width"]*.5,bounds["y"]+bounds["height"]*.5
+        page.mouse.move(x,y)
+        page.mouse.down()
+        page.mouse.move(x+140,y+80,steps=8)
+        page.mouse.up()
+        after=canvas.evaluate("(node) => node.toDataURL()")
+        assert before!=after,"3D WebGL perspective shader must respond to drag"
+        assert not errors,errors
         browser.close()
