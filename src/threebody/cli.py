@@ -116,6 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--units", choices=("au", "m"), default="au")
     dashboard.add_argument("--cdn", action="store_true")
     dashboard.add_argument("--overwrite", action="store_true")
+    web = groups.add_parser("web", help="Local read-only M5B scientific console")
+    web_commands = web.add_subparsers(dest="command", required=True)
+    serve = web_commands.add_parser("serve", help="Serve committed archives on loopback")
+    serve.add_argument("--artifact-root", type=Path, required=True)
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
     return parser
 
 
@@ -221,6 +227,21 @@ def execute(args: argparse.Namespace) -> int:
             overwrite=args.overwrite,
         )
         print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+        return 0
+    if args.group == "web" and args.command == "serve":
+        from threebody.web.server import create_console_server
+
+        server = create_console_server(
+            args.artifact_root, host=args.host, port=args.port
+        )
+        address, port = server.server_address[:2]
+        print(f"read-only console: http://{address}:{port}")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
         return 0
     raise AssertionError("unreachable command")
 

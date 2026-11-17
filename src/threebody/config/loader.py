@@ -55,6 +55,14 @@ def load_and_resolve(path: str | Path) -> tuple[ResolvedExperimentConfig, str]:
     except OSError as exc:
         raise ConfigError(f"cannot read {source_path}: {exc}") from exc
 
+    return resolve_mapping(raw)
+
+
+def resolve_mapping(raw: dict[str, Any]) -> tuple[ResolvedExperimentConfig, str]:
+    """Resolve an already parsed mapping without executing or reading user paths."""
+
+    raw = deepcopy(raw)
+
     screening = raw.get("screening")
     if not isinstance(screening, dict):
         raise ConfigError("screening must be a mapping")

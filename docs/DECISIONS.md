@@ -212,3 +212,14 @@
 - The read-only `SegmentedTrajectoryReader` verifies the entire immutable chain, then streams samples and
   events in strict global time order. It does not recalculate or interpolate the stored orbit.
 
+## P0-M5B-01/02 read-only prototype — 2026-11-17
+
+- The first Web slice is local, loopback-only and read-only. It may inspect committed manifests and call
+  backend configuration validation, but it exposes no task mutation endpoint or simulated controls.
+- Physical time displayed by the console comes directly from archived task/manifest SI seconds. Browser
+  playback is presentation state and is never sent back as an integration speed or world day length.
+- Configuration validation reuses the CLI resolver on an already parsed JSON object. It cannot execute
+  YAML tags, shell commands, Python expressions or user-selected filesystem paths.
+- Artifact discovery accepts only direct non-symlink directories with allowlisted run IDs. The server
+  binds only to loopback and emits a restrictive CSP; authentication is deferred because non-loopback or
+  multi-user deployment is explicitly outside this prototype.

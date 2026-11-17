@@ -266,6 +266,18 @@ threebody world checkpoint inspect --run runs/sample/long/000000
 分段后不归零；墙钟配额、浏览器回放速度和行星自转周期均不是积分时间。首段拥有全局起点
 样本，后续段采用左开右闭覆盖，避免恢复后重复边界样本。
 
+### M5B 只读科学控制台原型
+
+M5B-01/02 提供仅绑定回环地址的本地只读原型：
+
+```bash
+threebody web serve --artifact-root runs --host 127.0.0.1 --port 8765
+```
+
+浏览器访问 `http://127.0.0.1:8765` 可查看已提交 manifest 的服务端物理时间，并通过同一
+后端严格校验实验 JSON 配置。原型不启动计算、不修改归档，也没有暂停/恢复/取消按钮；
+播放和浏览属于显示行为，不能改变 REBOUND `t_s`。API 契约位于 `/api/v1/openapi.json`。
+
 ## 配置与筛选语义
 
 配置合并优先级为内置预置配置，然后是实验 YAML 的显式覆盖。未知字段、未知规则 ID、
