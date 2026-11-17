@@ -12,6 +12,7 @@ from threebody.experiments.assessment import run_world_assessment
 from threebody.experiments.runner import run_experiment
 from threebody.experiments.simulation import run_simulation_archive
 from threebody.experiments.thermal import run_thermal_archive
+from threebody.visualization.dashboard import export_dashboard_html
 from threebody.visualization.plotly_viewer import export_trajectory_html
 
 
@@ -74,6 +75,18 @@ def build_parser() -> argparse.ArgumentParser:
     trajectory.add_argument("--center", choices=("barycentric",), default="barycentric")
     trajectory.add_argument("--cdn", action="store_true")
     trajectory.add_argument("--overwrite", action="store_true")
+    dashboard = viz_commands.add_parser(
+        "dashboard", help="Export a linked M2/M3 orbit-radiation-temperature dashboard"
+    )
+    dashboard.add_argument("--m2-run", type=Path, required=True)
+    dashboard.add_argument("--m3-run", type=Path, required=True)
+    dashboard.add_argument("--m4-run", type=Path)
+    dashboard.add_argument("--out", type=Path, required=True)
+    dashboard.add_argument("--frame-cap", type=int, default=1000)
+    dashboard.add_argument("--max-input-samples", type=int, default=100_000)
+    dashboard.add_argument("--units", choices=("au", "m"), default="au")
+    dashboard.add_argument("--cdn", action="store_true")
+    dashboard.add_argument("--overwrite", action="store_true")
     return parser
 
 
@@ -120,6 +133,20 @@ def execute(args: argparse.Namespace) -> int:
             frame_cap=args.frame_cap,
             max_input_samples=args.max_input_samples,
             center=args.center,
+            cdn=args.cdn,
+            overwrite=args.overwrite,
+        )
+        print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+        return 0
+    if args.group == "viz" and args.command == "dashboard":
+        summary = export_dashboard_html(
+            args.m2_run,
+            args.m3_run,
+            args.out,
+            m4_dir=args.m4_run,
+            units=args.units,
+            frame_cap=args.frame_cap,
+            max_input_samples=args.max_input_samples,
             cdn=args.cdn,
             overwrite=args.overwrite,
         )

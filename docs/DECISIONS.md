@@ -69,6 +69,19 @@
   archives, inconsistent counts/times/IDs, out-of-range events, non-finite data, and oversized input are
   rejected rather than repaired or extrapolated.
 
+## P0-VIS2 — 2026-11-16
+
+- VIS2 verifies M3 world ID, initial-state hash and exact M2-manifest hash before linking archives. Its
+  authoritative range is the strict M2/M3 intersection; missing intervals are never extrapolated.
+- A single JavaScript controller owns time, playback, camera, event seek and all four Plotly panels.
+  Piecewise-linear orbit and thermal interpolation is explicitly display-only and does not modify source
+  archives or claim a new physical solution.
+- Collision timelines stop at the final archived scientific sample. Escape candidates remain nonterminal
+  and continue when subsequent M2/M3 data exists. Optional M4 data must match both M2 and M3 hashes.
+- Frame selection retains endpoints/events and is bounded for up to 100,000 input samples. Plotly is
+  embedded by default; CDN use is explicit. JSON script data escapes markup characters and event details
+  are assigned through `textContent`.
+
 ## 0.3.0 — 2026-11-16
 
 - M3 is a one-way consumer of version 0.1.0 initial states and version 0.2.0 M2 archives. It does not
