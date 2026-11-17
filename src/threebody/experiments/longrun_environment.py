@@ -25,7 +25,8 @@ from threebody.physics.longrun.reader import SegmentedTrajectoryReader
 from threebody.physics.nbody.models import BodyTrajectoryState
 from threebody.physics.rotation.geometry import PlanetRotation
 from threebody.physics.stellar.radiation import (
-    StellarRadiation, latitude_band_mean_top_of_atmosphere_flux,
+    StellarRadiation,
+    latitude_band_mean_top_of_atmosphere_flux,
     local_top_of_atmosphere_flux,
 )
 from threebody.physics.thermal.c0 import solve_c0
@@ -156,7 +157,7 @@ def derive_long_run_environment(
         samples.append(sample)
     if len(samples) < 2:
         raise ConfigError("M5A environment requires at least two samples")
-    max_gap = max(b.t_s-a.t_s for a,b in zip(samples,samples[1:]))
+    max_gap = max(b.t_s-a.t_s for a,b in zip(samples, samples[1:], strict=False))
     if max_gap > settings.input.max_orbit_sample_interval_s:
         raise ConfigError("M5A source cadence exceeds M3 maximum interpolation interval")
     ephemeris = _Ephemeris(tuple(samples))
