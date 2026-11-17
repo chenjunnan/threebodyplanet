@@ -62,6 +62,11 @@ def _live_server(artifact_root=None):
                 process.wait(timeout=5)
 
 
+def _navigate(page, route):
+    page.evaluate("route => {location.hash='#/'+route;}", route)
+    page.locator('[data-page="'+route+'"]').wait_for(state='visible')
+
+
 @pytest.mark.browser
 def test_real_browser_world_3d_drag_science_and_report():
     with _live_server() as url, sync_playwright() as api:
@@ -110,6 +115,7 @@ def test_real_browser_world_3d_drag_science_and_report():
             timeout=20000,
         )
         assert page.locator("#analysis-phase").inner_text() == "COMPLETED"
+        _navigate(page, "environment")
         energy=page.locator("#m6-energy-diagnostics")
         energy.wait_for()
         assert "净热通量" in energy.inner_text()
@@ -157,6 +163,9 @@ def test_real_browser_world_3d_drag_science_and_report():
 
         # Verified M5A initial state supplies properties; picker follows exact
         # physical time without manufacturing evolved masses or radii.
+        page.evaluate("() => {window.c1Draws=0;const original=drawC1;"
+                      "drawC1=(...args)=>{window.c1Draws++;return original(...args);};}")
+        _navigate(page, "orbit")
         body_picker=page.locator("#orbit-body-select")
         body_picker.select_option("planet-1")
         details=page.locator("#orbit-body-detail")
@@ -169,12 +178,14 @@ def test_real_browser_world_3d_drag_science_and_report():
             "node.dispatchEvent(new Event('input',{bubbles:true}));}"
         )
         assert "t=0.00000000" in details.inner_text()
+        assert page.evaluate("window.c1Draws") == 0
         page.locator("#orbit-time").evaluate(
             "(node) => {node.value=node.max;"
             "node.dispatchEvent(new Event('input',{bubbles:true}));}"
         )
         page.locator("#orbit-focus-body").click()
         page.locator("#orbit-reset-view").click()
+        _navigate(page, "orbit")
         canvas = page.locator("#orbit-canvas")
         canvas.scroll_into_view_if_needed()
         before = canvas.evaluate("(node) => node.toDataURL()")
@@ -232,6 +243,7 @@ def test_real_browser_world_3d_drag_science_and_report():
             # Headless hosts may disable WebGL2; deterministic fallback required.
             assert canvas.is_visible()
             assert "Canvas" in page.locator("#webgl-status").inner_text()
+        _navigate(page, "reports")
         page.locator("#comparison-run-ids").fill("browser-e2e")
         page.locator("#compare-runs").click()
         page.wait_for_function(
@@ -246,6 +258,53 @@ def test_real_browser_world_3d_drag_science_and_report():
             report = json.load(source)
         assert report["runs"][0]["run_id"] == "browser-e2e"
         assert report["runs"][0]["classification"] is not None
+        _navigate(page, "surface")
+        assert page.locator('[data-page]:visible').count() == 1
+        radius=page.evaluate("linkedBodyMetadata.bodies['planet-1'].radius_m")
+        page.locator('[data-planet="mantle_thickness_m"]').fill(str(radius*.45))
+        page.locator('#planet-build').click()
+        page.wait_for_function("() => document.querySelector('#planet-status')"
+                               ".textContent.includes('真实源采样')")
+        assert '赤道平衡温度' in page.locator('#planet-summary').inner_text()
+        assert 'star-1' in page.locator('#planet-sky').inner_text()
+        assert '假设氧分压' in page.locator('#planet-summary').inner_text()
+        with page.expect_download() as future_scenario:
+            page.locator('#planet-export').click()
+        with open(future_scenario.value.path(),encoding='utf-8') as handle:
+            scenario=json.load(handle)
+        assert scenario['data_kind']=='PARAMETERIZED_SCENARIO'
+        assert scenario['source']['t_s']==60
+        assert all(r['conditional_hazard_probability'] is None for r in scenario['regions'])
+        ground=page.locator('#planet-ground')
+        ground.scroll_into_view_if_needed()
+        if ground.evaluate("n => n.getContext('webgl2')!==null"):
+            before=ground.evaluate('n => n.toDataURL()')
+            ground.focus()
+            ground.press('ArrowRight')
+            assert ground.evaluate('n => n.toDataURL()')!=before
+            assert ground.evaluate("n => n.getContext('webgl2').getError()") == 0
+        page.get_by_text('区域地质事件先验（可选）',exact=True).click()
+        page.locator('#planet-hazard-definition').fill('test event in each equal-area region')
+        page.locator('#planet-hazard-rates').fill('{"r12-c24":0.01}')
+        page.locator('#planet-build').click()
+        page.wait_for_function("() => document.querySelector('#planet-status')"
+                               ".textContent.includes('真实源采样')")
+        terrain_map=page.locator('#planet-map')
+        terrain_map.scroll_into_view_if_needed()
+        bounds=terrain_map.bounding_box()
+        terrain_map.click(position={'x':bounds['width']*24.5/48,
+                                    'y':bounds['height']*11.5/24})
+        assert 'r12-c24' in page.locator('#planet-region').inner_text()
+        assert '0.995%' in page.locator('#planet-region').inner_text()
+        # Editing an assumption invalidates every old scenario output.
+        page.locator('[data-planet="albedo"]').fill('0.4')
+        assert page.locator('#planet-export').is_disabled()
+        assert page.locator('#planet-summary').inner_text()==''
+        page.evaluate("() => {location.hash='#/constructor';}")
+        page.locator('[data-page="worlds"]').wait_for(state='visible')
+        assert page.locator('[data-page]:visible').count()==1
+        page.set_viewport_size({'width':390,'height':844})
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
         assert not errors, errors
         context.close()
         browser.close()
@@ -267,6 +326,7 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
         errors=[]
         page.on("pageerror",lambda error:errors.append(str(error)))
         page.goto(url,wait_until="domcontentloaded")
+        _navigate(page, "orbit")
         page.locator("#enable-webgl").click()
         assert page.locator("#enable-webgl").is_checked(), (
             "Forced SwiftShader WebGL2 should remain enabled"
@@ -353,6 +413,10 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
         assert "上下文丢失" in page.locator("#webgl-status").inner_text()
         assert page.evaluate("orbitAzimuth") == pytest.approx(state["yaw"]+.3)
         plain=page.locator("#orbit-canvas")
+        before_rewind=plain.evaluate('node => node.toDataURL()')
+        page.evaluate('() => orbitSetIndex(0)')
+        page.evaluate('() => orbitSetIndex(1)')
+        assert plain.evaluate('node => node.toDataURL()')==before_rewind
         plain.focus()
         plain.press("Home")
         assert page.evaluate("orbitAzimuth") == pytest.approx(.6)
@@ -384,6 +448,7 @@ def test_surface_materials_equal_area_temperature_and_missing_data():
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(url, wait_until="domcontentloaded")
         assert "无可信数据" in page.locator("#c1-sphere-status").inner_text()
+        _navigate(page, "environment")
         result = page.evaluate("""() => {
           const m=window.ThreeBodySurfaces;
           const row={t_s:10,c1_temperature_k:[200,400],
@@ -425,6 +490,7 @@ def test_surface_materials_equal_area_temperature_and_missing_data():
         assert page.locator("#c1-sphere-legend").is_hidden()
         assert canvas.evaluate("node => node.getContext('2d')"
                                ".getImageData(128,64,1,1).data[3]") == 0
+        _navigate(page, "surface")
         # All local material previews are actual nonuniform sphere images.
         for name in ("surface-star-1", "surface-star-2", "surface-star-3", "surface-rock"):
             assert page.locator("#"+name).evaluate("node => {"
@@ -455,6 +521,7 @@ def test_collision_archive_markers_stop_and_event_validation(tmp_path):
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.goto(url, wait_until='domcontentloaded')
+        _navigate(page, 'orbit')
         page.locator('#observe-run-id').fill('collision-test')
         page.locator('#observe-load').click()
         page.wait_for_function("() => document.querySelector('#orbit-terminal-status')"
@@ -475,6 +542,7 @@ def test_collision_archive_markers_stop_and_event_validation(tmp_path):
         page.locator('#event-markers').uncheck()
         assert plain.evaluate('node => node.toDataURL()') != with_marker
         page.locator('#event-markers').check()
+        _navigate(page, 'orbit')
         page.locator('#enable-webgl').click()
         assert page.locator('#enable-webgl').is_checked()
         gpu = page.locator('#orbit-webgl')
@@ -539,6 +607,7 @@ def test_collision_archive_markers_stop_and_event_validation(tmp_path):
           };
         ''')
         page.reload(wait_until='domcontentloaded')
+        _navigate(page, 'orbit')
         page.locator('#enable-webgl').click()
         assert not page.locator('#enable-webgl').is_checked()
         assert page.locator('#orbit-canvas').is_visible()

@@ -1,0 +1,28 @@
+name: M7 Parameter Science and Numerical Acceptance
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/threebody/web/planet_scenarios.py'
+      - 'scripts/m7_numerical_acceptance.py'
+      - 'tests/test_planet_scenarios.py'
+      - '.github/workflows/m7-science.yml'
+permissions:
+  contents: read
+jobs:
+  numerical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev,physics,viz]'
+      - run: pytest -q tests/test_planet_scenarios.py
+      - run: python -m scripts.m7_numerical_acceptance --artifact-root /tmp/m7-numerical
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m7-numerical-acceptance
+          path: /tmp/m7-numerical/report.json

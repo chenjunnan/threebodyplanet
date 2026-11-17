@@ -1,0 +1,24 @@
+{
+  "caveat": "Finite 5y window only; no general proof of orbital stability/habitability.",
+  "duration_s": 157788000.0,
+  "metrics": {
+    "ias15_wall_s": 7.6815930220000155,
+    "m3_m4_wall_s": 69.45664520199989,
+    "peak_memory_mib": 275.76171875,
+    "resumed_m3_wall_s": 4.4792985759995645
+  },
+  "normalized_residual_c0": 1.439657994227687e-15,
+  "normalized_residual_c1": 2.8349429052849654e-16,
+  "orbital_output_interval_s": 21600.0,
+  "run_id": "m6-five-year-acceptance",
+  "scientific_modes": [
+    "C0",
+    "C1",
+    "M4"
+  ],
+  "source": "REAL_REBOUND_IAS15_NOT_INTERPOLATED",
+  "source_quality": "DAILY_OR_FINER",
+  "status": "PASS",
+  "thermal_recovery_verified": true,
+  "verified_physical_samples": 7306
+}

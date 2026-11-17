@@ -18,6 +18,7 @@ from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.comparison import compare_runs
 from threebody.web.jobs import LocalRunController
 from threebody.web.outcome_science import read_long_outcome
+from threebody.web.planet_scenarios import PlanetScenario, build_scenario
 from threebody.web.science import query_body_metadata, query_events, query_trajectory
 from threebody.web.thermal_science import read_long_environment
 from threebody.web.worldsets import (
@@ -303,6 +304,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             if path in {"/", "/index.html"}:
                 self._static("index.html", "text/html; charset=utf-8")
                 return
+            if path in {"/navigation.js", "/planet-explorer.js", "/ground-view.js"}:
+                self._static(path[1:], "text/javascript; charset=utf-8")
+                return
             if path == "/app.js":
                 self._static("app.js", "text/javascript; charset=utf-8")
                 return
@@ -333,7 +337,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         if (
             path not in {
                 "/api/v1/experiments/validate", "/api/v1/runs",
-                "/api/v1/worldsets", "/api/v1/worlds/run",
+                "/api/v1/worldsets", "/api/v1/worlds/run", "/api/v1/planet-scenarios",
             }
             and not control
         ):
@@ -341,6 +345,15 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             return
         try:
             raw = self._body()
+            if path == "/api/v1/planet-scenarios":
+                if set(raw) != {"run_id", "parameters"}:
+                    raise ValueError("required fields: run_id, parameters")
+                directory = _run_directory(self.artifact_root, raw["run_id"])
+                parameters = PlanetScenario.model_validate_json(
+                    json.dumps(raw["parameters"]), strict=True
+                )
+                self._json(HTTPStatus.OK, build_scenario(directory, parameters))
+                return
             if path == "/api/v1/experiments/validate":
                 if not isinstance(raw.get("config"), dict):
                     raise ValueError("request must contain a config object")

@@ -1,5 +1,29 @@
 # 三体星（Three-Body Planet）— P0 四体科学模拟与 Web 控制台
 
+当前开发方向：**分区科学实验台 + 参数化岩石行星探索**。整体进度见 [总体路线图](docs/MASTER_ROADMAP.md)，模型假设见 [参数模型说明](docs/PLANET_EXPLORATION_MODEL.md)。新探索结果与已归档的 IAS15/M3/M4 数据分开，不能把程序地形、气体预设或条件概率当成行星实测结论。
+
+使用界面已拆为独立路由工作区：
+
+| 工作区 | 用途 |
+| --- | --- |
+| `#/worlds` 创建世界 | 随机初态、候选选择、启动模拟 |
+| `#/tasks` 任务与归档 | 进度、暂停/恢复、服务重启后恢复状态 |
+| `#/orbit` 轨道观察 | WebGL/Canvas、真实采样回放、事件跳转 |
+| `#/environment` 科学环境 | 归档辐照、C0/C1温度、能量与M4 |
+| `#/surface` 行星地表 | 程序地形、水盆、参数化大气/内热/纬度温度、地表观星 |
+| `#/reports` 比较报告 | 多世界比较、原科学归档导出 |
+| `#/settings` 高级配置 | 严格配置验证 |
+
+一次只显示一个工作区；顶部统一选择运行和真实采样时间。切页保留当前归档，
+后台任务继续，隐藏环境页面暂停图表重绘。浏览器刷新后需重新读取持久运行，不能把界面状态当作任务恢复。
+
+建议首次选择 **60 秒演示 / 10 秒采样**：创建世界→任务进度→读取轨道→科学环境→行星地表。
+地表页预置的内核温度、水和大气库存只是可编辑假设；缺失自转元数据时必须显式提供。
+点击地图选择地区，再计算以更新该地点三颗恒星的真实几何方位。
+地质事件率未填写时概率为未知；可在高级区域先验填写事件定义，再输入如 `{"r12-c24":0.01}`。
+下载的探索 JSON 包含输入假设、模型版本、轨道来源哈希及结果，不修改原科学归档。
+
+
 这是一个基于 Python 3.11+ 的本地单用户科学模拟工程：生成可复现的**三颗恒星 + 一颗岩石行星**随机初始状态，经 S0 物理校验后，使用 REBOUND IAS15 进行真实牛顿四体积分，并在 Web 页面中观察轨道、辐射、温度、动力学事件与世界结局。也支持独立 CLI 实验和 JSON 科学归档。
 
 P0-M2 使用 REBOUND IAS15 从原始 SI 笛卡尔状态进行真实 Newtonian 四体引力积分，记录
@@ -549,3 +573,17 @@ THREEBODY_TEST_CHROMIUM=/usr/bin/chromium python scripts/m63_observer_benchmark.
 Canvas 绘制耗时仅为 API 提交，WebGL 包含 `gl.finish()`；帧间隔单独反映调度与绘制。
 不包括热面板、科学计算或 API 查询耗时，不保证任意硬件达到 60 FPS。
 浏览器 CI 会运行短基准并上传 JSON，不以不稳定的机器性能阈值替代功能验收。
+
+### 新增验收与边界
+
+```bash
+# 完整功能/浏览器验收（已有系统 Chromium 时）
+THREEBODY_TEST_CHROMIUM=/usr/bin/chromium pytest -q
+# 两个真实四体构型、30天、6/3小时输出与IAS15容差对照
+python -m scripts.m7_numerical_acceptance --artifact-root /tmp/m7-new-numerical
+# 真实五年科学链路与热检查点复用；拒绝覆盖旧归档
+python scripts/m6_five_year_acceptance.py --artifact-root /tmp/m7-new-five-year
+```
+
+行星模型当前是静态灰色平衡和条件参考量：内部冷却历史、成分化大气、完整风场、
+板块形成及经校准灾害预报尚未实现。详细实测记录见 [本轮报告](docs/development/M7_REPORT.md)。
