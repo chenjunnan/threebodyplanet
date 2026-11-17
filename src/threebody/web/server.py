@@ -18,7 +18,7 @@ from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.comparison import compare_runs
 from threebody.web.jobs import LocalRunController
 from threebody.web.outcome_science import read_long_outcome
-from threebody.web.science import query_events, query_trajectory
+from threebody.web.science import query_body_metadata, query_events, query_trajectory
 from threebody.web.thermal_science import read_long_environment
 from threebody.web.worldsets import (
     create_worldset,
@@ -241,6 +241,16 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     end_s=env_time("end_s"),
                     max_points=int(params.get("max_points", ["500"])[0]),
                 ))
+                return
+            bodies_match = re.fullmatch(r"/api/v1/runs/([^/]+)/bodies", path)
+            if bodies_match:
+                if parts.query:
+                    raise ValueError("body metadata does not accept query parameters")
+                run_id = unquote(bodies_match.group(1))
+                directory = _run_directory(self.artifact_root, run_id)
+                if not (directory / "long_run_manifest.json").is_file():
+                    raise ValueError("body metadata requires M5A archive")
+                self._json(HTTPStatus.OK, query_body_metadata(directory))
                 return
             data_match = re.fullmatch(r"/api/v1/runs/([^/]+)/(trajectory|events)", path)
             if data_match:
