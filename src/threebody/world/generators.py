@@ -6,9 +6,8 @@ from typing import Protocol
 import numpy as np
 from numpy.typing import NDArray
 
-from threebody.common.constants import M_EARTH_KG, M_SUN_KG, G
+from threebody.common.constants import M_EARTH_KG, M_SUN_KG, R_SUN_M, G
 from threebody.config.models import AnyGeneratorConfig, GeneratorConfig
-from threebody.physics.stellar.main_sequence import main_sequence_properties
 from threebody.world.models import BodyKind, CelestialBody, WorldInitialState
 
 FloatArray = NDArray[np.float64]
@@ -35,15 +34,13 @@ def _sample_physical(
     planet_earth = float(rng.uniform(*config.planet_mass_earth))
     density = float(rng.uniform(*config.planet_density_kg_m3))
     masses = np.concatenate((star_solar * M_SUN_KG, np.array([planet_earth * M_EARTH_KG])))
-    star_radii = np.asarray([main_sequence_properties(float(m))[0] for m in star_solar])
+    star_radii = R_SUN_M * np.power(star_solar, 0.8)
     planet_radius = (3.0 * masses[3] / (4.0 * math.pi * density)) ** (1.0 / 3.0)
     radii = np.concatenate((star_radii, np.array([planet_radius])))
+    luminosity_solar = np.power(star_solar, 3.5)
     properties = [
-        {
-            "luminosity_w": main_sequence_properties(float(m))[1],
-            "mass_luminosity_model": "piecewise_main_sequence_0p3_8_v1",
-        }
-        for m in star_solar
+        {"luminosity_w": float(value * 3.828e26), "mass_luminosity_model": "power_3.5_v1"}
+        for value in luminosity_solar
     ]
     properties.append({"mean_density_kg_m3": density, "composition_profile_id": "rocky_mean_v1"})
     return masses, radii, properties
