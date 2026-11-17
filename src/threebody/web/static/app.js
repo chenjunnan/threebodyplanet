@@ -368,7 +368,10 @@ async function loadOrbit() {
       ' · 无外推 · 事件 '+events.event_count;
     orbitEvents.replaceChildren(new Option('选择事件',''));
     orbitEventItems.forEach((event,i)=>{
-      orbitEvents.add(new Option(event.event_type+' @ '+event.t_s+' s',String(i)));
+      const collisionKind=event.observed?.collision_class;
+      const displayType=collisionKind==='STAR_STAR'?'恒星碰撞':
+        collisionKind==='STAR_PLANET'?'恒星—行星碰撞':event.event_type;
+      orbitEvents.add(new Option(displayType+' @ '+event.t_s+' s',String(i)));
     });
     orbitSetIndex(orbitSamples.length-1);
     if(!orbitSamples.length)orbitDraw();
@@ -404,9 +407,20 @@ orbitEvents.addEventListener('change',()=>{
     if(difference<delta){delta=difference;nearest=i;}
   });
   orbitSetIndex(nearest);
+  const scenario=event.observed?.stellar_merger_scenario;
+  const mergerSummary=scenario?
+    ' · 恒星合并假设：质量 '+
+    (scenario.hypothetical_merged_mass_kg/1.98847e30).toFixed(3)+
+    ' M☉ · 相对动能 '+scenario.relative_kinetic_energy_available_j.toExponential(4)+
+    ' J · 引力变化'+
+    (scenario.planet_acceleration_change_at_contact_m_s2?'已估算':'不可估算')+
+    (Number.isFinite(scenario.planet_bolometric_flux_proxy_change_w_m2)?
+      ' · 假设松弛后辐照差 '+
+      scenario.planet_bolometric_flux_proxy_change_w_m2.toExponential(4)+' W/m²':'')+
+    ' · 仅诊断，无碰撞闪光或碰撞后轨道积分':'';
   document.querySelector('#orbit-event-detail').textContent=
     event.event_type+' ('+event.body_ids.join(', ')+') @ '+event.t_s+' s · '+
-    event.message+' · 采样时间偏差 '+delta.toPrecision(5)+' s';
+    event.message+' · 采样时间偏差 '+delta.toPrecision(5)+' s'+mergerSummary;
 });
 document.querySelector('#runs').addEventListener('click',event=>{
   const button=event.target.closest('[data-run]');
