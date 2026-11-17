@@ -111,6 +111,19 @@ def test_real_browser_world_3d_drag_science_and_report():
             page.locator("#analysis-progress-text").inner_text()
         )
         assert "未生成M4" not in page.locator("#m4-outcome-summary").inner_text()
+        c1_summary = page.locator("#c1-temperature-summary")
+        assert "纬度温差 ΔT=" in c1_summary.inner_text()
+        c1_canvas = page.locator("#c1-canvas")
+        c1_canvas.scroll_into_view_if_needed()
+        box = c1_canvas.bounding_box()
+        assert box is not None
+        hover_x = box["x"] + box["width"] * 0.7
+        hover_y = box["y"] + box["height"] * 0.4
+        page.mouse.move(hover_x, hover_y)
+        c1_hover = page.locator("#c1-temperature-hover").inner_text()
+        assert "纬度带中心" in c1_hover
+        assert " K / " in c1_hover and " °C" in c1_hover
+        assert "无插值" in c1_hover
         # C0 readout follows the selected actual physical time, not browser play speed.
         assert page.locator("#c0-current-k").inner_text().endswith(" K")
         assert page.locator("#c0-current-celsius").inner_text().endswith(" °C")

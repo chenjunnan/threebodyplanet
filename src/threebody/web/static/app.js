@@ -456,27 +456,78 @@ function drawTimeSeries(canvas,rows,extract,colors,title,selectedTime) {
   ctx.moveTo(cursor,24);ctx.lineTo(cursor,h-24);ctx.stroke();ctx.setLineDash([]);
   ctx.fillStyle='#a1aeb3';ctx.fillText('t='+selectedTime.toPrecision(7)+' SI秒',w-240,h-8);
 }
+/* The C1 solver uses equal-area x=sin(latitude) cells, not equal-degree bands.
+ * Draw the true latitude edges; retain full K precision even for a 60s experiment.
+ */
+const c1Plot = {left:48,top:30,right:920,bottom:207};
+let visibleC1Rows = [];
+function c1TemperatureText(k) {
+  return k.toFixed(6) + ' K / ' + (k-273.15).toFixed(6) + ' °C';
+}
+function c1SummaryAtTime(rows,selectedTime) {
+  const summary=document.querySelector('#c1-temperature-summary');
+  const eligible=rows.filter(r=>Array.isArray(r.c1_temperature_k));
+  if(!eligible.length){
+    summary.textContent='C1纬度温差：没有可用的真实温度采样。';
+    return;
+  }
+  const point=eligible[thermalNearestIndex(eligible,selectedTime)];
+  const values=point.c1_temperature_k;
+  if(!values.length||!values.every(Number.isFinite)){
+    summary.textContent='C1纬度温差：数据无效或缺失。';
+    return;
+  }
+  const min=Math.min(...values),max=Math.max(...values),delta=max-min;
+  summary.textContent='当前真实C1采样 t='+point.t_s.toPrecision(9)+
+    ' s · 最低 '+min.toFixed(6)+' K · 最高 '+max.toFixed(6)+
+    ' K · 纬度温差 ΔT='+delta.toFixed(6)+' K'+
+    (delta<0.01?'（温差不足0.01 K，视觉上接近一致）':'')+
+    (point.t_s===0?' · 初始统一温度是模型设置，并非绘制错误':'');
+}
 function drawC1(rows,selectedTime) {
   const canvas=document.querySelector('#c1-canvas');
   const ctx=canvas.getContext('2d'),w=canvas.width,h=canvas.height;
   ctx.fillStyle='#080c0d';ctx.fillRect(0,0,w,h);
   const columns=rows.filter(r=>Array.isArray(r.c1_temperature_k));
-  if(!columns.length){blankThermal(canvas,'C1纬度温度未计算');return;}
+  visibleC1Rows=columns;
+  c1SummaryAtTime(rows,selectedTime);
+  if(!columns.length){
+    blankThermal(canvas,'C1纬度温度未计算');
+    return;
+  }
   const bands=columns[0].c1_temperature_k.length;
+  if(!bands||columns.some(r=>r.c1_temperature_k.length!==bands)){
+    visibleC1Rows=[];
+    blankThermal(canvas,'C1纬度温度数据不一致');
+    return;
+  }
   const values=columns.flatMap(r=>r.c1_temperature_k);
-  const min=Math.min(...values),max=Math.max(...values);
+  const min=Math.min(...values),max=Math.max(...values),spread=max-min;
+  if(!Number.isFinite(min)||!Number.isFinite(max)){
+    visibleC1Rows=[];
+    blankThermal(canvas,'C1纬度温度数值不可用');
+    return;
+  }
   ctx.fillStyle='#cfe0e3';ctx.font='13px monospace';
-  ctx.fillText('C1 纬度温度 (K) · '+min.toPrecision(4)+' .. '+max.toPrecision(4),16,17);
-  const left=48,top=30,right=w-20,bottom=h-33;
+  ctx.fillText('C1纬度温度 (K) · 范围 '+min.toFixed(6)+' .. '+
+    max.toFixed(6),16,17);
+  if(spread<0.01){
+    ctx.fillStyle='#a9bac0';ctx.font='12px monospace';
+    ctx.fillText('温差小于0.01 K · 色阶仅显示相对变化',w-315,17);
+  }
+  const {left,top,right,bottom}=c1Plot;
   columns.forEach((col,i)=>{
     const x=left+i*(right-left)/columns.length;
     col.c1_temperature_k.forEach((temp,b)=>{
-      const fraction=(temp-min)/Math.max(max-min,1e-12);
-      const hue=240-240*fraction;
-      ctx.fillStyle='hsl('+hue.toFixed(1)+',85%,54%)';
-      const y=top+(bands-b-1)*(bottom-top)/bands;
+      // The physical finite-volume band boundaries are equal in sin(latitude).
+      const low=Math.asin(-1+2*b/bands);
+      const high=Math.asin(-1+2*(b+1)/bands);
+      const y=top+(Math.PI/2-high)/Math.PI*(bottom-top);
+      const yBottom=top+(Math.PI/2-low)/Math.PI*(bottom-top);
+      const fraction=(temp-min)/Math.max(spread,1e-12);
+      ctx.fillStyle='hsl('+(240-240*fraction).toFixed(1)+',85%,54%)';
       ctx.fillRect(x,y,Math.ceil((right-left)/columns.length)+1,
-        Math.ceil((bottom-top)/bands)+1);
+        Math.ceil(yBottom-y)+1);
     });
   });
   const t0=columns[0].t_s,t1=columns[columns.length-1].t_s;
@@ -486,7 +537,36 @@ function drawC1(rows,selectedTime) {
   ctx.lineTo(Math.max(left,Math.min(right,cursor)),bottom);ctx.stroke();
   ctx.setLineDash([]);ctx.fillStyle='#aab8bd';
   ctx.fillText('−90°',5,bottom);ctx.fillText('+90°',5,top+10);
+  ctx.fillText('时间 →',right-62,bottom+20);
 }
+const c1Canvas=document.querySelector('#c1-canvas');
+c1Canvas.addEventListener('pointermove',event=>{
+  const target=document.querySelector('#c1-temperature-hover');
+  const rect=c1Canvas.getBoundingClientRect();
+  const x=(event.clientX-rect.left)*c1Canvas.width/rect.width;
+  const y=(event.clientY-rect.top)*c1Canvas.height/rect.height;
+  const {left,top,right,bottom}=c1Plot;
+  if(!visibleC1Rows.length||x<left||x>right||y<top||y>bottom){
+    target.textContent='将鼠标移到热图上查看纬度、物理时间及温度（K / °C）。';
+    return;
+  }
+  const sampleIndex=Math.min(visibleC1Rows.length-1,
+    Math.floor((x-left)/(right-left)*visibleC1Rows.length));
+  const sample=visibleC1Rows[sampleIndex];
+  const latitude=Math.PI/2-(y-top)/(bottom-top)*Math.PI;
+  const bands=sample.c1_temperature_k.length;
+  const band=Math.max(0,Math.min(bands-1,
+    Math.floor((Math.sin(latitude)+1)*bands/2)));
+  const center=sample.c1_latitude_rad[band]*180/Math.PI;
+  const kelvin=sample.c1_temperature_k[band];
+  target.textContent='实际温度采样 t='+sample.t_s.toPrecision(9)+
+    ' s · 纬度带中心 '+center.toFixed(2)+'° · '+
+    c1TemperatureText(kelvin)+'（无插值）';
+});
+c1Canvas.addEventListener('pointerleave',()=>{
+  document.querySelector('#c1-temperature-hover').textContent=
+    '将鼠标移到热图上查看纬度、物理时间及温度（K / °C）。';
+});
 function updateCurrentC0Reading(row, selectedTime) {
   const kelvin = document.querySelector('#c0-current-k');
   const celsius = document.querySelector('#c0-current-celsius');
