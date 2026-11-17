@@ -218,6 +218,61 @@ for (const action of ['pause','resume','cancel']) {
 const webglCanvas = document.querySelector('#orbit-webgl');
 const webglToggle = document.querySelector('#enable-webgl');
 const webglStatus = document.querySelector('#webgl-status');
+const orbitBodySelect=document.querySelector('#orbit-body-select');
+const orbitBodyDetail=document.querySelector('#orbit-body-detail');
+const orbitEventSync=document.querySelector('#orbit-event-sync');
+let linkedBodyMetadata=null,orbitSelectedId=null,orbitFocusId=null;
+function selectOrbitBody(id){
+  orbitSelectedId=orbitIds.includes(id)?id:null;
+  orbitBodySelect.value=orbitSelectedId||'';
+  if(webglRenderer)webglRenderer.select(orbitSelectedId);
+  renderOrbitBodyDetails();
+}
+function renderOrbitBodyDetails(){
+  if(!orbitSelectedId || !orbitSamples.length){
+    orbitBodyDetail.textContent='请选择天体查看归档质量、半径及当前已积分的位置。';
+    return;
+  }
+  const sample=orbitSamples[orbitIndex],body=linkedBodyMetadata?.bodies?.[orbitSelectedId];
+  const xyz=sample.positions_m[orbitSelectedId].map(v=>
+    (v/149597870700).toPrecision(6)).join(', ');
+  if(!body){
+    orbitBodyDetail.textContent=orbitSelectedId+' · t='+sample.t_s.toPrecision(9)+
+      ' SI s · 惯性坐标(AU) ['+xyz+'] · 初态质量、半径与自转数据缺失。';
+    return;
+  }
+  const mass=body.kind==='STAR'?
+    (body.mass_kg/1.98847e30).toPrecision(5)+' M☉':
+    (body.mass_kg/5.9722e24).toPrecision(5)+' M⊕';
+  const radius=body.kind==='STAR'?
+    (body.radius_m/6.957e8).toPrecision(5)+' R☉':
+    (body.radius_m/6371000).toPrecision(5)+' R⊕';
+  const lum=Number.isFinite(body.luminosity_w)?
+    ' · 初态光度 '+(body.luminosity_w/3.828e26).toPrecision(5)+' L☉':'';
+  const spin=Number.isFinite(body.rotation_rate_rad_s)?
+    ' · 自转角速度 '+body.rotation_rate_rad_s.toExponential(4)+' rad/s':'';
+  orbitBodyDetail.textContent=orbitSelectedId+
+    ' · 初态质量 '+mass+' · 初态半径 '+radius+lum+spin+
+    ' · t='+sample.t_s.toPrecision(9)+' SI s · 惯性坐标(AU) ['+xyz+
+    '] · 属性来自哈希核验的M5A初态，不代表碰撞后残骸演化。';
+}
+orbitBodySelect.addEventListener('change',()=>{
+  selectOrbitBody(orbitBodySelect.value);orbitDraw();
+});
+document.querySelector('#orbit-focus-body').addEventListener('click',()=>{
+  if(!orbitSelectedId || !orbitSamples.length){
+    orbitEventSync.textContent='请先加载轨道并选择天体。';return;
+  }
+  orbitFocusId=orbitSelectedId;
+  if(webglRenderer)webglRenderer.focus(orbitFocusId);
+  orbitDraw();
+});
+document.querySelector('#orbit-reset-view').addEventListener('click',()=>{
+  orbitFocusId=null;orbitAzimuth=.6;orbitAltitude=.35;orbitZoom=1;
+  if(webglRenderer)webglRenderer.resetView();
+  orbitDraw();
+});
+
 let webglRenderer = null;
 function deactivateWebGL(reason) {
   webglToggle.checked = false;
@@ -232,10 +287,12 @@ webglToggle.addEventListener('change',()=>{
     if(!window.createM63WebGL || !window.ThreeBodyScienceAdapter) {
       throw new Error('WebGL渲染模块不可用');
     }
-    webglRenderer=window.createM63WebGL(webglCanvas,deactivateWebGL);
+    webglRenderer=window.createM63WebGL(webglCanvas,deactivateWebGL,(id)=>selectOrbitBody(id));
     orbitCanvas.hidden=true;
     webglCanvas.hidden=false;
     webglRenderer.load(orbitSamples);
+    webglRenderer.select(orbitSelectedId);
+    webglRenderer.focus(orbitFocusId);
     webglRenderer.draw(orbitIndex);
     webglStatus.textContent='WebGL2已启用 · 仅使用已验证轨道点，无外推；拖动旋转、滚轮缩放。';
   } catch(error) {
@@ -275,7 +332,8 @@ function orbitDraw() {
   }
   const end=orbitSamples[orbitIndex];
   const points=orbitSamples.flatMap(s=>orbitIds.map(id=>s.positions_m[id]));
-  const center=[0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
+  const center=orbitFocusId?end.positions_m[orbitFocusId]:
+    [0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
   const extent=Math.max(1,...points.map(p=>Math.hypot(...p.map((v,k)=>v-center[k]))));
   const scale=extent/(Math.min(w,h)*.40)*orbitZoom;
   orbitIds.forEach((id,bi)=>{
@@ -300,11 +358,17 @@ function orbitSetIndex(i) {
   orbitSlider.value=orbitIndex;
   orbitText.textContent=orbitSamples[orbitIndex].t_s.toPrecision(9)+' SI s';
   orbitDraw();
+  renderOrbitBodyDetails();
   renderThermal();
 }
 function orbitStop(){if(orbitTimer!==null)clearInterval(orbitTimer);orbitTimer=null;}
 async function loadOrbit() {
-  orbitStop(); orbitStatus.textContent='正在验证并读取M5A已提交分段…';
+  orbitStop();orbitSelectedId=null;orbitFocusId=null;linkedBodyMetadata=null;
+  orbitBodySelect.value='';
+  orbitBodyDetail.textContent='等待当前世界经验证的天体初态。';
+  orbitEventSync.textContent='尚未选中事件。';
+  if(webglRenderer){webglRenderer.focus(null);webglRenderer.select(null);}
+  orbitStatus.textContent='正在验证并读取M5A已提交分段…';
   const id=document.querySelector('#observe-run-id').value;
   const params=new URLSearchParams();
   for(const [idName,key] of [['observe-start','start_s'],['observe-end','end_s']]){
@@ -370,6 +434,17 @@ async function loadOrbit() {
         '温度/辐射无法载入：'+thermalError.message;
       linkedThermal=null;
     }
+    linkedBodyMetadata=null;
+    try {
+      const res=await fetch(base+'/bodies');
+      const raw=await res.json();
+      if(!res.ok)throw Error(raw.message||raw.error||res.status);
+      linkedBodyMetadata=window.ThreeBodyScienceAdapter.validateBodyMetadata(
+        validatedTrajectory,raw
+      );
+    } catch(error) {
+      orbitBodyDetail.textContent='天体初态属性不可用：'+error.message;
+    }
     orbitSamples=validatedTrajectory.samples;
     orbitEventItems=events.events;
     if(webglRenderer)webglRenderer.load(orbitSamples);
@@ -421,7 +496,9 @@ async function loadOrbit() {
     orbitSetIndex(orbitSamples.length-1);
     if(!orbitSamples.length)orbitDraw();
   } catch(error) {
-    orbitSamples=[];orbitEventItems=[];
+    orbitSamples=[];orbitEventItems=[];linkedBodyMetadata=null;
+    orbitSelectedId=null;orbitFocusId=null;orbitBodySelect.value='';
+    orbitBodyDetail.textContent='当前运行没有有效的天体属性。';
     if(webglRenderer)webglRenderer.load(orbitSamples);
     orbitStatus.textContent='无法载入：'+error.message;
     orbitDraw();
@@ -432,6 +509,7 @@ for(const [id,axis,delta] of [['orbit-left','azimuth',-.2],['orbit-right','azimu
   document.getElementById(id).addEventListener('click',()=>{
     if(axis==='azimuth')orbitAzimuth+=delta;
     else orbitAltitude=Math.max(-1.45,Math.min(1.45,orbitAltitude+delta));
+    if(webglRenderer)webglRenderer.rotate(axis==='azimuth'?'yaw':'pitch',delta);
     orbitDraw();
   });
 }
@@ -453,6 +531,13 @@ orbitEvents.addEventListener('change',()=>{
     if(difference<delta){delta=difference;nearest=i;}
   });
   orbitSetIndex(nearest);
+  orbitEventSync.textContent='事件 '+event.event_type+' @ '+
+    event.t_s.toPrecision(9)+' SI s · 最近真实轨道样本 '+
+    orbitSamples[nearest].t_s.toPrecision(9)+' SI s · 时间偏差 '+
+    delta.toPrecision(6)+' s（无插值或外推）。';
+  if(event.body_ids?.length && orbitIds.includes(event.body_ids[0])){
+    selectOrbitBody(event.body_ids[0]);
+  }
   const scenario=event.observed?.stellar_merger_scenario;
   const mergerSummary=scenario?
     ' · 恒星合并假设：质量 '+
