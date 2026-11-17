@@ -1,0 +1,130 @@
+{
+  "schema_version": "m63-observer-benchmark-v1",
+  "measured_at_utc": "2026-11-17T12:58:43.080242+00:00",
+  "fixture_kind": "GRAPHICS_FIXTURE_NOT_PHYSICS",
+  "sample_count": 2000,
+  "body_count": 4,
+  "canvas_size": [
+    940,
+    500
+  ],
+  "materials": true,
+  "thermal_panels": "NOT_BENCHMARKED",
+  "renderer": "Chromium headless / forced SwiftShader software WebGL2",
+  "browser_version": "156.0.8078.79",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "warmup_frames_per_profile": 10,
+  "profiles": [
+    {
+      "mode": "canvas-static",
+      "frames": 120,
+      "draw_timing_semantics": "CANVAS_API_SUBMISSION",
+      "replay_index_range": [
+        1999,
+        1999
+      ],
+      "draw_wall_ms": {
+        "median": 1.2999999998137355,
+        "p95": 1.900000000372529,
+        "max": 14.200000000186265
+      },
+      "raf_interval_ms": {
+        "median": 100,
+        "p95": 116.69999999999982,
+        "max": 183.29999999999927
+      },
+      "source_unchanged": true,
+      "raf_p95_within_60hz_budget": false,
+      "draw_p95_within_60hz_budget": true
+    },
+    {
+      "mode": "canvas-replay",
+      "frames": 120,
+      "draw_timing_semantics": "CANVAS_API_SUBMISSION",
+      "replay_index_range": [
+        1880,
+        1999
+      ],
+      "draw_wall_ms": {
+        "median": 1.1000000005587935,
+        "p95": 1.7000000001862645,
+        "max": 2
+      },
+      "raf_interval_ms": {
+        "median": 83.40000000000146,
+        "p95": 116.69999999999709,
+        "max": 166.79999999999927
+      },
+      "source_unchanged": true,
+      "raf_p95_within_60hz_budget": false,
+      "draw_p95_within_60hz_budget": true
+    },
+    {
+      "mode": "webgl-static",
+      "frames": 120,
+      "draw_timing_semantics": "DRAW_PLUS_GL_FINISH",
+      "replay_index_range": [
+        1999,
+        1999
+      ],
+      "draw_wall_ms": {
+        "median": 0.20000000018626451,
+        "p95": 0.40000000037252903,
+        "max": 0.7000000001862645
+      },
+      "raf_interval_ms": {
+        "median": 16.700000000000728,
+        "p95": 33.400000000001455,
+        "max": 50.099999999998545
+      },
+      "source_unchanged": true,
+      "raf_p95_within_60hz_budget": false,
+      "draw_p95_within_60hz_budget": true
+    },
+    {
+      "mode": "webgl-replay",
+      "frames": 120,
+      "draw_timing_semantics": "DRAW_PLUS_GL_FINISH",
+      "replay_index_range": [
+        1880,
+        1999
+      ],
+      "draw_wall_ms": {
+        "median": 0.20000000018626451,
+        "p95": 0.2999999998137355,
+        "max": 2.599999999627471
+      },
+      "raf_interval_ms": {
+        "median": 16.700000000000728,
+        "p95": 33.400000000001455,
+        "max": 50
+      },
+      "source_unchanged": true,
+      "raf_p95_within_60hz_budget": false,
+      "draw_p95_within_60hz_budget": true
+    },
+    {
+      "mode": "webgl-focus-replay",
+      "frames": 120,
+      "draw_timing_semantics": "DRAW_PLUS_GL_FINISH",
+      "replay_index_range": [
+        1880,
+        1999
+      ],
+      "draw_wall_ms": {
+        "median": 0.39999999944120646,
+        "p95": 0.599999999627471,
+        "max": 0.7000000001862645
+      },
+      "raf_interval_ms": {
+        "median": 16.69999999999709,
+        "p95": 49.900000000001455,
+        "max": 50.099999999998545
+      },
+      "source_unchanged": true,
+      "raf_p95_within_60hz_budget": false,
+      "draw_p95_within_60hz_budget": true
+    }
+  ],
+  "limits": "Local graphics measurement, not scientific performance or a universal FPS guarantee."
+}
