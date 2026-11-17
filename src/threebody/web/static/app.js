@@ -487,6 +487,25 @@ function drawC1(rows,selectedTime) {
   ctx.setLineDash([]);ctx.fillStyle='#aab8bd';
   ctx.fillText('−90°',5,bottom);ctx.fillText('+90°',5,top+10);
 }
+function updateCurrentC0Reading(row, selectedTime) {
+  const kelvin = document.querySelector('#c0-current-k');
+  const celsius = document.querySelector('#c0-current-celsius');
+  const timeLabel = document.querySelector('#c0-current-time');
+  const temp = row?.c0_temperature_k;
+  if (typeof temp !== 'number' || !Number.isFinite(temp) || temp < 0) {
+    kelvin.textContent = '— K';
+    celsius.textContent = '— °C';
+    timeLabel.textContent = '该位置没有可用的C0全球温度数据';
+    return;
+  }
+  const sourceTime = row.t_s;
+  kelvin.textContent = temp.toFixed(2) + ' K';
+  celsius.textContent = (temp - 273.15).toFixed(2) + ' °C';
+  timeLabel.textContent = '真实热模型采样 t=' + sourceTime.toPrecision(9)
+    + ' SI秒 · 与当前轨道时间相差 '
+    + Math.abs(selectedTime - sourceTime).toPrecision(4)
+    + ' 秒（使用最近采样，不插值）';
+}
 function renderThermal(){
   const flux=document.querySelector('#flux-canvas');
   const c0=document.querySelector('#c0-canvas');
@@ -497,10 +516,12 @@ function renderThermal(){
     blankThermal(c0,'C0：无可信数据');
     blankThermal(c1,'C1：无可信数据');
     cursor.textContent='轨道时间轴与热模型数据尚未建立有效关联。';
+    updateCurrentC0Reading(null, 0);
     return;
   }
   const t=orbitSamples[orbitIndex].t_s,rows=linkedThermal.rows;
   const index=thermalNearestIndex(rows,t),nearest=rows[index];
+  updateCurrentC0Reading(nearest,t);
   drawTimeSeries(flux,rows,(p,i)=>p.flux_w_m2[
     ['star-1','star-2','star-3','total'][i]],
     ['#f3a44a','#e27459','#8bb7ff','#fff'],

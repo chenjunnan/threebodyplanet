@@ -115,6 +115,12 @@
         <h3 id="thermal-heading">恒星辐射与行星温度（真实派生归档）</h3>
         <p id="environment-status" role="status">等待选择运行：物理积分完成后将自动尝试计算真实辐射与温度。</p>
         <canvas id="flux-canvas" width="940" height="220" aria-label="三颗恒星及总辐射时间曲线"></canvas>
+        <div class="c0-current-temperature" aria-live="polite" aria-atomic="true">
+          <span class="c0-reading-label">当前观察位置 · C0全球温度</span>
+          <strong id="c0-current-k">— K</strong>
+          <span id="c0-current-celsius">— °C</span>
+          <small id="c0-current-time">请选择已计算的温度时刻</small>
+        </div>
         <canvas id="c0-canvas" width="940" height="180" aria-label="全球C0温度随物理时间变化"></canvas>
         <canvas id="c1-canvas" width="940" height="240" aria-label="C1纬度温度时空分布"></canvas>
         <p id="thermal-cursor" aria-live="polite">物理时间与轨道观察时间同步。缺失的C0/C1数据不会被补造。</p>
