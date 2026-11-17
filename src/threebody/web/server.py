@@ -217,7 +217,11 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 if set(raw) != {"run_id", "initial_state", "settings"}:
                     raise ValueError("required fields: run_id, initial_state, settings")
                 run_id = raw["run_id"]
-                if not isinstance(run_id, str) or run_id in {".", ".."} or not RUN_ID.fullmatch(run_id):
+                if (
+                    not isinstance(run_id, str)
+                    or run_id in {".", ".."}
+                    or not RUN_ID.fullmatch(run_id)
+                ):
                     raise ValueError("invalid run_id")
                 initial = WorldInitialState.model_validate_json(
                     json.dumps(raw["initial_state"], allow_nan=False), strict=True
