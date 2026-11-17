@@ -174,3 +174,63 @@ def test_task_start_api_rejects_bad_schema_without_starting(tmp_path):
         )
         assert status == 404
         assert payload["error"] == "run_not_found"
+
+
+def test_real_web_task_runs_two_ias15_segments_to_completion(tmp_path, resolved):
+    """HTTP 202 must lead to genuine, archived IAS15 work, not a fake UI state."""
+    import time
+
+    from threebody.physics.longrun.config import load_long_run_settings
+    from threebody.physics.longrun.models import LongRunSettings
+    from threebody.world.generators import generate_initial_state
+
+    config, digest = resolved
+    state = generate_initial_state(
+        config.world_generation.generator, config.experiment.seed, 0, digest
+    )
+    base_settings, _ = load_long_run_settings("configs/m5a_long_run.yaml")
+    raw = base_settings.model_dump(mode="json")
+    raw["time"] = {
+        "start_time_s": 0.0,
+        "end_time_s": 40.0,
+        "output_interval_s": 10.0,
+    }
+    raw["segmentation"] = {"simulated_duration_s": 20.0}
+    raw["checkpoint"] = {
+        "simulation_interval_s": 10.0,
+        "wall_interval_s": None,
+        "retain_count": 3,
+    }
+    raw["resources"]["max_segments"] = 10
+    raw["resources"]["max_samples"] = 10
+    settings = LongRunSettings.model_validate(raw, strict=True)
+
+    with _server(tmp_path) as base:
+        status, _, response = _request(
+            f"{base}/api/v1/runs",
+            method="POST",
+            payload={
+                "run_id": "web-real",
+                "initial_state": state.model_dump(mode="json"),
+                "settings": settings.model_dump(mode="json"),
+            },
+        )
+        assert status == 202, response
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            status, _, job = _request(f"{base}/api/v1/jobs/web-real")
+            assert status == 200
+            if job["phase"] in {"COMPLETED", "COLLISION", "WORKER_ERROR"}:
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("real IAS15 Web task did not finish within the test timeout")
+        assert job["phase"] == "COMPLETED", job
+        assert job["physical"]["simulation_time_s"] == 40.0
+        assert job["physical"]["committed_segments"] == 2
+        status, _, listing = _request(f"{base}/api/v1/runs")
+        assert status == 200
+        assert any(
+            run["run_id"] == "web-real" and run["status"] == "COMPLETED"
+            for run in listing["runs"]
+        )
