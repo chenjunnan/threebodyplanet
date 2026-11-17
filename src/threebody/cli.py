@@ -131,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--units", choices=("au", "m"), default="au")
     dashboard.add_argument("--cdn", action="store_true")
     dashboard.add_argument("--overwrite", action="store_true")
-    web = groups.add_parser("web", help="Local read-only M5B scientific console")
+    web = groups.add_parser("web", help="Local single-user scientific simulation console")
     web_commands = web.add_subparsers(dest="command", required=True)
     serve = web_commands.add_parser("serve", help="Serve committed archives on loopback")
     serve.add_argument("--artifact-root", type=Path, required=True)
@@ -269,7 +269,7 @@ def execute(args: argparse.Namespace) -> int:
             args.artifact_root, host=args.host, port=args.port
         )
         address, port = server.server_address[:2]
-        print(f"read-only console: http://{address}:{port}")
+        print(f"scientific console: http://{address}:{port}")
         try:
             server.serve_forever()
         except KeyboardInterrupt:
