@@ -259,6 +259,30 @@ class EventObserver:
                 scenario["luminosity_semantics"] = (
                     "merged mass outside validated 0.3..8 M_sun main-sequence proxy"
                 )
+            planet = particles[3]
+            planet_position = np.asarray([planet.x, planet.y, planet.z])
+            delta1 = position1 - planet_position
+            delta2 = position2 - planet_position
+            delta_merged = hypothetical_position - planet_position
+            d1, d2, dm = (
+                float(np.linalg.norm(delta1)),
+                float(np.linalg.norm(delta2)),
+                float(np.linalg.norm(delta_merged)),
+            )
+            if min(d1, d2, dm) > 0.0:
+                acceleration_before = G * (
+                    m1*delta1/d1**3 + m2*delta2/d2**3
+                )
+                acceleration_after = G * total_mass*delta_merged/dm**3
+                delta_accel = acceleration_after - acceleration_before
+                if np.all(np.isfinite(delta_accel)):
+                    scenario["planet_acceleration_change_at_contact_m_s2"] = (
+                        delta_accel.tolist()
+                    )
+                    scenario["gravity_semantics"] = (
+                        "instantaneous point-mass merger proxy only; "
+                        "no subsequent dynamics integrated"
+                    )
             observed["stellar_merger_scenario"] = scenario
         event = SimulationEvent(
             event_type="COLLISION",
