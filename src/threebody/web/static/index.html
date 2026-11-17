@@ -122,7 +122,9 @@
           <small id="c0-current-time">请选择已计算的温度时刻</small>
         </div>
         <canvas id="c0-canvas" width="940" height="180" aria-label="全球C0温度随物理时间变化"></canvas>
-        <canvas id="c1-canvas" width="940" height="240" aria-label="C1纬度温度时空分布"></canvas>
+        <canvas id="c1-canvas" width="940" height="240" aria-label="C1纬度温度时空分布，鼠标悬停显示该时刻及纬度的温度"></canvas>
+        <p id="c1-temperature-summary" aria-live="polite">C1纬度温差：等待真实数据。</p>
+        <p id="c1-temperature-hover" aria-live="polite">将鼠标移到热图上查看纬度、物理时间及温度（K / °C）。</p>
         <p id="thermal-cursor" aria-live="polite">物理时间与轨道观察时间同步。缺失的C0/C1数据不会被补造。</p>
       </section>
       <section class="world-outcome-panel" aria-labelledby="m4-heading">
