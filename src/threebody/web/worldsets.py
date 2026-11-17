@@ -51,11 +51,14 @@ def load_candidate(root: Path, batch_id: str, index: int) -> WorldInitialState:
         raise ConfigError("candidate symlink is forbidden")
     state = WorldInitialState.model_validate_json(path.read_text(encoding="utf-8"), strict=True)
     manifest = json.loads((_directory(root, batch_id) / "manifest.json").read_text())
-    if sha256_json(state) != manifest["candidates"][index]["initial_sha256"]:
+    candidates = manifest.get("candidates", [])
+    if index >= len(candidates):
+        raise FileNotFoundError("candidate not present in selected worldset")
+    if sha256_json(state) != candidates[index]["initial_sha256"]:
         raise ConfigError("worldset initial-state hash mismatch")
     if validate_s0(state):
         raise ConfigError("candidate fails strict S0 physical validation")
-    if manifest["candidates"][index]["initial_contact"]:
+    if candidates[index]["initial_contact"]:
         raise ConfigError("initial-contact world is terminal and cannot start IAS15")
     return state
 
@@ -114,7 +117,7 @@ def create_worldset(root: Path, config_mapping: dict, count: int) -> dict:
                     } for body in state.bodies],
                 }
                 if metadata is not None:
-                    candidate["generator_metadata"] = (\n                        metadata.model_dump(mode="json")\n                        if hasattr(metadata, "model_dump")\n                        else __import__("dataclasses").asdict(metadata)\n                    )
+                    candidate["generator_metadata"] = metadata.model_dump(mode="json")
             except (ValueError, ArithmeticError, ConfigError) as exc:
                 candidate = {
                     "index": index, "world_id": f"candidate-{index:06d}",
