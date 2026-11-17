@@ -16,13 +16,16 @@ from threebody.config.loader import resolve_mapping
 from threebody.errors import ConfigError
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.jobs import LocalRunController
-from threebody.web.science import query_events, query_trajectory
 from threebody.web.outcome_science import read_long_outcome
+from threebody.web.science import query_events, query_trajectory
 from threebody.web.thermal_science import read_long_environment
-from threebody.world.models import WorldInitialState
 from threebody.web.worldsets import (
-    create_worldset, list_worldsets, load_candidate, simulation_settings,
+    create_worldset,
+    list_worldsets,
+    load_candidate,
+    simulation_settings,
 )
+from threebody.world.models import WorldInitialState
 
 MAX_REQUEST_BYTES = 1_048_576
 RUN_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
