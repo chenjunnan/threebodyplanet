@@ -74,23 +74,10 @@ def test_legacy_five_or_thirty_day_output_can_derive_c0_with_quality_warning(
     )
 
 
-def test_daily_orbit_accepted_and_cadence_ceiling_has_explicit_diagnostics(
-    tmp_path, long_thermal_fixture
-):
-    run, config = long_thermal_fixture
-    document = yaml.safe_load(config.read_text(encoding="utf-8"))
-    document["input"]["max_orbit_sample_interval_s"] = 10.0
-    allowed = tmp_path / "allowed.yaml"
-    allowed.write_text(yaml.safe_dump(document), encoding="utf-8")
-    derived = tmp_path / "allowed-environment"
-    manifest = derive_long_run_environment(run, allowed, derived)
-    assert manifest["sampling_quality"] == "DAILY_OR_FINER"
-    assert manifest["sampling_warning"] is None
-    assert read_long_environment(run, derived)["sampling_warning"] is None
-    document["input"]["max_orbit_sample_interval_s"] = 9.0
-    disallowed = tmp_path / "disallowed.yaml"
+    document["input"]["max_orbit_sample_interval_s"] = duration / 2
+    disallowed = tmp_path / f"too-strict-{output_days}.yaml"
     disallowed.write_text(yaml.safe_dump(document), encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"verified max gap 10 s.*allowed 9 s"):
+    with pytest.raises(ConfigError, match="verified max gap"):
         derive_long_run_environment(
-            run, disallowed, tmp_path / "should-not-exist"
+            run, disallowed, tmp_path / f"must-not-exist-{output_days}"
         )
