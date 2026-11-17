@@ -71,7 +71,10 @@ async function pollJob() {
     const info = await response.json();
     jobDetails.textContent = JSON.stringify(info, null, 2);
     jobState.textContent = `任务 ${info.run_id}: ${info.phase} · 物理状态 ${info.physical?.status ?? 'PENDING'} · 科学派生 ${info.analysis_status ?? 'NOT_STARTED'}`;
-    if (['COMPLETED','COLLISION','FAILED','CANCELLED','CANCELLED_BEFORE_START','PAUSED','WORKER_ERROR'].includes(info.phase)) {
+    if (
+      ['COMPLETED','COLLISION','FAILED','CANCELLED','CANCELLED_BEFORE_START','PAUSED','WORKER_ERROR'].includes(info.phase)
+      && !['QUEUED','RUNNING'].includes(info.analysis_status)
+    ) {
       clearInterval(pollHandle);
       pollHandle = null;
       loadRuns();
