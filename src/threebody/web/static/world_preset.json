@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.4.1",
+  "schema_version": "0.4.2",
   "experiment": {
     "id": "web-worldset",
     "seed": 20261117,
@@ -12,7 +12,7 @@
     },
     "generator": {
       "type": "stochastic_conics",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "stars": {
         "mass_solar": {
           "min": 0.3,
