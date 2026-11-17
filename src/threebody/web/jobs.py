@@ -5,12 +5,14 @@ No worker writes to a run concurrently with another worker in this process.
 """
 from __future__ import annotations
 
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from threebody.common.json import write_json_atomic
 from threebody.errors import ConfigError
 from threebody.physics.longrun.archive import (
     SingleWriterLock,
@@ -55,6 +57,51 @@ class LocalRunController:
                     job.phase = "PAUSE_REQUESTED"
         self._executor.shutdown(wait=True, cancel_futures=False)
 
+    def _analysis_record_path(self, run_id: str) -> Path:
+        return self.root / "analysis_status" / f"{run_id}.json"
+
+    def _save_analysis(self, job: _Job) -> None:
+        directory = self.root / "analysis_status"
+        if directory.is_symlink():
+            raise ConfigError("unsafe analysis status directory")
+        directory.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(self._analysis_record_path(job.run_id), {
+            "schema_version": "web_analysis_status_v1",
+            "run_id": job.run_id,
+            "analysis_status": job.analysis_status,
+            "analysis": job.analysis,
+            "analysis_error": job.analysis_error,
+        })
+
+    def _load_analysis(self, job: _Job) -> None:
+        path = self._analysis_record_path(job.run_id)
+        if path.is_symlink() or not path.is_file():
+            return
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            if (
+                record.get("schema_version") != "web_analysis_status_v1"
+                or record.get("run_id") != job.run_id
+            ):
+                return
+            status = record.get("analysis_status")
+            if status in {"QUEUED", "RUNNING"}:
+                status = "INTERRUPTED"
+            if status not in {
+                "COMPLETED", "PARTIAL", "FAILED", "INTERRUPTED",
+                "DEFERRED_SHUTDOWN",
+            }:
+                return
+            job.analysis_status = status
+            result = record.get("analysis")
+            job.analysis = result if isinstance(result, dict) else None
+            error = record.get("analysis_error")
+            job.analysis_error = error if isinstance(error, str) else None
+        except (OSError, ValueError, TypeError):
+            # Diagnostic status never supersedes the authoritative M5A manifest.
+            job.analysis_status = "INTERRUPTED"
+            job.analysis_error = "分析状态记录不可读取；请重新验证科学数据"
+
     def _summary(self, job: _Job) -> dict[str, Any]:
         directory = self.root / job.run_id
         physical: dict[str, Any] | None = None
@@ -78,6 +125,18 @@ class LocalRunController:
             "analysis": job.analysis,
             "analysis_error": job.analysis_error,
             "physical": physical,
+            "artifacts_present": {
+                "thermal": (
+                    (self.root / "environments" / job.run_id / "long_environment_manifest.json")
+                    .is_file()
+                    and not (self.root / "environments" / job.run_id).is_symlink()
+                ),
+                "outcome": (
+                    (self.root / "outcomes" / job.run_id / "long_outcome_manifest.json")
+                    .is_file()
+                    and not (self.root / "outcomes" / job.run_id).is_symlink()
+                ),
+            },
             "control_semantics": "requests take effect at a committed segment boundary",
         }
 
@@ -94,7 +153,9 @@ class LocalRunController:
         manifest = load_run_manifest(directory)
         archived = manifest.task.status
         phase = "RECOVERY_REQUIRED" if archived == "RUNNING" else archived
-        return _Job(run_id, phase=phase)
+        job = _Job(run_id, phase=phase)
+        self._load_analysis(job)
+        return job
 
     def status(self, run_id: str) -> dict[str, Any]:
         with self._mutex:
@@ -120,6 +181,7 @@ class LocalRunController:
                 return self._summary(job)
             job.analysis_status = "QUEUED"
             job.analysis_error = None
+            self._save_analysis(job)
             self._executor.submit(self._postprocess, run_id)
             return self._summary(job)
 
@@ -182,6 +244,7 @@ class LocalRunController:
     def _postprocess(self, run_id: str) -> None:
         with self._mutex:
             self._jobs[run_id].analysis_status = "RUNNING"
+            self._save_analysis(self._jobs[run_id])
         try:
             analysis = derive_run_science(self.root, run_id)
             with self._mutex:
@@ -191,11 +254,13 @@ class LocalRunController:
                     "PARTIAL" if analysis["thermal"].startswith("UNAVAILABLE:")
                     else "COMPLETED"
                 )
+                self._save_analysis(job)
         except Exception as exc:
             with self._mutex:
                 job = self._jobs[run_id]
                 job.analysis_status = "FAILED"
                 job.analysis_error = f"{type(exc).__name__}: {exc}"
+                self._save_analysis(job)
 
     def _worker(
         self,
@@ -233,8 +298,10 @@ class LocalRunController:
                         ):
                             if self._closing:
                                 job.analysis_status = "DEFERRED_SHUTDOWN"
+                                self._save_analysis(job)
                             else:
                                 job.analysis_status = "QUEUED"
+                                self._save_analysis(job)
                                 self._executor.submit(self._postprocess, run_id)
                         return
                     if requested == "PAUSE_REQUESTED":
