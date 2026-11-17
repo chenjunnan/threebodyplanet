@@ -237,10 +237,16 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         except (FileNotFoundError, KeyError):
             self._json(HTTPStatus.NOT_FOUND, {"error": "run_not_found"})
         except (ConfigError, ValidationError, ValueError, TypeError) as exc:
-            self._json(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"error": "invalid_request", "message": str(exc)},
-            )
+            if path == "/api/v1/experiments/validate":
+                self._json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"valid": False, "errors": [{"message": str(exc)}]},
+                )
+            else:
+                self._json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"error": "invalid_request", "message": str(exc)},
+                )
 
     def log_message(self, format: str, *args: Any) -> None:
         return
