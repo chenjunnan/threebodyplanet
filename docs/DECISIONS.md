@@ -145,3 +145,20 @@
   retained as the existing terminal t=0 outcome only when all other active bounds also pass. The M2
   guard remains unchanged and rejects every initial contact before IAS15.
 
+## P0-M5A-01 — 2026-11-17
+
+- Long-run contracts use schema `0.6.0` without changing M2 `0.2.0` archives or commands. The only
+  authoritative physical clock is absolute REBOUND `simulation.t` in SI seconds; segment indices,
+  output indices, wall-clock quotas and display speed are separate concepts.
+- Output and segment times are calculated from global integer indices through decimal arithmetic, not
+  repeated float addition. Segment zero owns the start sample; later segments exclude their left boundary
+  so logical trajectory samples remain strictly increasing.
+- Physics, deterministic schedule and execution policy have separate SHA-256 domains. Changing a wall
+  quota does not masquerade as a physics change; changing output cadence or physical segment boundaries
+  is resume-incompatible.
+- Task state transitions are explicit and idempotent. `CANCELLED`, `COLLISION` and `FAILED` are distinct
+  terminal states; no terminal state can return to `RUNNING`.
+- A real REBOUND 4.6.0 experiment confirmed exact binary phase-space continuation on the tested platform,
+  while also confirming Python callbacks are not serialized and must be reattached with external observer
+  state. M5A-01 defines that state contract but does not yet claim a working production resume command.
+

@@ -1,0 +1,36 @@
+schema_version: "0.6.0"
+backend: rebound_ias15
+time:
+  start_time_s: 0.0
+  end_time_s: 3155760000.0
+  output_interval_s: 86400.0
+segmentation:
+  simulated_duration_s: 31557600.0
+checkpoint:
+  simulation_interval_s: 2592000.0
+  wall_interval_s: 300.0
+  retain_count: 3
+resources:
+  max_wall_seconds_per_invocation: 3600.0
+  max_segments: 200
+  max_samples: 100000
+  max_checkpoint_bytes: 1073741824
+resume:
+  require_same_rebound_version: true
+  require_same_platform: true
+  verify_all_committed_hashes: true
+epsilon: 1.0e-9
+collision:
+  mode: terminate
+encounter:
+  enabled: true
+  threshold_mode: radius_multiple
+  radius_multiplier: 5.0
+escape:
+  enabled: true
+  boundary_radius_m: 1.0e+14
+  require_outward_velocity: true
+  require_positive_specific_energy: true
+  minimum_duration_s: 86400.0
+require_positive_radius: false
+softening_m: 0.0
