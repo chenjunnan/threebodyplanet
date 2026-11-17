@@ -180,7 +180,9 @@ def test_real_browser_world_3d_drag_science_and_report():
         }""")
         assert rejected
         toggle=page.locator("#enable-webgl")
-        toggle.check()
+        # A host without WebGL2 intentionally unchecks itself and falls back;
+        # Playwright .check() would incorrectly treat that as a test failure.
+        toggle.click()
         if toggle.is_checked():
             assert page.locator("#orbit-webgl").is_visible()
             glcanvas=page.locator("#orbit-webgl")
