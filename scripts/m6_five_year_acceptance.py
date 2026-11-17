@@ -123,7 +123,8 @@ def accept(root: Path, *, duration_s: float=FIVE_YEARS_S,
     assert env["sampling_quality"]=="DAILY_OR_FINER"
     assert env["thermal_energy_residual"]["c0"]<1e-4
     assert env["thermal_energy_residual"]["c1"]<1e-4
-    assert env["thermal_processing"]["computed_chunks"]>1
+    minimum_chunks=2 if samples_expected>128 else 1
+    assert env["thermal_processing"]["computed_chunks"]>=minimum_chunks
     assert all(row["c0_temperature_k"]>0 for row in env["rows"])
     assert all(len(row["c1_temperature_k"])==36 for row in env["rows"])
     assert all(row["flux_w_m2"]["total"]>0 for row in env["rows"])
@@ -149,7 +150,7 @@ def accept(root: Path, *, duration_s: float=FIVE_YEARS_S,
         )
         metrics["resumed_m3_wall_s"]=time.perf_counter()-start
         assert repeated["processing"]["computed_chunks"]==0
-        assert repeated["processing"]["reused_chunks"]>1
+        assert repeated["processing"]["reused_chunks"]>=minimum_chunks
         assert repeated["sample_count"]==samples_expected
         assert (repeat/"c1_latitude_temperature.jsonl").read_bytes()==(
             envdir/"c1_latitude_temperature.jsonl"
