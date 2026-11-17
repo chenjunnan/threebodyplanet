@@ -42,11 +42,13 @@ class LocalRunController:
         self._mutex = threading.RLock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="threebody-m5b")
         self._jobs: dict[str, _Job] = {}
+        self._closing = False
 
     def close(self) -> None:
         # Request a safe boundary stop before waiting for any in-flight segment.
         # Never kill IAS15 while writing a checkpoint or a segment.
         with self._mutex:
+            self._closing = True
             for job in self._jobs.values():
                 if job.phase in {"QUEUED", "RUNNING", "PAUSE_REQUESTED"}:
                     job.requested = "PAUSE_REQUESTED"
@@ -79,11 +81,46 @@ class LocalRunController:
             "control_semantics": "requests take effect at a committed segment boundary",
         }
 
+    def _recover_visible_job(self, run_id: str) -> _Job:
+        if not isinstance(run_id, str) or run_id in {".", ".."}:
+            raise KeyError(run_id)
+        from threebody.web.comparison import RUN_ID
+
+        if not RUN_ID.fullmatch(run_id):
+            raise KeyError(run_id)
+        directory = self.root / run_id
+        if directory.is_symlink() or not directory.is_dir():
+            raise KeyError(run_id)
+        manifest = load_run_manifest(directory)
+        archived = manifest.task.status
+        phase = "RECOVERY_REQUIRED" if archived == "RUNNING" else archived
+        return _Job(run_id, phase=phase)
+
     def status(self, run_id: str) -> dict[str, Any]:
         with self._mutex:
             job = self._jobs.get(run_id)
             if job is None:
-                raise KeyError(run_id)
+                job = self._recover_visible_job(run_id)
+                self._jobs[run_id] = job
+            return self._summary(job)
+
+    def analyze(self, run_id: str) -> dict[str, Any]:
+        with self._mutex:
+            if self._closing:
+                raise ConfigError("server is shutting down")
+            job = self._jobs.get(run_id)
+            if job is None:
+                job = self._recover_visible_job(run_id)
+                self._jobs[run_id] = job
+            if load_run_manifest(self.root / run_id).task.status not in {
+                "COMPLETED", "COLLISION"
+            }:
+                raise ConfigError("only physically terminal archives may be analyzed")
+            if job.analysis_status in {"QUEUED", "RUNNING"}:
+                return self._summary(job)
+            job.analysis_status = "QUEUED"
+            job.analysis_error = None
+            self._executor.submit(self._postprocess, run_id)
             return self._summary(job)
 
     def _register(self, run_id: str) -> None:
@@ -97,6 +134,8 @@ class LocalRunController:
         self, run_id: str, state: WorldInitialState, settings: LongRunSettings
     ) -> dict[str, Any]:
         with self._mutex:
+            if self._closing:
+                raise ConfigError("server is shutting down")
             if (self.root / run_id).exists():
                 raise ConfigError("run_id already exists; never overwrite an archive")
             self._register(run_id)
@@ -108,8 +147,10 @@ class LocalRunController:
             directory = self.root / run_id
             if directory.is_symlink() or not directory.is_dir():
                 raise FileNotFoundError(run_id)
-            if load_run_manifest(directory).task.status != "PAUSED":
-                raise ConfigError("only safely PAUSED runs may resume from the Web")
+            if self._closing:
+                raise ConfigError("server is shutting down")
+            if load_run_manifest(directory).task.status not in {"PAUSED", "RUNNING"}:
+                raise ConfigError("only PAUSED or interrupted RUNNING runs may resume")
             self._register(run_id)
             self._executor.submit(self._worker, run_id, None, None)
             return self._summary(self._jobs[run_id])
@@ -190,8 +231,11 @@ class LocalRunController:
                             scientific_status in {"COMPLETED", "COLLISION"}
                             and (self.root / run_id / "long_run_manifest.json").is_file()
                         ):
-                            job.analysis_status = "QUEUED"
-                            self._executor.submit(self._postprocess, run_id)
+                            if self._closing:
+                                job.analysis_status = "DEFERRED_SHUTDOWN"
+                            else:
+                                job.analysis_status = "QUEUED"
+                                self._executor.submit(self._postprocess, run_id)
                         return
                     if requested == "PAUSE_REQUESTED":
                         job.phase = "PAUSED"
