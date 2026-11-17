@@ -8,7 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict
 
-from threebody.common.constants import M_EARTH_KG, M_SUN_KG, G
+from threebody.common.constants import M_EARTH_KG, M_SUN_KG, R_SUN_M, G
 from threebody.config.models import (
     BoundedStochasticConicsGeneratorConfig,
     ScalarDistributionConfig,
@@ -425,7 +425,11 @@ def generate_stochastic_state(
     density = _sample(config.planet.density_kg_m3, rng(111))
     with np.errstate(over="ignore", invalid="ignore"):
         masses = np.concatenate((star_solar * M_SUN_KG, [planet_earth * M_EARTH_KG]))
-        star_radii = np.asarray([main_sequence_properties(float(m))[0] for m in star_solar])
+        star_radii = (
+            np.asarray([main_sequence_properties(float(m))[0] for m in star_solar])
+            if config.version == "0.4.2"
+            else R_SUN_M * np.power(star_solar, 0.8)
+        )
         planet_radius = (3.0 * masses[3] / (4.0 * math.pi * density)) ** (1.0 / 3.0)
     radii = np.concatenate((star_radii, [planet_radius]))
     if not np.all(np.isfinite(masses)) or not np.all(np.isfinite(radii)):
@@ -508,9 +512,13 @@ def generate_stochastic_state(
     if not np.all(np.isfinite(positions)) or not np.all(np.isfinite(velocities)):
         raise GenerationError("NONFINITE_FINAL_STATE", "final barycentric state is non-finite")
 
-    luminosities = np.asarray(
-        [main_sequence_properties(float(m))[1] for m in star_solar], dtype=np.float64
-    )
+    if config.version == "0.4.2":
+        luminosities = np.asarray(
+            [main_sequence_properties(float(m))[1] for m in star_solar], dtype=np.float64
+        )
+    else:
+        with np.errstate(over="ignore", invalid="ignore"):
+            luminosities = np.power(star_solar, 3.5) * 3.828e26
     if not np.all(np.isfinite(luminosities)):
         raise GenerationError(
             "UNREPRESENTABLE_PHYSICAL_SAMPLE", "sampled luminosity exceeds float64 range"
@@ -518,23 +526,34 @@ def generate_stochastic_state(
     properties: list[dict[str, Any]] = [
         {
             "luminosity_w": float(luminosity),
-            "mass_luminosity_model": "piecewise_main_sequence_0p3_8_v1",
+            "mass_luminosity_model": (
+                "piecewise_main_sequence_0p3_8_v1"
+                if config.version == "0.4.2" else "power_3.5_v1"
+            ),
         }
         for luminosity in luminosities
     ]
-    # Spin axes are sampled on distinct deterministic random streams, independent of
-    # the orbital random draws. Define obliquity against the generated planet orbit.
-    orbital_normal = np.cross(planet_relative.position_m, planet_relative.velocity_mps)
-    orbital_normal /= np.linalg.norm(orbital_normal)
-    for index, star_properties in enumerate(properties):
-        period = float(rng(700 + index).uniform(1.0, 30.0)) * 86400.0
-        star_properties.update(_spin_properties(rng(710 + index), orbital_normal, period))
-    planet_properties: dict[str, Any] = {
-        "mean_density_kg_m3": density,
-        "composition_profile_id": "rocky_mean_v1",
-    }
-    planet_properties.update(_spin_properties(rng(720), orbital_normal, 86400.0))
-    properties.append(planet_properties)
+    if config.version == "0.4.2":
+        # New random streams do not perturb the historical orbit draws.
+        orbital_normal = np.cross(
+            planet_relative.position_m, planet_relative.velocity_mps
+        )
+        orbital_normal /= np.linalg.norm(orbital_normal)
+        for index, star_properties in enumerate(properties):
+            period = float(rng(700 + index).uniform(1.0, 30.0)) * 86400.0
+            star_properties.update(
+                _spin_properties(rng(710 + index), orbital_normal, period)
+            )
+        planet_properties: dict[str, Any] = {
+            "mean_density_kg_m3": density,
+            "composition_profile_id": "rocky_mean_v1",
+        }
+        planet_properties.update(_spin_properties(rng(720), orbital_normal, 86400.0))
+        properties.append(planet_properties)
+    else:
+        properties.append(
+            {"mean_density_kg_m3": density, "composition_profile_id": "rocky_mean_v1"}
+        )
     bodies = tuple(
         CelestialBody(
             id=f"star-{index + 1}" if index < 3 else "planet-1",
