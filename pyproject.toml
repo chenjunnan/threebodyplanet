@@ -27,7 +27,7 @@ threebody = "threebody.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-threebody = ["resources/presets/*.yaml"]
+threebody = ["resources/presets/*.yaml", "web/static/*.html", "web/static/*.js", "web/static/*.css", "web/static/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

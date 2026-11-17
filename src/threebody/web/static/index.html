@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>三体星 · 科学归档台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div><span class="eyebrow">THREE BODY PLANET / M5B</span><h1>科学归档台</h1></div>
+    <span class="badge">只读原型</span>
+  </header>
+  <main>
+    <section class="hero">
+      <div><p class="kicker">SERVER-AUTHORITATIVE SCIENCE</p><h2>观察已提交的世界，<br>不伪造控制状态。</h2></div>
+      <p>物理时间始终来自服务端归档中的 SI 秒。播放速度不会改变 IAS15 积分速度；本原型没有暂停、恢复或碰撞后继续按钮。</p>
+    </section>
+    <section class="grid">
+      <article class="panel runs"><div class="panel-head"><div><span class="index">01</span><h3>运行归档</h3></div><button id="refresh">刷新</button></div><div id="runs" class="run-list"><p class="muted">读取中…</p></div></article>
+      <article class="panel validator"><div class="panel-head"><div><span class="index">02</span><h3>配置验证</h3></div><span>JSON / 严格后端校验</span></div><textarea id="config" spellcheck="false" aria-label="实验配置 JSON">{
+  "schema_version": "0.1.0"
+}</textarea><div class="actions"><button id="validate" class="primary">提交验证</button><span id="validation-state" class="muted">不会保存或运行</span></div><pre id="validation"></pre></article>
+    </section>
+  </main>
+  <footer><span>LOCAL · SINGLE USER</span><span>REBOUND t<sub>s</sub> ≠ DISPLAY TIME</span></footer>
+  <script src="/app.js" defer></script>
+</body>
+</html>
