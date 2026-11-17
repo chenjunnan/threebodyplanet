@@ -204,7 +204,10 @@ def solve_resumable_thermal(
                 or [p.t_s for p in samples] != times_s[start:end+1]):
                 raise ConfigError("thermal checkpoint sample grid mismatch")
             if aggregate:
-                if samples[0].temperature_k != aggregate[-1].temperature_k:
+                if not np.array_equal(
+                    np.asarray(samples[0].temperature_k),
+                    np.asarray(aggregate[-1].temperature_k),
+                ):
                     raise ConfigError("thermal checkpoint temperature continuity violated")
                 aggregate.extend(samples[1:])
             else:
