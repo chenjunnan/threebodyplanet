@@ -70,8 +70,11 @@ async function pollJob() {
     if (!response.ok) throw new Error('当前进程没有该任务的活动记录');
     const info = await response.json();
     jobDetails.textContent = JSON.stringify(info, null, 2);
-    jobState.textContent = `任务 ${info.run_id}: ${info.phase} · 物理状态 ${info.physical?.status ?? 'PENDING'}`;
-    if (['COMPLETED','COLLISION','FAILED','CANCELLED','CANCELLED_BEFORE_START','PAUSED','WORKER_ERROR'].includes(info.phase)) {
+    jobState.textContent = `任务 ${info.run_id}: ${info.phase} · 物理状态 ${info.physical?.status ?? 'PENDING'} · 科学派生 ${info.analysis_status ?? 'NOT_STARTED'}`;
+    if (
+      ['COMPLETED','COLLISION','FAILED','CANCELLED','CANCELLED_BEFORE_START','PAUSED','WORKER_ERROR'].includes(info.phase)
+      && !['QUEUED','RUNNING'].includes(info.analysis_status)
+    ) {
       clearInterval(pollHandle);
       pollHandle = null;
       loadRuns();
@@ -532,3 +535,67 @@ orbitCanvas.addEventListener('wheel',event=>{
   orbitZoom=Math.max(.12,Math.min(15,orbitZoom*Math.exp(event.deltaY*.001)));
   orbitDraw();
 },{passive:false});
+
+/* Bounded immutable science comparison, explicitly displaying missing evidence. */
+function selectedComparisonIds() {
+  const ids=document.querySelector('#comparison-run-ids').value.split(',')
+    .map(s=>s.trim()).filter(Boolean);
+  if(!ids.length||ids.length>8||new Set(ids).size!==ids.length) {
+    throw Error('请填写1~8个不重复的运行ID');
+  }
+  return ids;
+}
+async function fetchScienceComparison(report=false) {
+  const ids=selectedComparisonIds();
+  const path='/api/v1/experiments/'+(report?'report':'compare')+
+    '?runs='+encodeURIComponent(ids.join(','));
+  const response=await fetch(path);
+  const data=await response.json();
+  if(!response.ok)throw Error(data.message||data.error||'科学归档验证失败');
+  return data;
+}
+document.querySelector('#compare-runs').addEventListener('click',async()=>{
+  const status=document.querySelector('#comparison-status');
+  const results=document.querySelector('#comparison-results');
+  status.textContent='校验M5A/M3/M4来源哈希及物理归档中…';
+  results.replaceChildren();
+  try {
+    const report=await fetchScienceComparison();
+    const table=document.createElement('table');
+    const header=document.createElement('tr');
+    for(const h of ['运行ID','世界ID','动力学状态','物理时间(s)','样本数','环境/结局']){
+      const th=document.createElement('th');th.textContent=h;header.append(th);
+    }
+    table.append(header);
+    for(const entry of report.runs){
+      const tr=document.createElement('tr');
+      for(const text of [
+        entry.run_id, entry.world_id, entry.status,
+        String(entry.simulation_time_s), String(entry.trajectory_samples),
+        entry.classification?.environmental_outcomes?.join('、')||
+          entry.science_data_status+'（温度/分类可能缺失）'
+      ]) {
+        const td=document.createElement('td');td.textContent=text;tr.append(td);
+      }
+      table.append(tr);
+    }
+    results.append(table);
+    status.textContent='已验证'+report.runs.length+
+      '个真实归档 · 来源摘要 '+report.comparison_sha256.slice(0,16)+'…';
+  } catch(error){status.textContent='比较失败：'+error.message;}
+});
+document.querySelector('#download-report').addEventListener('click',async()=>{
+  const status=document.querySelector('#comparison-status');
+  try {
+    const report=await fetchScienceComparison(true);
+    const payload=JSON.stringify(report,null,2);
+    const blob=new Blob([payload],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    try {
+      const link=document.createElement('a');
+      link.href=url;link.download='threebody-science-report.json';
+      document.body.append(link);link.click();link.remove();
+    } finally {URL.revokeObjectURL(url);}
+    status.textContent='科学报告已由浏览器发起保存；仅含已验证归档与显式缺失字段。';
+  }catch(error){status.textContent='报告生成失败：'+error.message;}
+});

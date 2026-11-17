@@ -44,6 +44,18 @@
   "schema_version": "0.1.0"
 }</textarea><div class="actions"><button id="validate" class="primary">提交验证</button><span id="validation-state" class="muted">不会保存或运行</span></div><pre id="validation"></pre></article>
     </section>
+    <section class="panel experiment-comparison" aria-labelledby="comparison-heading">
+      <div class="panel-head"><div><span class="index">05</span><h3 id="comparison-heading">多世界科学比较与导出</h3></div><span>不可变 M5A/M3/M4 · 可追溯</span></div>
+      <p>填写1至8个已归档运行ID，用逗号分隔。缺失温度和结局将明确标为未计算；报告只包含真实计算记录。</p>
+      <label for="comparison-run-ids">运行ID（逗号分隔）</label>
+      <input id="comparison-run-ids" value="" placeholder="world-001,world-002">
+      <div class="actions">
+        <button id="compare-runs" class="primary">比较世界</button>
+        <button id="download-report">导出JSON科学报告</button>
+      </div>
+      <p id="comparison-status" role="status">选择已完成运行后开始比较。</p>
+      <div id="comparison-results" class="comparison-results"></div>
+    </section>
     <section class="panel task" aria-labelledby="task-heading">
       <div class="panel-head"><div><span class="index">03</span><h3 id="task-heading">真实长期模拟任务</h3></div><span>单机 · 单用户 · 安全分段</span></div>
       <p>先使用命令行生成一个四体初始状态，将其 JSON 粘贴在下面，并提供 M5A 的已解析配置 JSON。后台仅执行真正的 IAS15 分段积分。</p>
@@ -83,7 +95,7 @@
       <input id="orbit-time" type="range" min="0" max="0" value="0" step="1">
       <section class="thermal-panels" aria-labelledby="thermal-heading">
         <h3 id="thermal-heading">恒星辐射与行星温度（真实派生归档）</h3>
-        <p id="environment-status">尚未载入热模型。需要先运行 thermal-long 生成来源匹配的派生归档。</p>
+        <p id="environment-status">热模型将在真实积分完成后自动尝试派生；超过计算预算时将标注不可用。</p>
         <canvas id="flux-canvas" width="940" height="220" aria-label="三颗恒星及总辐射时间曲线"></canvas>
         <canvas id="c0-canvas" width="940" height="180" aria-label="全球C0温度随物理时间变化"></canvas>
         <canvas id="c1-canvas" width="940" height="240" aria-label="C1纬度温度时空分布"></canvas>
@@ -91,7 +103,7 @@
       </section>
       <section class="world-outcome-panel" aria-labelledby="m4-heading">
         <h3 id="m4-heading">长期世界结局 · M4科学分类</h3>
-        <p id="m4-outcome-summary">未找到来源匹配的长期M4分类归档；缺失信息不等于环境温和。</p>
+        <p id="m4-outcome-summary">积分完成后自动尝试计算M4结局；缺失信息不等于环境温和。</p>
       </section>
       <div class="observe-bottom">
         <div><label for="orbit-events">事件跳转</label><select id="orbit-events"><option value="">无已载入事件</option></select></div>

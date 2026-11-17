@@ -19,6 +19,7 @@ from threebody.physics.longrun.archive import (
 )
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.physics.longrun.runner import resume_long_run, start_long_run
+from threebody.web.pipeline import derive_run_science
 from threebody.world.models import WorldInitialState
 
 
@@ -28,6 +29,9 @@ class _Job:
     phase: str = "QUEUED"
     requested: str | None = None
     error: str | None = None
+    analysis_status: str = "NOT_STARTED"
+    analysis: dict[str, str] | None = None
+    analysis_error: str | None = None
 
 
 class LocalRunController:
@@ -68,6 +72,9 @@ class LocalRunController:
             "phase": job.phase,
             "requested": job.requested,
             "error": job.error,
+            "analysis_status": job.analysis_status,
+            "analysis": job.analysis,
+            "analysis_error": job.analysis_error,
             "physical": physical,
             "control_semantics": "requests take effect at a committed segment boundary",
         }
@@ -131,6 +138,24 @@ class LocalRunController:
         with SingleWriterLock(directory, run_id) as lock:
             set_task_status(directory, "CANCELLED", lock_token=lock.token)
 
+    def _postprocess(self, run_id: str) -> None:
+        with self._mutex:
+            self._jobs[run_id].analysis_status = "RUNNING"
+        try:
+            analysis = derive_run_science(self.root, run_id)
+            with self._mutex:
+                job = self._jobs[run_id]
+                job.analysis = analysis
+                job.analysis_status = (
+                    "PARTIAL" if analysis["thermal"].startswith("UNAVAILABLE:")
+                    else "COMPLETED"
+                )
+        except Exception as exc:
+            with self._mutex:
+                job = self._jobs[run_id]
+                job.analysis_status = "FAILED"
+                job.analysis_error = f"{type(exc).__name__}: {exc}"
+
     def _worker(
         self,
         run_id: str,
@@ -161,6 +186,12 @@ class LocalRunController:
                     scientific_status = result.manifest.task.status
                     if scientific_status in {"COMPLETED", "COLLISION", "FAILED", "CANCELLED"}:
                         job.phase = scientific_status
+                        if (
+                            scientific_status in {"COMPLETED", "COLLISION"}
+                            and (self.root / run_id / "long_run_manifest.json").is_file()
+                        ):
+                            job.analysis_status = "QUEUED"
+                            self._executor.submit(self._postprocess, run_id)
                         return
                     if requested == "PAUSE_REQUESTED":
                         job.phase = "PAUSED"

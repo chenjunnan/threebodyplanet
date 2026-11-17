@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from threebody.config.loader import resolve_mapping
 from threebody.errors import ConfigError
 from threebody.physics.longrun.models import LongRunSettings
+from threebody.web.comparison import compare_runs
 from threebody.web.jobs import LocalRunController
 from threebody.web.outcome_science import read_long_outcome
 from threebody.web.science import query_events, query_trajectory
@@ -168,6 +169,22 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/v1/worldsets":
                 self._json(HTTPStatus.OK, {"worldsets": list_worldsets(self.artifact_root)})
+                return
+            if path in {"/api/v1/experiments/compare", "/api/v1/experiments/report"}:
+                params = parse_qs(
+                    parts.query, keep_blank_values=True, strict_parsing=True,
+                )
+                if set(params) != {"runs"} or len(params["runs"]) != 1:
+                    raise ValueError("required query: runs=id1,id2 (up to eight)")
+                ids = params["runs"][0].split(",")
+                result = compare_runs(self.artifact_root, ids)
+                if path.endswith("/report"):
+                    result = {
+                        **result,
+                        "report_type": "M5B_VERIFIED_SCIENCE_EXPORT",
+                        "read_only": True,
+                    }
+                self._json(HTTPStatus.OK, result)
                 return
             if path == "/api/v1/runs":
                 self._json(HTTPStatus.OK, {"runs": list_runs(self.artifact_root)})
