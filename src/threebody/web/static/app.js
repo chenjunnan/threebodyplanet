@@ -126,6 +126,7 @@ const orbitEvents = document.querySelector('#orbit-events');
 let orbitSamples = [], orbitEventItems = [], orbitIndex = 0, orbitAzimuth = .6, orbitAltitude = .35;
 let linkedThermal = null;
 let orbitTimer = null;
+let orbitZoom = 1;
 const orbitIds = ['star-1','star-2','star-3','planet-1'];
 const orbitColors = ['#f3a44a','#e27459','#8bb7ff','#d7e9dc'];
 
@@ -147,7 +148,7 @@ function orbitDraw() {
   const points=orbitSamples.flatMap(s=>orbitIds.map(id=>s.positions_m[id]));
   const center=[0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
   const extent=Math.max(1,...points.map(p=>Math.hypot(...p.map((v,k)=>v-center[k]))));
-  const scale=extent/(Math.min(w,h)*.40);
+  const scale=extent/(Math.min(w,h)*.40)*orbitZoom;
   orbitIds.forEach((id,bi)=>{
     ctx.beginPath(); ctx.lineWidth=id==='planet-1'?1.6:1.2;
     ctx.strokeStyle=orbitColors[bi];
@@ -369,3 +370,126 @@ function renderThermal(){
     Math.abs(t-nearest.t_s).toPrecision(4)+'s · 未推算缺失时间';
 }
 renderThermal();
+
+/* Editable, reproducible G2.1 candidate generation and real IAS15 world launch. */
+let worldPreset=null, worldBatch=null, worldChoice=null;
+const worldStatus=document.querySelector('#world-generator-status');
+const worldGallery=document.querySelector('#world-candidates');
+const worldStart=document.querySelector('#world-start');
+const worldStartStatus=document.querySelector('#world-start-status');
+async function loadWorldPreset(){
+  try {
+    const response=await fetch('/api/v1/worlds/preset');
+    if(!response.ok)throw Error('服务端未提供默认生成参数');
+    worldPreset=await response.json();
+    document.querySelector('#world-advanced-config').value=JSON.stringify(worldPreset,null,2);
+    worldStatus.textContent='G2.1科学配置已加载；随机生成仅设置初态，不预设演化结局。';
+  } catch(error){worldStatus.textContent='配置载入失败：'+error.message;}
+}
+function worldConfiguration(){
+  const text=document.querySelector('#world-advanced-config').value;
+  const config=JSON.parse(text);
+  const seed=Number(document.querySelector('#world-seed').value);
+  const count=Number(document.querySelector('#world-count').value);
+  const mode=document.querySelector('#world-mode').value;
+  if(!Number.isSafeInteger(seed)||seed<0||seed>4294967295)throw Error('随机种子不合法');
+  if(!Number.isSafeInteger(count)||count<1||count>20)throw Error('候选数量必须在1~20');
+  const constraints=config.world_generation.generator.initial_constraints;
+  const speed=Number(document.querySelector('#world-max-speed').value);
+  const distance=Number(document.querySelector('#world-max-distance').value);
+  const escapeRatio=Number(document.querySelector('#world-escape-ratio').value);
+  const eccentricity=Number(document.querySelector('#world-eccentricity').value);
+  if(![speed,distance,escapeRatio,eccentricity].every(Number.isFinite)) {
+    throw Error('物理参数必须是有限数值');
+  }
+  config.experiment.seed=seed;config.experiment.candidate_count=count;
+  constraints.mode=mode;
+  constraints.planet_speed.absolute_max_mps=speed*1000;
+  constraints.planet_star_distance_m.max_nearest=distance*149597870700;
+  constraints.planet_speed.escape_speed_fraction_max=escapeRatio;
+  config.world_generation.generator.geometry.planet.eccentricity.max=eccentricity;
+  return {config,count};
+}
+function renderWorldGallery(){
+  worldGallery.replaceChildren();
+  if(!worldBatch)return;
+  for(const candidate of worldBatch.candidates){
+    const button=document.createElement('button');
+    button.type='button';button.className='world-card';
+    button.dataset.index=String(candidate.index);
+    button.disabled=!candidate.can_integrate;
+    if(worldChoice===candidate.index)button.classList.add('selected');
+    const label=document.createElement('strong');
+    label.textContent=candidate.world_id;
+    const status=document.createElement('span');
+    status.textContent=candidate.can_integrate?'可积分 · 可选择':
+      candidate.initial_contact?'初始接触 · 仅归档':
+      candidate.generation_error?'生成失败 · '+candidate.generation_error:
+      '初态物理检查未通过';
+    button.append(label,status);
+    if(candidate.can_integrate){
+      button.addEventListener('click',()=>{
+        worldChoice=candidate.index;
+        worldStart.disabled=false;
+        worldStartStatus.textContent='选中'+candidate.world_id+
+          ' · 将直接使用已归档初态运行真实IAS15';
+        renderWorldGallery();
+      });
+    }
+    worldGallery.append(button);
+  }
+}
+document.querySelector('#world-generate').addEventListener('click',async()=>{
+  try {
+    const payload=worldConfiguration();
+    worldStatus.textContent='生成真实随机初态中…';
+    worldChoice=null;worldBatch=null;worldStart.disabled=true;
+    const result=await apiPost('/api/v1/worldsets',payload);
+    worldBatch=result;renderWorldGallery();
+    worldStatus.textContent='生成完成 · seed='+result.seed+' · '+result.count+
+      '个候选 · 可选择'+result.candidates.filter(c=>c.can_integrate).length+'个';
+  } catch(error){worldStatus.textContent='生成失败：'+error.message;}
+});
+document.querySelector('#world-start').addEventListener('click',async()=>{
+  if(!worldBatch||worldChoice===null)return;
+  try {
+    const id=document.querySelector('#world-run-id').value;
+    const duration_s=Number(document.querySelector('#world-duration').value);
+    const output_interval_s=Number(document.querySelector('#world-sampling').value);
+    worldStartStatus.textContent='提交到真实IAS15后台…';
+    const result=await apiPost('/api/v1/worlds/run',{
+      batch_id:worldBatch.batch_id,candidate_index:worldChoice,
+      run_id:id,duration_s,output_interval_s
+    });
+    worldStartStatus.textContent='运行请求已接受；状态以服务端归档为准。';
+    document.querySelector('#run-id').value=id;
+    document.querySelector('#observe-run-id').value=id;
+    beginPoll(result.run_id);
+  }catch(error){worldStartStatus.textContent='启动失败：'+error.message;}
+});
+loadWorldPreset();
+
+/* 3D scientific orbit camera: drag rotates inertial Cartesian view; wheel zooms. */
+orbitCanvas.style.touchAction='none';
+let dragPoint=null;
+orbitCanvas.addEventListener('pointerdown',event=>{
+  if(event.button!==0)return;
+  dragPoint=[event.clientX,event.clientY];
+  orbitCanvas.setPointerCapture(event.pointerId);
+});
+orbitCanvas.addEventListener('pointermove',event=>{
+  if(!dragPoint)return;
+  const dx=event.clientX-dragPoint[0],dy=event.clientY-dragPoint[1];
+  dragPoint=[event.clientX,event.clientY];
+  orbitAzimuth+=dx*.008;
+  orbitAltitude=Math.max(-1.55,Math.min(1.55,orbitAltitude+dy*.008));
+  orbitDraw();
+});
+for(const kind of ['pointerup','pointercancel','lostpointercapture']){
+  orbitCanvas.addEventListener(kind,()=>{dragPoint=null;});
+}
+orbitCanvas.addEventListener('wheel',event=>{
+  event.preventDefault();
+  orbitZoom=Math.max(.12,Math.min(15,orbitZoom*Math.exp(event.deltaY*.001)));
+  orbitDraw();
+},{passive:false});
