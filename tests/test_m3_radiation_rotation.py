@@ -11,9 +11,9 @@ from threebody.physics.nbody.models import BodyTrajectoryState
 from threebody.physics.rotation.geometry import PlanetRotation
 from threebody.physics.stellar.radiation import (
     StellarRadiation,
-    local_top_of_atmosphere_flux,
-    latitude_band_means_vectorized,
     latitude_band_mean_top_of_atmosphere_flux,
+    latitude_band_means_vectorized,
+    local_top_of_atmosphere_flux,
     zonal_mean_top_of_atmosphere_flux,
 )
 from threebody.physics.thermal.models import RotationSettings
