@@ -60,6 +60,36 @@
     }
     return linked;
   }
+  function validateEvents(trajectory,linked){
+    matchLinkedArchive(trajectory,linked,'events');
+    ensure(Array.isArray(linked?.events)&&linked.events.length<=10000,'invalid event list');
+    ensure(linked.event_count===linked.events.length,'event count mismatch');
+    let previous=-Infinity;
+    const events=linked.events.map(event=>{
+      ensure(event&&typeof event==='object','invalid event record');
+      ensure(Number.isFinite(event.t_s)&&event.t_s>=0&&event.t_s>=previous,'invalid event time');
+      previous=event.t_s;
+      ensure(['COLLISION','CLOSE_ENCOUNTER','ESCAPE_CANDIDATE'].includes(event.event_type),
+        'unknown dynamics event');
+      ensure(Array.isArray(event.body_ids)&&event.body_ids.length>0&&
+        event.body_ids.every(id=>IDS.includes(id))&&
+        new Set(event.body_ids).size===event.body_ids.length,'invalid event bodies');
+      if(event.event_type==='COLLISION'&&trajectory.samples.length){
+        ensure(trajectory.time_end_s<=event.t_s,'trajectory extends beyond collision');
+      }
+      return Object.freeze({...event,body_ids:Object.freeze(event.body_ids.slice())});
+    });
+    return Object.freeze(events);
+  }
+  function eventSample(samples,event){
+    if(!samples.length||!Number.isFinite(event?.t_s)||
+      event.t_s<samples[0].t_s||event.t_s>samples[samples.length-1].t_s)return null;
+    let lo=0,hi=samples.length;
+    while(lo<hi){const mid=(lo+hi)>>1;if(samples[mid].t_s<event.t_s)lo=mid+1;else hi=mid;}
+    const index=lo===0?0:lo===samples.length?lo-1:
+      event.t_s-samples[lo-1].t_s<=samples[lo].t_s-event.t_s?lo-1:lo;
+    return Object.freeze({index,delta_s:Math.abs(samples[index].t_s-event.t_s)});
+  }
   function validateBodyMetadata(trajectory,metadata) {
     ensure(metadata && metadata.schema_version==='m6-3c-body-metadata-v1',
       'unsupported body metadata schema');
@@ -126,7 +156,7 @@
     });
   }
   global.ThreeBodyScienceAdapter=Object.freeze({
-    bodyIds:IDS,validateTrajectory,validateBodyMetadata,matchLinkedArchive,
+    bodyIds:IDS,validateTrajectory,validateEvents,eventSample,validateBodyMetadata,matchLinkedArchive,
     atIndex,positionAt,nearestRealThermal,
   });
 })(window);

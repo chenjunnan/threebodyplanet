@@ -30,10 +30,15 @@
     precision highp float;
     uniform vec3 u_color;
     uniform bool u_sprite;
+    uniform bool u_ring;
     uniform sampler2D u_surface;
     out vec4 fragColor;
     void main(){
-      if(u_sprite){
+      if(u_ring){
+        float r=length(gl_PointCoord*2.0-1.0);
+        if(r<0.85||r>1.0)discard;
+        fragColor=vec4(u_color,1.0);
+      }else if(u_sprite){
         vec4 texel=texture(u_surface,gl_PointCoord);
         if(texel.a<0.5)discard;
         fragColor=texel;
@@ -72,6 +77,7 @@
     const aspectLoc=gl.getUniformLocation(program,'u_aspect');
     const colorLoc=gl.getUniformLocation(program,'u_color');
     const spriteLoc=gl.getUniformLocation(program,'u_sprite');
+    const ringLoc=gl.getUniformLocation(program,'u_ring');
     const surfaceLoc=gl.getUniformLocation(program,'u_surface');
     const textures=IDs.map((id,i)=>{
       const texture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,texture);
@@ -83,8 +89,10 @@
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
       return texture;
     });
-    let showMaterials=true;
-    const buffer=gl.createBuffer();
+    let showMaterials=true,eventIds=[],collisionMarker=false;
+    let uploadedCenter=null;
+    const buffers=IDs.map(()=>gl.createBuffer());
+    const buffer=buffers[0];
     gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
     gl.enableVertexAttribArray(pos);
     gl.vertexAttribPointer(pos,3,gl.FLOAT,false,0,0);
@@ -133,6 +141,7 @@
     },{passive:false});
     function load(samples){
       if(disposed)return;
+      uploadedCenter=null;
       if(!samples.length){normalized=null;sourceCount=0;return;}
       // Rebase large absolute SI positions in Float64 *before* GPU conversion.
       // Fix origin and scene scale across every frame of the selected window.
@@ -212,13 +221,18 @@
       gl.uniform1f(aspectLoc,canvas.width/canvas.height);
       gl.uniform3fv(focusLoc,[0,0,0]);
       const center=focusVector(i);
+      const upload=!uploadedCenter||center.some((v,k)=>v!==uploadedCenter[k]);
       // Zoom adjusts visible scene scale, never source coordinates.
       for(let body=0;body<4;body++){
         const data=normalized.coords[body];
-        gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
-        const rebased=new Float32Array((i+1)*3);
-        for(let n=0;n<rebased.length;n++)rebased[n]=data[n]-center[n%3];
-        gl.bufferData(gl.ARRAY_BUFFER,rebased,gl.DYNAMIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER,buffers[body]);
+        gl.vertexAttribPointer(pos,3,gl.FLOAT,false,0,0);
+        if(upload){
+          const rebased=new Float32Array(data.length);
+          for(let n=0;n<rebased.length;n++)rebased[n]=data[n]-center[n%3];
+          gl.bufferData(gl.ARRAY_BUFFER,rebased,gl.DYNAMIC_DRAW);
+        }
+        gl.uniform1i(ringLoc,0);
         gl.uniform3fv(colorLoc,COLORS[body]);
         gl.uniform1i(spriteLoc,0);
         gl.uniform1f(sizeLoc,1);
@@ -231,7 +245,13 @@
           gl.uniform1f(sizeLoc,body===3?20:(selectedBody===IDs[body]?36:30));
         }
         gl.drawArrays(gl.POINTS,i,1);
+        if(eventIds.includes(IDs[body])){
+          gl.uniform1i(ringLoc,1);gl.uniform1i(spriteLoc,0);
+          gl.uniform3fv(colorLoc,collisionMarker?[1,.4,.52]:[.4,.91,.93]);
+          gl.uniform1f(sizeLoc,48);gl.drawArrays(gl.POINTS,i,1);
+        }
       }
+      uploadedCenter=center;
     }
     function focus(id){
       if(id!==null && !IDs.includes(id))throw new Error('invalid focus body');
@@ -257,12 +277,13 @@
       cameraState(){return {yaw,pitch,zoom};},
       setCamera(state){yaw=state.yaw;pitch=state.pitch;zoom=state.zoom;},
       zoomBy(factor){zoom=Math.max(.12,Math.min(15,zoom*factor));},
+      markEvents(ids,collision){eventIds=ids;collisionMarker=collision;},
       materials(enabled){showMaterials=Boolean(enabled);},
       supported:true,
       dispose(){disposed=true;
         for(const [type,handler,options] of listeners)canvas.removeEventListener(type,handler,options);
         for(const texture of textures)gl.deleteTexture(texture);
-        gl.deleteBuffer(buffer);gl.deleteProgram(program);},
+        for(const buffer of buffers)gl.deleteBuffer(buffer);gl.deleteProgram(program);},
     });
   }
   global.createM63WebGL=create;

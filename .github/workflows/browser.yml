@@ -5,6 +5,7 @@ on:
     paths:
       - 'src/threebody/web/**'
       - 'tests/test_m5b_browser.py'
+      - 'scripts/m63_observer_benchmark.py'
       - 'pyproject.toml'
       - '.github/workflows/browser.yml'
   workflow_dispatch:
@@ -48,3 +49,9 @@ jobs:
           PY
       - name: Real browser science workflow
         run: pytest -q tests/test_m5b_browser.py -m browser
+      - name: Observer graphics benchmark (not scientific integration)
+        run: python scripts/m63_observer_benchmark.py --frames 60 --out /tmp/m63-observer.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m63-observer-graphics-benchmark
+          path: /tmp/m63-observer.json
