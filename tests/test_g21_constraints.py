@@ -100,7 +100,7 @@ def test_unrestricted_mode_keeps_first_draw_despite_impossible_thresholds(g21_re
     state, metadata, _ = generate_initial_state_with_metadata(
         unrestricted.world_generation.generator, config.experiment.seed, 0, digest
     )
-    assert state.generator_version == "0.4.1"
+    assert state.generator_version == config.world_generation.generator.version
     assert metadata.constraint_mode == "unrestricted"
     assert metadata.selected_attempt == 0
     assert metadata.attempt_count == 1
