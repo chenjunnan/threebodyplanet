@@ -130,3 +130,19 @@ textarea { width:100%; min-height:285px; resize:vertical; background:#080c0d; bo
 #c1-sphere {width:256px;max-width:100%;height:auto;display:block;margin:1rem auto;}
 #c1-sphere-legend {border-top:12px solid transparent;border-image:linear-gradient(to right,hsl(240,85%,54%),hsl(180,85%,54%),hsl(120,85%,54%),hsl(60,85%,54%),hsl(0,85%,54%)) 1;text-align:center;}
 #orbit-terminal-status:not(:empty) {border-left:3px solid #ff6685;padding:.75rem;background:#29171d;color:#ffd5dd;}
+
+[hidden] {display:none !important;}
+body {background:#040812;}
+body::before {opacity:.45;background-image:radial-gradient(1px 1px at 17px 31px,#fff 98%,transparent),radial-gradient(1px 1px at 89px 67px,#81a4df 98%,transparent),radial-gradient(1.5px 1.5px at 41px 107px,#efdab2 98%,transparent);background-size:137px 173px,211px 239px,307px 331px;}
+.workspace-nav {display:flex;flex-wrap:wrap;gap:.5rem;padding:1rem;position:sticky;top:0;background:#080d19f5;z-index:5;backdrop-filter:blur(10px);}
+.workspace-nav a {padding:.6rem 1rem;border:1px solid #344353;border-radius:6px;color:#bfcbd9;text-decoration:none;}
+.workspace-nav a[aria-current] {background:#d8e6b0;color:#111;}
+.page-title {font:650 26px system-ui;letter-spacing:0;padding:1.3rem;}
+.hero {padding:2rem;}.hero h2 {font-size:clamp(28px,4vw,46px);}
+.shared-timeline {min-height:0;padding:1rem;}.shared-timeline .actions {margin:0;}
+[data-page] .panel {min-height:0;border:1px solid #293a4b;border-radius:10px;margin-bottom:1rem;}
+#planet-map,#planet-ground {display:block;width:100%;height:auto;margin-top:1rem;background:#040812;}
+#planet-summary {display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin:1rem 0;}
+#planet-summary p {padding:1rem;background:#152030;border-radius:8px;}
+#planet-limitations {margin-top:1rem;color:#c4b995;}
+@media(max-width:780px){.workspace-nav{position:relative;}.workspace-nav a{padding:.4rem;}.world-controls{grid-template-columns:1fr 1fr;}}

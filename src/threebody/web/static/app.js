@@ -222,7 +222,7 @@ const orbitBodySelect=document.querySelector('#orbit-body-select');
 const orbitBodyDetail=document.querySelector('#orbit-body-detail');
 const orbitEventSync=document.querySelector('#orbit-event-sync');
 let linkedBodyMetadata=null,orbitSelectedId=null,orbitFocusId=null;
-let orbitSelectedEvent=null,orbitArchiveStatus=null;
+let orbitSelectedEvent=null,orbitArchiveStatus=null,orbitLoadedRunId=null;
 const eventMarkers=document.querySelector('#event-markers');
 eventMarkers.addEventListener('change',()=>orbitDraw());
 function selectOrbitBody(id){
@@ -346,6 +346,29 @@ function orbitWindowGeometry(){
   for(const p of points)extent=Math.max(extent,Math.hypot(...p.map((v,k)=>v-center[k])));
   orbitGeometry={samples:orbitSamples,center,extent};return orbitGeometry;
 }
+let canvasTrailCache=null;
+function canvasTrails(center,scale,w,h){
+  const key=[orbitAzimuth,orbitAltitude,scale,...center,w,h].join(',');
+  let cache=canvasTrailCache;
+  if(!cache||cache.samples!==orbitSamples||cache.key!==key||orbitIndex<cache.index){
+    const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+    cache={canvas,ctx:canvas.getContext('2d'),samples:orbitSamples,key,index:-1};
+    canvasTrailCache=cache;
+  }
+  if(cache.index!==orbitIndex){
+    for(const [bi,id] of orbitIds.entries()){
+      const ctx=cache.ctx;ctx.beginPath();ctx.lineWidth=id==='planet-1'?1.6:1.2;
+      ctx.strokeStyle=orbitColors[bi];
+      for(let i=Math.max(0,cache.index);i<=orbitIndex;i++){
+        const [x,y]=projectOrbit(orbitSamples[i].positions_m[id],scale,center);
+        if(i===Math.max(0,cache.index))ctx.moveTo(w/2+x,h/2+y);else ctx.lineTo(w/2+x,h/2+y);
+      }
+      ctx.stroke();
+    }
+    cache.index=orbitIndex;
+  }
+  return cache.canvas;
+}
 function activeEventMarker(){
   const event=orbitEventItems[orbitSelectedEvent];
   const match=window.ThreeBodyScienceAdapter.eventSample(orbitSamples,event);
@@ -364,6 +387,7 @@ function activeEventMarker(){
 }
 function orbitDraw() {
   const marker=activeEventMarker();
+  if(document.querySelector('#page-orbit')?.hidden)return;
   if(webglRenderer){
     webglRenderer.markEvents(marker.ids,marker.collision);
     webglRenderer.materials(materialToggle.checked);
@@ -381,14 +405,8 @@ function orbitDraw() {
   const center=orbitFocusId?end.positions_m[orbitFocusId]:geometry.center;
   const extent=geometry.extent;
   const scale=extent/(Math.min(w,h)*.40)*orbitZoom;
+  ctx.drawImage(canvasTrails(center,scale,w,h),0,0);
   orbitIds.forEach((id,bi)=>{
-    ctx.beginPath(); ctx.lineWidth=id==='planet-1'?1.6:1.2;
-    ctx.strokeStyle=orbitColors[bi];
-    orbitSamples.slice(0,orbitIndex+1).forEach((s,i)=>{
-      const [px,py]=projectOrbit(s.positions_m[id],scale,center);
-      const sx=w/2+px, sy=h/2+py;
-      if(i===0)ctx.moveTo(sx,sy);else ctx.lineTo(sx,sy);
-    }); ctx.stroke();
     const [px,py]=projectOrbit(end.positions_m[id],scale,center);
     ctx.beginPath();ctx.fillStyle=orbitColors[bi];
     if(materialToggle.checked){
@@ -412,9 +430,16 @@ function orbitSetIndex(i) {
   orbitDraw();
   renderOrbitBodyDetails();
   renderThermal();
+  window.dispatchEvent(new Event('threebody-time'));
 }
 function orbitStop(){if(orbitTimer!==null)clearInterval(orbitTimer);orbitTimer=null;}
 async function loadOrbit() {
+  orbitLoadedRunId=null;
+  window.dispatchEvent(new Event('threebody-time'));
+  orbitSamples=[];orbitEventItems=[];linkedThermal=null;
+  orbitSelectedEvent=null;orbitArchiveStatus=null;
+  if(webglRenderer)webglRenderer.load([]);
+  orbitDraw();renderThermal();
   orbitStop();orbitSelectedId=null;orbitFocusId=null;linkedBodyMetadata=null;
   orbitBodySelect.value='';
   orbitBodyDetail.textContent='等待当前世界经验证的天体初态。';
@@ -552,9 +577,11 @@ async function loadOrbit() {
         window.ThreeBodyScienceAdapter.eventSample(orbitSamples,e));
       if(collision>=0){orbitSelectedEvent=collision;orbitEvents.value=String(collision);}
     }
+    orbitLoadedRunId=id;
     orbitSetIndex(orbitSamples.length-1);
     if(!orbitSamples.length){orbitDraw();renderThermal();}
   } catch(error) {
+    orbitLoadedRunId=null;
     orbitSamples=[];orbitEventItems=[];linkedBodyMetadata=null;linkedThermal=null;
     orbitArchiveStatus=null;orbitSelectedEvent=null;
     orbitEvents.replaceChildren(new Option('无已载入事件',''));
@@ -877,6 +904,7 @@ sphereCanvas.addEventListener('pointerleave',()=>{
   document.querySelector('#c1-sphere-reading').textContent='将鼠标移到球面查看真实纬带温度。';
 });
 function renderThermal(){
+  if(document.querySelector('#page-environment')?.hidden)return;
   const flux=document.querySelector('#flux-canvas');
   const c0=document.querySelector('#c0-canvas');
   const cursor=document.querySelector('#thermal-cursor');
@@ -1003,6 +1031,7 @@ document.querySelector('#world-start').addEventListener('click',async()=>{
     document.querySelector('#run-id').value=id;
     document.querySelector('#observe-run-id').value=id;
     beginPoll(result.run_id);
+    location.hash='#/tasks';
   }catch(error){worldStartStatus.textContent='启动失败：'+error.message;}
 });
 loadWorldPreset();
@@ -1148,4 +1177,9 @@ document.querySelector('#analyze-run').addEventListener('click',async()=>{
     jobState.textContent='科学分析请求已接受；实际结果需等服务器核验完来源链。';
     beginPoll(result.run_id);
   }catch(error){jobState.textContent='科学重试失败：'+error.message;}
+});
+
+window.addEventListener('threebody-route',event=>{
+  if(event.detail==='environment')renderThermal();
+  if(event.detail==='orbit')orbitDraw();
 });

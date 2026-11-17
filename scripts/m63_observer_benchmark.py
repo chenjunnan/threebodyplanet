@@ -38,7 +38,8 @@ def main() -> None:
                 page = browser.new_page(viewport={'width': 1300, 'height': 1000})
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
-                page.goto(f'http://127.0.0.1:{server.server_port}', wait_until='networkidle')
+                page.goto(f'http://127.0.0.1:{server.server_port}/#/orbit',
+                          wait_until='networkidle')
                 page.evaluate('''() => {
                   const ids=ThreeBodyScienceAdapter.bodyIds;
                   const samples=Array.from({length:2000},(_,i)=>({

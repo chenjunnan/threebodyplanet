@@ -44,6 +44,9 @@ jobs:
                   "threebody/web/static/science-adapter.js",
                   "threebody/web/static/surface-materials.js",
                   "threebody/web/static/webgl-observer.js",
+                  "threebody/web/static/navigation.js",
+                  "threebody/web/static/planet-explorer.js",
+                  "threebody/web/static/ground-view.js",
               ):
                   assert path in names, f"packaged wheel misses {path}"
           PY

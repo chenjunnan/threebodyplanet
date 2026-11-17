@@ -8,7 +8,7 @@
 </head>
 <body>
   <header>
-    <div><span class="eyebrow">THREE BODY PLANET / M5B</span><h1>科学归档台</h1></div>
+    <div><span class="eyebrow">THREE BODY PLANET / EXPLORER</span><h1>科学归档台</h1></div>
     <span class="badge">本地任务控制预览</span>
   </header>
   <main>
@@ -171,11 +171,51 @@
         <p id="orbit-event-detail">事件只来自已验证的动力学与环境归档；时间轴同步显示可用辐射和C0/C1数据。</p>
       </div>
     </section>
+    <section class="panel planet-exploration" aria-labelledby="planet-heading">
+      <h3 id="planet-heading">参数化岩石行星探索</h3>
+      <p>先读取一个真实轨道采样，再显式设置成分、内热与水量假设。新结果是独立探索场景，不替代 M3 温度历史或 M4 科学结论。</p>
+      <div class="world-controls" id="planet-parameters">
+        <label>地形种子<input data-planet="seed" type="number" value="42"></label>
+        <label>地形起伏上限(m)<input data-planet="relief_m" type="number" value="6000"></label>
+        <label>表面水量(kg)<input data-planet="surface_water_kg" type="number" value="1.4e21"></label>
+        <label>大气质量(kg)<input data-planet="atmosphere_mass_kg" type="number" value="5.15e18"></label>
+        <label>平均摩尔质量(kg/mol)<input data-planet="molar_mass_kg_mol" type="number" value="0.029" step="any"></label>
+        <label>氧气摩尔分数<input data-planet="oxygen_mole_fraction" type="number" value="0" step="any"></label>
+        <label>水蒸气摩尔分数<input data-planet="water_vapor_mole_fraction" type="number" value="0" step="any"></label>
+        <label>灰色光学厚度<input data-planet="optical_depth" type="number" value="0" step="any"></label>
+        <label>反照率<input data-planet="albedo" type="number" value="0.3" step="any"></label>
+        <label>表面发射率<input data-planet="emissivity" type="number" value="1" step="any"></label>
+        <label>假设内核温度(K)<input data-planet="core_temperature_k" type="number" value="4000"></label>
+        <label>地幔厚度(m)<input data-planet="mantle_thickness_m" type="number" value="2900000"></label>
+        <label>地幔导热率(W/m/K)<input data-planet="conductivity_w_m_k" type="number" value="3"></label>
+        <label>自转角速度(rad/s，可空以用归档)<input data-planet="rotation_rate_rad_s" type="number" step="any" placeholder="归档值"></label>
+        <label>观测纬度(°)<input data-planet="latitude_deg" type="number" value="0" min="-89" max="89"></label>
+        <label>观测经度(°)<input data-planet="longitude_deg" type="number" value="0" min="-180" max="180"></label>
+        <label>经度零点初相位(rad，假设)<input data-planet="longitude_phase_rad" type="number" value="0" step="any"></label>
+        <label>观测眼高(m)<input data-planet="observer_height_m" type="number" value="2" min="1"></label>
+        <label>灾害时间窗(年)<input data-planet="horizon_years" type="number" value="1"></label>
+      </div>
+      <label for="planet-axis">假设自转轴（可空以用归档，JSON单位向量）</label><input id="planet-axis" placeholder="如 [0,0,1]；留空使用归档">
+      <details><summary>区域地质事件先验（可选）</summary><p>区域为 r0-c0 至 r23-c47；输入对应区域每年的事件发生率 λ。例如 {"r12-c24":0.01}。概率采用 1−exp(−λ·年数)，不是由地形预测；未提供的区域显示未知。你需要确保各区域的事件定义、空间范围和时间单位一致。</p><label for="planet-hazard-definition">事件定义（提供发生率时必填）</label><input id="planet-hazard-definition" placeholder="例如：该区域内，震级≥5的地震">
+      <textarea id="planet-hazard-rates" aria-label="区域灾害年发生率JSON">{}</textarea></details>
+      <div class="actions"><button id="planet-build" class="primary">计算当前采样的探索场景</button><button id="planet-export" disabled>导出场景与假设</button></div>
+      <p id="planet-status" role="status">等待真实轨道采样。表单预置值是可编辑假设，不是该行星实测值。</p>
+      <div id="planet-summary"></div>
+      <canvas id="planet-map" width="960" height="480" aria-label="等面积程序地形与假设水盆地图，可点击选择观测地点"></canvas>
+      <p id="planet-region" aria-live="polite">点击地图选择地区；颜色表示程序生成地形及水相代理。</p>
+      <h4>WebGL 地表观察镜头</h4><p>拖动或方向键改变地平视角，滚轮缩放，Home重置。眼高默认2米。地形是程序网格，采用示意明暗；恒星方向取该场景的真实轨道位置。星点背景为装饰，不是恒星目录；未模拟折射、散射和地形遮挡。</p>
+      <canvas id="planet-ground" width="960" height="540" tabindex="0" aria-label="程序地形地平镜头与真实归档恒星方向"></canvas>
+      <p id="planet-sky" aria-live="polite">选择观测地点后计算三颗恒星的方位与高度。</p>
+      <p id="planet-limitations"></p>
+    </section>
   </main>
   <footer><span>LOCAL · SINGLE USER</span><span>REBOUND t<sub>s</sub> ≠ DISPLAY TIME</span></footer>
+  <script src="/navigation.js" defer></script>
   <script src="/science-adapter.js" defer></script>
   <script src="/surface-materials.js" defer></script>
   <script src="/webgl-observer.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/ground-view.js" defer></script>
+  <script src="/planet-explorer.js" defer></script>
 </body>
 </html>
