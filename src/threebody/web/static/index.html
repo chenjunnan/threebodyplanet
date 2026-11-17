@@ -105,10 +105,11 @@
       <p>表面纹理、球体明暗及增强尺寸仅为视觉示意，不表示真实地形、光谱、物理半径或昼夜。</p>
       <div class="surface-gallery" aria-label="表面材质预览"><figure><canvas id="surface-star-1" width="160" height="160" aria-label="恒星1颗粒材质示意"></canvas><figcaption>恒星1 · 暖金颗粒</figcaption></figure><figure><canvas id="surface-star-2" width="160" height="160" aria-label="恒星2颗粒材质示意"></canvas><figcaption>恒星2 · 赤橙颗粒</figcaption></figure><figure><canvas id="surface-star-3" width="160" height="160" aria-label="恒星3颗粒材质示意"></canvas><figcaption>恒星3 · 蓝白颗粒</figcaption></figure><figure><canvas id="surface-rock" width="160" height="160" aria-label="行星岩石材质示意"></canvas><figcaption>行星 · 岩石示意</figcaption></figure></div>
       <p id="webgl-status" role="status">默认Canvas观察器；WebGL仅用于渲染真实已归档轨道。</p>
-      <canvas id="orbit-canvas" width="940" height="500" aria-label="四天体三维轨迹可旋转投影"></canvas>
-      <canvas id="orbit-webgl" width="940" height="500" hidden aria-label="WebGL2四天体历史三维轨道，无任何后续物理外推"></canvas>
+      <canvas id="orbit-canvas" tabindex="0" width="940" height="500" aria-label="四天体三维轨迹可旋转投影"></canvas>
+      <canvas id="orbit-webgl" tabindex="0" width="940" height="500" hidden aria-label="WebGL2四天体历史三维轨道，无任何后续物理外推"></canvas>
+      <p>画布键盘：方向键旋转，+ / − 缩放，Home 重置，空格播放或暂停；仅回放已归档采样。</p>
       <div class="observer-select-controls">
-        <label for="orbit-body-select">天体选择（WebGL球点可点击）</label>
+        <label for="orbit-body-select">天体选择（Canvas / WebGL 球点可点击）</label>
         <select id="orbit-body-select" aria-label="选择观察天体">
           <option value="">未选择天体</option>
           <option value="star-1">恒星一</option>

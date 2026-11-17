@@ -12,6 +12,7 @@
     uniform float u_point_size;
     uniform vec3 u_focus;
     uniform float u_zoom;
+    uniform float u_aspect;
     void main(){
       float cy=cos(u_yaw),sy=sin(u_yaw),cp=cos(u_pitch),sp=sin(u_pitch);
       vec3 v=(a_position-u_focus)/u_zoom;
@@ -22,7 +23,7 @@
       );
       vec3 q=vec3(p.x,cp*p.z-sp*p.y,sp*p.z+cp*p.y);
       float w=3.6+q.z*0.25;
-      gl_Position=vec4(q.x*2.1,q.y*2.1,q.z*0.15,w);
+      gl_Position=vec4(q.x*2.1/u_aspect,q.y*2.1,q.z*0.15,w);
       gl_PointSize=u_point_size;
     }`;
   const FS=`#version 300 es
@@ -68,6 +69,7 @@
     const sizeLoc=gl.getUniformLocation(program,'u_point_size');
     const focusLoc=gl.getUniformLocation(program,'u_focus');
     const zoomLoc=gl.getUniformLocation(program,'u_zoom');
+    const aspectLoc=gl.getUniformLocation(program,'u_aspect');
     const colorLoc=gl.getUniformLocation(program,'u_color');
     const spriteLoc=gl.getUniformLocation(program,'u_sprite');
     const surfaceLoc=gl.getUniformLocation(program,'u_surface');
@@ -88,18 +90,26 @@
     gl.vertexAttribPointer(pos,3,gl.FLOAT,false,0,0);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
-    let yaw=.5,pitch=.25,zoom=1,drag=null,disposed=false;
+    const listeners=[];
+    function listen(type,handler,options){
+      canvas.addEventListener(type,handler,options);
+      listeners.push([type,handler,options]);
+    }
+    canvas.style.touchAction='none';
+    let yaw=.6,pitch=.35,zoom=1,drag=null,disposed=false;
     let focusId=null,selectedBody=null;
     let normalized=null,sourceCount=0;
     function fail(){disposed=true;onFailure('WebGL上下文丢失，已恢复Canvas观察器');}
-    canvas.addEventListener('webglcontextlost',(event)=>{
+    listen('webglcontextlost',(event)=>{
       event.preventDefault();fail();
     });
-    canvas.addEventListener('pointerdown',(event)=>{
+    listen('pointerdown',(event)=>{
+      if(event.button!==0)return;
+      canvas.focus();
       drag=[event.clientX,event.clientY,event.clientX,event.clientY];
       canvas.setPointerCapture(event.pointerId);
     });
-    canvas.addEventListener('pointermove',(event)=>{
+    listen('pointermove',(event)=>{
       if(!drag)return;
       yaw+=(event.clientX-drag[0])*.006;
       pitch=Math.max(-1.45,Math.min(1.45,
@@ -107,15 +117,16 @@
       drag=[event.clientX,event.clientY,drag[2],drag[3]];
       if(normalized)draw(normalized.selectedIndex);
     });
-    canvas.addEventListener('pointerup',(event)=>{
+    listen('pointerup',(event)=>{
       if(drag && Math.hypot(event.clientX-drag[2],event.clientY-drag[3])<6) {
         const picked=pickAt(event.clientX,event.clientY);
         if(picked && typeof onSelect==='function')onSelect(picked);
       }
       drag=null;
     });
-    canvas.addEventListener('pointercancel',()=>{drag=null;});
-    canvas.addEventListener('wheel',(event)=>{
+    listen('pointercancel',()=>{drag=null;});
+    listen('lostpointercapture',()=>{drag=null;});
+    listen('wheel',(event)=>{
       event.preventDefault();zoom=Math.max(.2,Math.min(15,zoom*
         (event.deltaY>0?1.12:.89)));
       if(normalized)draw(normalized.selectedIndex);
@@ -135,7 +146,7 @@
           p[0]-center[0],p[1]-center[1],p[2]-center[2]
         ));
       }
-      const coords=IDs.map(id=>new Float32Array(samples.flatMap(s=>
+      const coords=IDs.map(id=>new Float64Array(samples.flatMap(s=>
         s.positions_m[id].map((x,k)=>(x-center[k])/extent)
       )));
       normalized={coords,samples,selectedIndex:0};
@@ -158,7 +169,7 @@
       const qY=cp*z-sp*pY,qZ=sp*z+cp*pY;
       const w=3.6+qZ*.25;
       if(w<=0)return null;
-      return [canvas.width*(1+2.1*pX/w)/2,
+      return [canvas.width*(1+2.1*pX/(canvas.width/canvas.height)/w)/2,
         canvas.height*(1-2.1*qY/w)/2];
     }
     function pickAt(clientX,clientY){
@@ -198,12 +209,16 @@
       gl.uniform1f(yawLoc,yaw);
       gl.uniform1f(pitchLoc,pitch);
       gl.uniform1f(zoomLoc,zoom);
-      gl.uniform3fv(focusLoc,focusVector(i));
+      gl.uniform1f(aspectLoc,canvas.width/canvas.height);
+      gl.uniform3fv(focusLoc,[0,0,0]);
+      const center=focusVector(i);
       // Zoom adjusts visible scene scale, never source coordinates.
       for(let body=0;body<4;body++){
         const data=normalized.coords[body];
         gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
-        gl.bufferData(gl.ARRAY_BUFFER,data.subarray(0,(i+1)*3),gl.DYNAMIC_DRAW);
+        const rebased=new Float32Array((i+1)*3);
+        for(let n=0;n<rebased.length;n++)rebased[n]=data[n]-center[n%3];
+        gl.bufferData(gl.ARRAY_BUFFER,rebased,gl.DYNAMIC_DRAW);
         gl.uniform3fv(colorLoc,COLORS[body]);
         gl.uniform1i(spriteLoc,0);
         gl.uniform1f(sizeLoc,1);
@@ -234,14 +249,19 @@
       if(normalized)draw(normalized.selectedIndex);
     }
     function resetView(){
-      yaw=.5;pitch=.25;zoom=1;focusId=null;
+      yaw=.6;pitch=.35;zoom=1;focusId=null;
       if(normalized)draw(normalized.selectedIndex);
     }
     return Object.freeze({
       load,draw,focus,select,rotate,resetView,pickAt,screenPosition,
+      cameraState(){return {yaw,pitch,zoom};},
+      setCamera(state){yaw=state.yaw;pitch=state.pitch;zoom=state.zoom;},
+      zoomBy(factor){zoom=Math.max(.12,Math.min(15,zoom*factor));},
       materials(enabled){showMaterials=Boolean(enabled);},
       supported:true,
-      dispose(){disposed=true;for(const texture of textures)gl.deleteTexture(texture);
+      dispose(){disposed=true;
+        for(const [type,handler,options] of listeners)canvas.removeEventListener(type,handler,options);
+        for(const texture of textures)gl.deleteTexture(texture);
         gl.deleteBuffer(buffer);gl.deleteProgram(program);},
     });
   }

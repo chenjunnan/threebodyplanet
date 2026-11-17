@@ -291,8 +291,10 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
             display_sampling:'uniform_record_index_no_interpolation',
             display_count:2,samples
           },'gpu-fixture');
+          orbitSamples=verified.samples;
+          orbitSlider.max=1;
           webglRenderer.load(verified.samples);
-          webglRenderer.draw(1);
+          orbitSetIndex(1);
         }""")
         canvas.scroll_into_view_if_needed()
         before=canvas.evaluate("(node) => node.toDataURL()")
@@ -322,6 +324,49 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
         page.mouse.up()
         after=canvas.evaluate("(node) => node.toDataURL()")
         assert before!=after,"3D WebGL perspective shader must respond to drag"
+        # Integration regression: preserve D materials while restoring old controls.
+        original=page.evaluate("JSON.stringify(orbitSamples)")
+        state=page.evaluate("webglRenderer.cameraState()")
+        canvas.focus()
+        canvas.press("ArrowRight")
+        assert page.evaluate("webglRenderer.cameraState().yaw") == pytest.approx(state["yaw"]+.2)
+        zoom=page.evaluate("webglRenderer.cameraState().zoom")
+        canvas.press("+")
+        assert page.evaluate("webglRenderer.cameraState().zoom") < zoom
+        state=page.evaluate("webglRenderer.cameraState()")
+        for _ in range(2):
+            page.locator("#enable-webgl").uncheck()
+            assert page.evaluate("orbitAzimuth") == pytest.approx(state["yaw"])
+            page.locator("#enable-webgl").check()
+            assert page.evaluate("webglRenderer.cameraState()") == state
+        canvas.scroll_into_view_if_needed()
+        box=canvas.bounding_box()
+        x,y=box["x"]+box["width"]*.5,box["y"]+box["height"]*.5
+        page.mouse.move(x,y)
+        page.mouse.down()
+        page.mouse.move(x+50,y,steps=5)
+        page.mouse.up()
+        assert page.evaluate("webglRenderer.cameraState().yaw") == pytest.approx(state["yaw"]+.3)
+        page.evaluate("document.querySelector('#orbit-webgl').getContext('webgl2')"
+                      ".getExtension('WEBGL_lose_context').loseContext()")
+        page.wait_for_function("() => !document.querySelector('#orbit-canvas').hidden")
+        assert "上下文丢失" in page.locator("#webgl-status").inner_text()
+        assert page.evaluate("orbitAzimuth") == pytest.approx(state["yaw"]+.3)
+        plain=page.locator("#orbit-canvas")
+        plain.focus()
+        plain.press("Home")
+        assert page.evaluate("orbitAzimuth") == pytest.approx(.6)
+        page.evaluate("() => {orbitFocusId='planet-1';selectOrbitBody(null);orbitDraw();}")
+        plain.scroll_into_view_if_needed()
+        box=plain.bounding_box()
+        page.mouse.click(box["x"]+box["width"]*.5,box["y"]+box["height"]*.5)
+        assert page.locator("#orbit-body-select").input_value()=="planet-1"
+        page.evaluate("() => orbitSetIndex(0)")
+        plain.focus()
+        plain.press("Space")
+        page.wait_for_function("() => orbitIndex===1 && orbitTimer===null")
+        assert page.evaluate("JSON.stringify(orbitSamples)")==original
+        assert page.locator("#surface-materials").is_checked()
         assert not errors,errors
         browser.close()
 
