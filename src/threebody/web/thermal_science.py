@@ -133,6 +133,26 @@ def read_long_environment(
         flux_point = flux[index]
         c0_point = series["c0"][index] if series["c0"] else None
         c1_point = series["c1"][index] if series["c1"] else None
+        # Derive the instantaneous radiative equilibrium from *verified* archived
+        # absorbed/emitted flux and temperature, not an assumed Earth forcing.
+        # epsilon*sigma = emitted / T^4; no missing times are interpolated.
+        radiative_coefficient = (
+            None if c0_point is None else
+            c0_point.emitted_w_m2 / c0_point.temperature_k**4
+        )
+        equilibrium_k = None
+        if c0_point is not None and radiative_coefficient > 0.0:
+            equilibrium_k = (
+                max(
+                    0.0,
+                    (c0_point.absorbed_w_m2 + c0_point.internal_heat_flux_w_m2)
+                    / radiative_coefficient,
+                )**0.25
+            )
+        c1_spread_k = (
+            None if c1_point is None else
+            max(c1_point.temperature_k) - min(c1_point.temperature_k)
+        )
         rows.append({
             "t_s": times[index],
             "flux_w_m2": {
@@ -140,6 +160,20 @@ def read_long_environment(
                 "total": flux_point.planet_center_flux_w_m2,
             },
             "c0_temperature_k": None if c0_point is None else c0_point.temperature_k,
+            "c0_absorbed_w_m2": (
+                None if c0_point is None else c0_point.absorbed_w_m2
+            ),
+            "c0_emitted_w_m2": (
+                None if c0_point is None else c0_point.emitted_w_m2
+            ),
+            "c0_internal_heat_flux_w_m2": (
+                None if c0_point is None else c0_point.internal_heat_flux_w_m2
+            ),
+            "c0_net_heating_w_m2": (
+                None if c0_point is None else c0_point.net_heating_w_m2
+            ),
+            "c0_equilibrium_temperature_k": equilibrium_k,
+            "c1_latitude_spread_k": c1_spread_k,
             "c1_global_mean_k": (
                 None if c1_point is None else c1_point.global_mean_temperature_k
             ),
@@ -163,5 +197,16 @@ def read_long_environment(
         "source_max_orbit_gap_s": manifest.get("source_max_orbit_gap_s"),
         "sampling_quality": manifest.get("sampling_quality", "LEGACY_UNSPECIFIED"),
         "sampling_warning": manifest.get("sampling_warning"),
+        "thermal_energy_residual": {
+            "c0": (
+                None if manifest["energy_budget"]["c0"] is None else
+                manifest["energy_budget"]["c0"]["normalized_residual"]
+            ),
+            "c1": (
+                None if manifest["energy_budget"]["c1"] is None else
+                manifest["energy_budget"]["c1"]["normalized_residual"]
+            ),
+        },
+        "thermal_processing": manifest.get("processing"),
         "rows": rows,
     }
