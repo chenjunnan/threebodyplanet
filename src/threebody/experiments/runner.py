@@ -17,7 +17,14 @@ from threebody.screening.engine import screen_candidate
 from threebody.screening.models import ScreeningReport
 from threebody.screening.rules import RULES
 from threebody.world.generators import generate_initial_state_with_metadata
-from threebody.world.stochastic_conics import GenerationError, GenerationMetadata
+from threebody.world.stochastic_conics import (
+    ConstraintExhausted,
+    GenerationError,
+    GenerationMetadata,
+    GenerationMetadataV041,
+)
+
+GenerationRecord = GenerationMetadata | GenerationMetadataV041
 
 
 def _range_summary(values: list[float]) -> dict[str, float | int | None]:
@@ -33,10 +40,12 @@ def _range_summary(values: list[float]) -> dict[str, float | int | None]:
 
 def _summary(
     reports: list[ScreeningReport],
-    generation_records: list[GenerationMetadata] | None = None,
+    generation_records: list[GenerationRecord] | None = None,
     generation_errors: Counter[str] | None = None,
     initial_contact_counts: dict[int, int] | None = None,
     generation_reason_codes: dict[int, str] | None = None,
+    constraint_attempt_counts: list[int] | None = None,
+    constraint_rejection_counts: Counter[str] | None = None,
 ) -> dict[str, Any]:
     decisions = Counter(report.decision.lower() for report in reports)
     rule_counts = {
@@ -84,8 +93,13 @@ def _summary(
                 )
         contacts = initial_contact_counts or {}
         reason_codes = generation_reason_codes or {}
+        constraint_rejections = constraint_rejection_counts or Counter()
+        attempt_counts = constraint_attempt_counts or []
+        metadata_version = (
+            generation_records[0].schema_version if generation_records else "0.4.1"
+        )
         summary["g2_generation"] = {
-            "schema_version": "0.4.0",
+            "schema_version": metadata_version,
             "generated": len(generation_records),
             "generation_invalid": sum((generation_errors or Counter()).values()),
             "generation_invalid_reason_codes": dict(sorted((generation_errors or {}).items())),
@@ -106,6 +120,10 @@ def _summary(
             },
             "initial_terminal_worlds": sum(count > 0 for count in contacts.values()),
             "initial_contact_pairs": sum(contacts.values()),
+            "constraint_attempts": _range_summary(
+                [float(value) for value in attempt_counts]
+            ),
+            "constraint_rejection_reason_codes": dict(sorted(constraint_rejections.items())),
             "candidate_outcomes": [
                 {
                     "candidate_index": report.candidate_index,
@@ -169,10 +187,12 @@ def run_experiment(
 
     reports: list[ScreeningReport] = []
     is_g2 = config.world_generation.generator.type == "stochastic_conics"
-    generation_records: list[GenerationMetadata] = []
+    generation_records: list[GenerationRecord] = []
     generation_errors: Counter[str] = Counter()
     initial_contact_counts: dict[int, int] = {}
     generation_reason_codes: dict[int, str] = {}
+    constraint_attempt_counts: list[int] = []
+    constraint_rejection_counts: Counter[str] = Counter()
     for candidate_index in range(requested):
         try:
             state, generation_metadata, initial_contacts = generate_initial_state_with_metadata(
@@ -214,9 +234,14 @@ def run_experiment(
                 )
                 generation_errors[reason_code] += 1
                 generation_reason_codes[candidate_index] = reason_code
-                write_json_atomic(
-                    candidate_dir / f"{candidate_index:06d}.generation_metadata.json",
-                    {
+                if isinstance(exc, ConstraintExhausted):
+                    constraint_attempt_counts.append(exc.metadata["attempt_count"])
+                    for attempt in exc.metadata["attempts"]:
+                        constraint_rejection_counts.update(attempt["reason_codes"])
+                failure_metadata = (
+                    exc.metadata
+                    if isinstance(exc, ConstraintExhausted)
+                    else {
                         "schema_version": "0.4.0",
                         "generator_id": "stochastic_conics",
                         "generator_version": "0.4.0",
@@ -225,12 +250,20 @@ def run_experiment(
                         "reason_code": reason_code,
                         "error_type": type(exc).__name__,
                         "message": str(exc),
-                    },
+                    }
+                )
+                write_json_atomic(
+                    candidate_dir / f"{candidate_index:06d}.generation_metadata.json",
+                    failure_metadata,
                 )
             continue
         if is_g2:
-            assert isinstance(generation_metadata, GenerationMetadata)
+            assert isinstance(generation_metadata, (GenerationMetadata, GenerationMetadataV041))
             generation_records.append(generation_metadata)
+            if isinstance(generation_metadata, GenerationMetadataV041):
+                constraint_attempt_counts.append(generation_metadata.attempt_count)
+                for attempt in generation_metadata.attempts:
+                    constraint_rejection_counts.update(attempt.reason_codes)
             generation_reason_codes[candidate_index] = "GENERATED"
             initial_contact_counts[candidate_index] = len(initial_contacts)
             write_json_atomic(
@@ -253,6 +286,8 @@ def run_experiment(
         generation_errors if is_g2 else None,
         initial_contact_counts if is_g2 else None,
         generation_reason_codes if is_g2 else None,
+        constraint_attempt_counts if is_g2 else None,
+        constraint_rejection_counts if is_g2 else None,
     )
     write_json_atomic(destination / "summary.json", summary)
     return summary

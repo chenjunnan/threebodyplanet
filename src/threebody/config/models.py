@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -172,9 +172,47 @@ class StochasticConicsGeneratorConfig(StrictModel):
     geometry: StochasticGeometryConfig
 
 
-AnyGeneratorConfig = Annotated[
-    GeneratorConfig | StochasticConicsGeneratorConfig, Field(discriminator="type")
-]
+class PlanetStarDistanceConstraintConfig(StrictModel):
+    min: float | None = Field(default=None, gt=0.0)
+    max_nearest: float | None = Field(default=None, gt=0.0)
+    max_each: float | None = Field(default=None, gt=0.0)
+
+
+class PlanetSpeedConstraintConfig(StrictModel):
+    absolute_max_mps: float | None = Field(default=None, gt=0.0)
+    escape_mode: Literal["none", "selected_host", "combined_potential"]
+    escape_speed_fraction_max: float | None = Field(default=None, gt=0.0)
+
+    @model_validator(mode="after")
+    def escape_fraction_matches_mode(self) -> PlanetSpeedConstraintConfig:
+        if self.escape_mode == "none" and self.escape_speed_fraction_max is not None:
+            raise ValueError("escape_speed_fraction_max requires an active escape_mode")
+        if self.escape_mode != "none" and self.escape_speed_fraction_max is None:
+            raise ValueError("active escape_mode requires escape_speed_fraction_max")
+        return self
+
+
+class InitialConstraintsConfig(StrictModel):
+    mode: Literal["unrestricted", "bounded"]
+    max_attempts: int = Field(ge=1, le=100_000)
+    planet_star_distance_m: PlanetStarDistanceConstraintConfig
+    stellar_pair_max_distance_m: float | None = Field(default=None, gt=0.0)
+    planet_speed: PlanetSpeedConstraintConfig
+    allow_initial_contact: bool
+
+
+class BoundedStochasticConicsGeneratorConfig(StrictModel):
+    type: Literal["stochastic_conics"]
+    version: Literal["0.4.1"]
+    stars: StellarDistributionConfig
+    planet: PlanetDistributionConfig
+    geometry: StochasticGeometryConfig
+    initial_constraints: InitialConstraintsConfig
+
+
+AnyGeneratorConfig = (
+    GeneratorConfig | StochasticConicsGeneratorConfig | BoundedStochasticConicsGeneratorConfig
+)
 
 
 class WorldGenerationConfig(StrictModel):
@@ -222,7 +260,7 @@ class OutputConfig(StrictModel):
 
 
 class ResolvedExperimentConfig(StrictModel):
-    schema_version: Literal["0.1.0", "0.4.0"]
+    schema_version: Literal["0.1.0", "0.4.0", "0.4.1"]
     experiment: ExperimentConfig
     world_generation: WorldGenerationConfig
     screening: ScreeningConfig
@@ -231,8 +269,13 @@ class ResolvedExperimentConfig(StrictModel):
 
     @model_validator(mode="after")
     def cross_constraints(self) -> ResolvedExperimentConfig:
-        is_g2 = isinstance(self.world_generation.generator, StochasticConicsGeneratorConfig)
-        expected_schema = "0.4.0" if is_g2 else "0.1.0"
+        generator = self.world_generation.generator
+        if isinstance(generator, BoundedStochasticConicsGeneratorConfig):
+            expected_schema = "0.4.1"
+        elif isinstance(generator, StochasticConicsGeneratorConfig):
+            expected_schema = "0.4.0"
+        else:
+            expected_schema = "0.1.0"
         if self.schema_version != expected_schema:
             raise ValueError(
                 f"schema_version must be {expected_schema!r} for the selected generator"

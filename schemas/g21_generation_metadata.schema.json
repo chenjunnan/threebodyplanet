@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/threebody/g21_generation_metadata.schema.json",
+  "title": "Three Body Planet G2.1 bounded generation replay metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "generator_id", "generator_version", "world_id", "seed",
+    "candidate_index", "rng_algorithm", "substream_scheme", "distribution_schema_version",
+    "constraint_mode", "constraints", "selected_attempt", "attempt_count", "attempts",
+    "sampled_physical", "selected_planet_host", "conics", "post_kick_elements_claimed",
+    "scientific_claim"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.4.1"},
+    "generator_id": {"const": "stochastic_conics"},
+    "generator_version": {"const": "0.4.1"},
+    "world_id": {"type": "string"},
+    "seed": {"type": "integer", "minimum": 0},
+    "candidate_index": {"type": "integer", "minimum": 0},
+    "rng_algorithm": {"const": "PCG64"},
+    "substream_scheme": {
+      "const": "SeedSequence([seed,candidate_index,attempt,stream_id])"
+    },
+    "distribution_schema_version": {"const": "0.4.1"},
+    "constraint_mode": {"enum": ["unrestricted", "bounded"]},
+    "constraints": {"$ref": "g21_initial_constraints.schema.json"},
+    "selected_attempt": {"type": "integer", "minimum": 0},
+    "attempt_count": {"type": "integer", "minimum": 1},
+    "attempts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["attempt", "accepted", "reason_codes", "metrics"],
+        "properties": {
+          "attempt": {"type": "integer", "minimum": 0},
+          "accepted": {"type": "boolean"},
+          "reason_codes": {"type": "array", "items": {"type": "string"}},
+          "metrics": {"type": "object"}
+        }
+      }
+    },
+    "sampled_physical": {"type": "object"},
+    "selected_planet_host": {"enum": ["star-1", "star-2", "star-3", "barycenter"]},
+    "conics": {"type": "array", "minItems": 3, "maxItems": 3},
+    "post_kick_elements_claimed": {"const": false},
+    "scientific_claim": {"type": "string"}
+  }
+}

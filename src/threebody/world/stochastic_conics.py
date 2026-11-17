@@ -9,7 +9,11 @@ from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict
 
 from threebody.common.constants import M_EARTH_KG, M_SUN_KG, R_SUN_M, G
-from threebody.config.models import ScalarDistributionConfig, StochasticConicsGeneratorConfig
+from threebody.config.models import (
+    BoundedStochasticConicsGeneratorConfig,
+    ScalarDistributionConfig,
+    StochasticConicsGeneratorConfig,
+)
 from threebody.world.models import BodyKind, CelestialBody, WorldInitialState
 
 FloatArray = NDArray[np.float64]
@@ -20,6 +24,15 @@ class GenerationError(ValueError):
     def __init__(self, reason_code: str, message: str):
         self.reason_code = reason_code
         super().__init__(message)
+
+
+class ConstraintExhausted(GenerationError):
+    def __init__(self, metadata: dict[str, Any]):
+        self.metadata = metadata
+        super().__init__(
+            "GENERATION_CONSTRAINT_EXHAUSTED",
+            "bounded initial-state constraints were not satisfied within max_attempts",
+        )
 
 
 class _MetadataModel(BaseModel):
@@ -77,6 +90,53 @@ class GenerationMetadata(_MetadataModel):
     )
 
 
+class ConstraintMetrics(_MetadataModel):
+    planet_star_distances_m: dict[str, float]
+    nearest_planet_star_distance_m: float
+    maximum_planet_star_distance_m: float
+    maximum_stellar_pair_distance_m: float
+    planet_speed_relative_stellar_com_mps: float
+    selected_host_escape_speed_proxy_mps: float
+    selected_host_speed_fraction: float
+    combined_potential_escape_speed_proxy_mps: float
+    combined_potential_speed_fraction: float
+    initial_contact_count: int
+
+
+class ConstraintAttemptRecord(_MetadataModel):
+    attempt: int
+    accepted: bool
+    reason_codes: tuple[str, ...]
+    metrics: ConstraintMetrics
+
+
+class GenerationMetadataV041(_MetadataModel):
+    schema_version: Literal["0.4.1"] = "0.4.1"
+    generator_id: Literal["stochastic_conics"] = "stochastic_conics"
+    generator_version: Literal["0.4.1"] = "0.4.1"
+    world_id: str
+    seed: int
+    candidate_index: int
+    rng_algorithm: Literal["PCG64"] = "PCG64"
+    substream_scheme: Literal[
+        "SeedSequence([seed,candidate_index,attempt,stream_id])"
+    ] = "SeedSequence([seed,candidate_index,attempt,stream_id])"
+    distribution_schema_version: Literal["0.4.1"] = "0.4.1"
+    constraint_mode: Literal["unrestricted", "bounded"]
+    constraints: dict[str, Any]
+    selected_attempt: int
+    attempt_count: int
+    attempts: tuple[ConstraintAttemptRecord, ...]
+    sampled_physical: PhysicalGenerationRecord
+    selected_planet_host: str
+    conics: tuple[ConicGenerationRecord, ConicGenerationRecord, ConicGenerationRecord]
+    post_kick_elements_claimed: Literal[False] = False
+    scientific_claim: str = (
+        "bounded stochastic initial-state preference only; no stability, survival, permanent "
+        "binding, or habitability claim"
+    )
+
+
 class InitialContactOutcome(_MetadataModel):
     schema_version: Literal["0.4.0"] = "0.4.0"
     world_id: str
@@ -107,8 +167,15 @@ class ConicCartesian:
     record: ConicGenerationRecord
 
 
-def _rng(seed: int, candidate_index: int, stream_id: int) -> np.random.Generator:
-    sequence = np.random.SeedSequence([seed, candidate_index, stream_id])
+def _rng(
+    seed: int, candidate_index: int, stream_id: int, attempt: int | None = None
+) -> np.random.Generator:
+    entropy = (
+        [seed, candidate_index, stream_id]
+        if attempt is None
+        else [seed, candidate_index, attempt, stream_id]
+    )
+    sequence = np.random.SeedSequence(entropy)
     return np.random.Generator(np.random.PCG64(sequence))
 
 
@@ -326,12 +393,14 @@ def generate_stochastic_state(
     seed: int,
     candidate_index: int,
     config_sha256: str,
+    attempt: int | None = None,
 ) -> GeneratedStochasticState:
+    rng = lambda stream_id: _rng(seed, candidate_index, stream_id, attempt)  # noqa: E731
     star_solar = np.asarray(
-        [_sample(config.stars.mass_solar, _rng(seed, candidate_index, 100 + i)) for i in range(3)]
+        [_sample(config.stars.mass_solar, rng(100 + i)) for i in range(3)]
     )
-    planet_earth = _sample(config.planet.mass_earth, _rng(seed, candidate_index, 110))
-    density = _sample(config.planet.density_kg_m3, _rng(seed, candidate_index, 111))
+    planet_earth = _sample(config.planet.mass_earth, rng(110))
+    density = _sample(config.planet.density_kg_m3, rng(111))
     with np.errstate(over="ignore", invalid="ignore"):
         masses = np.concatenate((star_solar * M_SUN_KG, [planet_earth * M_EARTH_KG]))
         star_radii = R_SUN_M * np.power(star_solar, 0.8)
@@ -345,7 +414,7 @@ def generate_stochastic_state(
     host_weights = config.geometry.planet.host_weights
     weights = np.asarray([host_weights[name] for name in HOSTS], dtype=np.float64)
     weights /= float(np.sum(weights))
-    host = str(_rng(seed, candidate_index, 120).choice(HOSTS, p=weights))
+    host = str(rng(120).choice(HOSTS, p=weights))
 
     conic_configs = (
         ("inner", config.geometry.inner, ("star-1",), "star-2", None, (0,), 1, 200),
@@ -364,8 +433,8 @@ def generate_stochastic_state(
         second,
         stream,
     ) in conic_configs:
-        q = _sample(conic_config.periapsis_m, _rng(seed, candidate_index, stream))
-        e = _sample(conic_config.eccentricity, _rng(seed, candidate_index, stream + 1))
+        q = _sample(conic_config.periapsis_m, rng(stream))
+        e = _sample(conic_config.eccentricity, rng(stream + 1))
         relative = build_conic_cartesian(
             relation=relation,
             primary_body_ids=primary_ids,
@@ -375,8 +444,8 @@ def generate_stochastic_state(
             secondary_mass_kg=float(masses[second]),
             periapsis_m=q,
             eccentricity=e,
-            orientation_rng=_rng(seed, candidate_index, stream + 2),
-            kick_rng=_rng(seed, candidate_index, stream + 3),
+            orientation_rng=rng(stream + 2),
+            kick_rng=rng(stream + 3),
             kick_config=config.geometry.velocity_kick,
         )
         _embed_relative(positions, velocities, masses, indices, second, relative)
@@ -389,8 +458,8 @@ def generate_stochastic_state(
         host_index = HOSTS.index(host)
         planet_primary_indices = (host_index,)
         planet_primary_ids = (host,)
-    q = _sample(config.geometry.planet.periapsis_m, _rng(seed, candidate_index, 220))
-    e = _sample(config.geometry.planet.eccentricity, _rng(seed, candidate_index, 221))
+    q = _sample(config.geometry.planet.periapsis_m, rng(220))
+    e = _sample(config.geometry.planet.eccentricity, rng(221))
     planet_relative = build_conic_cartesian(
         relation="planet",
         primary_body_ids=planet_primary_ids,
@@ -400,8 +469,8 @@ def generate_stochastic_state(
         secondary_mass_kg=float(masses[3]),
         periapsis_m=q,
         eccentricity=e,
-        orientation_rng=_rng(seed, candidate_index, 222),
-        kick_rng=_rng(seed, candidate_index, 223),
+        orientation_rng=rng(222),
+        kick_rng=rng(223),
         kick_config=config.geometry.velocity_kick,
     )
     # Apply the planet recoil as a uniform stellar-system translation. This preserves both
@@ -469,3 +538,173 @@ def generate_stochastic_state(
         conics=tuple(records),
     )
     return GeneratedStochasticState(state, metadata, _contacts(state))
+
+
+def _constraint_metrics(
+    state: WorldInitialState, host: str, contact_count: int
+) -> ConstraintMetrics:
+    masses = np.asarray([body.mass_kg for body in state.bodies], dtype=np.float64)
+    positions = np.asarray([body.position_m for body in state.bodies], dtype=np.float64)
+    velocities = np.asarray([body.velocity_mps for body in state.bodies], dtype=np.float64)
+    distances = np.linalg.norm(positions[:3] - positions[3], axis=1)
+    stellar_mass = float(np.sum(masses[:3]))
+    stellar_com_position = np.sum(masses[:3, None] * positions[:3], axis=0) / stellar_mass
+    stellar_com_velocity = np.sum(masses[:3, None] * velocities[:3], axis=0) / stellar_mass
+    planet_com_speed = float(np.linalg.norm(velocities[3] - stellar_com_velocity))
+    stellar_pairs = [
+        float(np.linalg.norm(positions[first] - positions[second]))
+        for first in range(3)
+        for second in range(first + 1, 3)
+    ]
+    if host == "barycenter":
+        host_distance = float(np.linalg.norm(positions[3] - stellar_com_position))
+        host_speed = planet_com_speed
+        host_mass = stellar_mass
+    else:
+        host_index = int(host[-1]) - 1
+        host_distance = float(distances[host_index])
+        host_speed = float(np.linalg.norm(velocities[3] - velocities[host_index]))
+        host_mass = float(masses[host_index])
+    selected_escape = math.sqrt(2.0 * G * (host_mass + masses[3]) / host_distance)
+    combined_escape = math.sqrt(
+        2.0 * G * float(np.sum(masses[:3] / distances))
+    )
+    return ConstraintMetrics(
+        planet_star_distances_m={
+            f"star-{index + 1}": float(value)
+            for index, value in enumerate(distances)
+        },
+        nearest_planet_star_distance_m=float(np.min(distances)),
+        maximum_planet_star_distance_m=float(np.max(distances)),
+        maximum_stellar_pair_distance_m=max(stellar_pairs),
+        planet_speed_relative_stellar_com_mps=planet_com_speed,
+        selected_host_escape_speed_proxy_mps=selected_escape,
+        selected_host_speed_fraction=host_speed / selected_escape,
+        combined_potential_escape_speed_proxy_mps=combined_escape,
+        combined_potential_speed_fraction=planet_com_speed / combined_escape,
+        initial_contact_count=contact_count,
+    )
+
+
+def _constraint_reasons(
+    config: BoundedStochasticConicsGeneratorConfig,
+    metrics: ConstraintMetrics,
+) -> tuple[str, ...]:
+    constraints = config.initial_constraints
+    reasons: list[str] = []
+    if metrics.initial_contact_count and not constraints.allow_initial_contact:
+        reasons.append("INITIAL_CONTACT_NOT_ALLOWED")
+    distances = constraints.planet_star_distance_m
+    if distances.min is not None and any(
+        value < distances.min for value in metrics.planet_star_distances_m.values()
+    ):
+        reasons.append("PLANET_STAR_DISTANCE_BELOW_MIN")
+    if (
+        distances.max_nearest is not None
+        and metrics.nearest_planet_star_distance_m > distances.max_nearest
+    ):
+        reasons.append("NEAREST_STAR_DISTANCE_ABOVE_MAX")
+    if (
+        distances.max_each is not None
+        and metrics.maximum_planet_star_distance_m > distances.max_each
+    ):
+        reasons.append("PLANET_STAR_DISTANCE_ABOVE_MAX_EACH")
+    if (
+        constraints.stellar_pair_max_distance_m is not None
+        and metrics.maximum_stellar_pair_distance_m
+        > constraints.stellar_pair_max_distance_m
+    ):
+        reasons.append("STELLAR_PAIR_DISTANCE_ABOVE_MAX")
+    speed = constraints.planet_speed
+    if (
+        speed.absolute_max_mps is not None
+        and metrics.planet_speed_relative_stellar_com_mps > speed.absolute_max_mps
+    ):
+        reasons.append("PLANET_SPEED_ABOVE_ABSOLUTE_MAX")
+    if speed.escape_mode == "selected_host" and (
+        metrics.selected_host_speed_fraction > speed.escape_speed_fraction_max
+    ):
+        reasons.append("SELECTED_HOST_ESCAPE_FRACTION_ABOVE_MAX")
+    if speed.escape_mode == "combined_potential" and (
+        metrics.combined_potential_speed_fraction > speed.escape_speed_fraction_max
+    ):
+        reasons.append("COMBINED_POTENTIAL_ESCAPE_FRACTION_ABOVE_MAX")
+    return tuple(reasons)
+
+
+def generate_bounded_stochastic_state(
+    config: BoundedStochasticConicsGeneratorConfig,
+    seed: int,
+    candidate_index: int,
+    config_sha256: str,
+) -> GeneratedStochasticState:
+    core_config = StochasticConicsGeneratorConfig(
+        type="stochastic_conics",
+        version="0.4.0",
+        stars=config.stars,
+        planet=config.planet,
+        geometry=config.geometry,
+    )
+    max_attempts = (
+        1
+        if config.initial_constraints.mode == "unrestricted"
+        else config.initial_constraints.max_attempts
+    )
+    attempts: list[ConstraintAttemptRecord] = []
+    for attempt in range(max_attempts):
+        generated = generate_stochastic_state(
+            core_config, seed, candidate_index, config_sha256, attempt=attempt
+        )
+        state = generated.state.model_copy(update={"generator_version": "0.4.1"})
+        metrics = _constraint_metrics(
+            state, generated.metadata.selected_planet_host, len(generated.initial_contacts)
+        )
+        reasons = (
+            ()
+            if config.initial_constraints.mode == "unrestricted"
+            else _constraint_reasons(config, metrics)
+        )
+        accepted = not reasons
+        attempts.append(
+            ConstraintAttemptRecord(
+                attempt=attempt,
+                accepted=accepted,
+                reason_codes=reasons,
+                metrics=metrics,
+            )
+        )
+        if accepted:
+            metadata = GenerationMetadataV041(
+                world_id=state.world_id,
+                seed=seed,
+                candidate_index=candidate_index,
+                constraint_mode=config.initial_constraints.mode,
+                constraints=config.initial_constraints.model_dump(mode="json"),
+                selected_attempt=attempt,
+                attempt_count=attempt + 1,
+                attempts=tuple(attempts),
+                sampled_physical=generated.metadata.sampled_physical,
+                selected_planet_host=generated.metadata.selected_planet_host,
+                conics=generated.metadata.conics,
+            )
+            return GeneratedStochasticState(state, metadata, generated.initial_contacts)
+
+    raise ConstraintExhausted(
+        {
+            "schema_version": "0.4.1",
+            "generator_id": "stochastic_conics",
+            "generator_version": "0.4.1",
+            "world_id": f"candidate-{candidate_index:06d}",
+            "seed": seed,
+            "candidate_index": candidate_index,
+            "status": "INVALID",
+            "reason_code": "GENERATION_CONSTRAINT_EXHAUSTED",
+            "constraint_mode": config.initial_constraints.mode,
+            "constraints": config.initial_constraints.model_dump(mode="json"),
+            "attempt_count": max_attempts,
+            "attempts": [record.model_dump(mode="json") for record in attempts],
+            "scientific_claim": (
+                "bounded initial-state preference exhausted; no stability or binding claim"
+            ),
+        }
+    )
