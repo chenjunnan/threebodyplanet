@@ -309,6 +309,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             if path == "/science-adapter.js":
                 self._static("science-adapter.js", "text/javascript; charset=utf-8")
                 return
+            if path == "/surface-materials.js":
+                self._static("surface-materials.js", "text/javascript; charset=utf-8")
+                return
             if path == "/webgl-observer.js":
                 self._static("webgl-observer.js", "text/javascript; charset=utf-8")
                 return

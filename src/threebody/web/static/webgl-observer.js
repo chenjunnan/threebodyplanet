@@ -28,8 +28,16 @@
   const FS=`#version 300 es
     precision highp float;
     uniform vec3 u_color;
+    uniform bool u_sprite;
+    uniform sampler2D u_surface;
     out vec4 fragColor;
-    void main(){ fragColor=vec4(u_color,1.0); }`;
+    void main(){
+      if(u_sprite){
+        vec4 texel=texture(u_surface,gl_PointCoord);
+        if(texel.a<0.5)discard;
+        fragColor=texel;
+      }else{fragColor=vec4(u_color,1.0);}
+    }`;
   function compile(gl,type,source){
     const shader=gl.createShader(type);
     gl.shaderSource(shader,source);gl.compileShader(shader);
@@ -61,6 +69,19 @@
     const focusLoc=gl.getUniformLocation(program,'u_focus');
     const zoomLoc=gl.getUniformLocation(program,'u_zoom');
     const colorLoc=gl.getUniformLocation(program,'u_color');
+    const spriteLoc=gl.getUniformLocation(program,'u_sprite');
+    const surfaceLoc=gl.getUniformLocation(program,'u_surface');
+    const textures=IDs.map((id,i)=>{
+      const texture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,texture);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,
+        window.ThreeBodySurfaces.disk(i));
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+      return texture;
+    });
+    let showMaterials=true;
     const buffer=gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
     gl.enableVertexAttribArray(pos);
@@ -184,10 +205,16 @@
         gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
         gl.bufferData(gl.ARRAY_BUFFER,data.subarray(0,(i+1)*3),gl.DYNAMIC_DRAW);
         gl.uniform3fv(colorLoc,COLORS[body]);
+        gl.uniform1i(spriteLoc,0);
         gl.uniform1f(sizeLoc,1);
         gl.drawArrays(gl.LINE_STRIP,0,i+1);
         gl.uniform1f(sizeLoc,body===3?7:(
           selectedBody===IDs[body]?17:12));
+        if(showMaterials){
+          gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,textures[body]);
+          gl.uniform1i(surfaceLoc,0);gl.uniform1i(spriteLoc,1);
+          gl.uniform1f(sizeLoc,body===3?20:(selectedBody===IDs[body]?36:30));
+        }
         gl.drawArrays(gl.POINTS,i,1);
       }
     }
@@ -212,8 +239,10 @@
     }
     return Object.freeze({
       load,draw,focus,select,rotate,resetView,pickAt,screenPosition,
+      materials(enabled){showMaterials=Boolean(enabled);},
       supported:true,
-      dispose(){disposed=true;gl.deleteBuffer(buffer);gl.deleteProgram(program);},
+      dispose(){disposed=true;for(const texture of textures)gl.deleteTexture(texture);
+        gl.deleteBuffer(buffer);gl.deleteProgram(program);},
     });
   }
   global.createM63WebGL=create;
