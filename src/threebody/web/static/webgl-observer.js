@@ -95,7 +95,7 @@
       const center=[0,1,2].map(k=>IDs.reduce(
         (sum,id)=>sum+first[id][k],0)/IDs.length);
       let extent=1;
-      for(const s of samples)for(const id of IDS){
+      for(const s of samples)for(const id of IDs){
         const p=s.positions_m[id];
         extent=Math.max(extent,Math.hypot(
           p[0]-center[0],p[1]-center[1],p[2]-center[2]
