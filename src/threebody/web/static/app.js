@@ -586,6 +586,42 @@ c1Canvas.addEventListener('pointerleave',()=>{
   document.querySelector('#c1-temperature-hover').textContent=
     '将鼠标移到热图上查看纬度、物理时间及温度（K / °C）。';
 });
+function updateEnergyDiagnostics(row, thermal) {
+  const target=document.querySelector('#m6-energy-diagnostics');
+  if(!row || !Number.isFinite(row.c0_net_heating_w_m2)){
+    target.textContent='能量诊断：没有该时刻的可信C0能量收支数据。';
+    return;
+  }
+  const value=(x, unit)=>Number.isFinite(x)?x.toFixed(4)+' '+unit:'—';
+  const net=row.c0_net_heating_w_m2;
+  const tendency=net>1e-9?'净吸热':net< -1e-9?'净散热':'近似平衡';
+  const residual=thermal?.thermal_energy_residual;
+  const processing=thermal?.thermal_processing;
+  const processingSummary=processing?.chunk_count?
+    ' · 热计算分段 '+processing.chunk_count+
+    '（本次计算'+processing.computed_chunks+
+    '，已复用'+processing.reused_chunks+'）'+
+    ' · C0方程评估 '+processing.c0_function_evaluations+
+    ' · C1方程评估 '+processing.c1_function_evaluations:
+    '';
+  target.textContent=
+    '真实采样t='+row.t_s.toPrecision(9)+' s · 吸收 '+
+    value(row.c0_absorbed_w_m2,'W/m²')+' · 向外辐射 '+
+    value(row.c0_emitted_w_m2,'W/m²')+' · 内部热通量 '+
+    value(row.c0_internal_heat_flux_w_m2,'W/m²')+' · 净热通量 '+
+    value(net,'W/m²')+'（'+tendency+'） · 瞬时平衡温度 '+
+    value(row.c0_equilibrium_temperature_k,'K')+
+    (Number.isFinite(row.c0_equilibrium_temperature_k)?
+      ' / '+(row.c0_equilibrium_temperature_k-273.15).toFixed(2)+' °C':'')+
+    (Number.isFinite(row.c1_latitude_spread_k)?
+      ' · C1最大纬度温差 '+row.c1_latitude_spread_k.toFixed(6)+' K':'')+
+    (Number.isFinite(residual?.c0)?
+      ' · C0归一化能量残差 '+residual.c0.toExponential(3):'')+
+    (Number.isFinite(residual?.c1)?
+      ' · C1归一化能量残差 '+residual.c1.toExponential(3):'')+
+    processingSummary+
+    ' · 仅表示当前灰体热模型的瞬时能量收支，不含显式温室效应。';
+}
 function updateCurrentC0Reading(row, selectedTime) {
   const kelvin = document.querySelector('#c0-current-k');
   const celsius = document.querySelector('#c0-current-celsius');
@@ -616,17 +652,20 @@ function renderThermal(){
     blankThermal(c1,'C1：无可信数据');
     cursor.textContent='轨道时间轴与热模型数据尚未建立有效关联。';
     updateCurrentC0Reading(null, 0);
+    updateEnergyDiagnostics(null, null);
     return;
   }
   const t=orbitSamples[orbitIndex].t_s,rows=linkedThermal.rows;
   const index=thermalNearestIndex(rows,t),nearest=rows[index];
   updateCurrentC0Reading(nearest,t);
+  updateEnergyDiagnostics(nearest,linkedThermal);
   drawTimeSeries(flux,rows,(p,i)=>p.flux_w_m2[
     ['star-1','star-2','star-3','total'][i]],
     ['#f3a44a','#e27459','#8bb7ff','#fff'],
     '恒星辐照度 W/m²（星1/星2/星3/总计）',t);
-  drawTimeSeries(c0,rows,p=>p.c0_temperature_k,
-    ['#edb86c'],'C0 全球温度 K',t);
+  drawTimeSeries(c0,rows,(p,i)=>i===0?
+    p.c0_equilibrium_temperature_k:p.c0_temperature_k,
+    ['#8bb7ff','#edb86c'],'C0 温度 K：蓝=瞬时平衡，橙=实际',t);
   drawC1(rows,t);
   cursor.textContent='轨道t='+t.toPrecision(9)+'s · 环境最近真实采样t='+
     nearest.t_s.toPrecision(9)+'s · 时间差='+

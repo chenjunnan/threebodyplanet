@@ -91,6 +91,11 @@ textarea { width:100%; min-height:285px; resize:vertical; background:#080c0d; bo
 .c0-current-temperature #c0-current-celsius {font-size:20px;color:var(--ink);font-variant-numeric:tabular-nums}
 .c0-current-temperature small {width:100%;color:var(--muted);line-height:1.5}
 
+#m6-energy-diagnostics {
+  margin:8px 0 12px; font-size:13px; line-height:1.6;
+  color:var(--ink); font-variant-numeric:tabular-nums;
+  overflow-wrap:anywhere;
+}
 #c1-canvas { cursor:crosshair; touch-action:pan-y; }
 #c1-temperature-summary {
   color:var(--ink);font-variant-numeric:tabular-nums;
