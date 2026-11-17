@@ -1,10 +1,6 @@
 name: M6 Five-Year Scientific Acceptance
 
 on:
-  pull_request:
-    paths:
-      - 'scripts/m6_five_year_acceptance.py'
-      - '.github/workflows/m6-five-year-acceptance.yml'
   workflow_dispatch:
 
 permissions:
