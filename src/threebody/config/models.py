@@ -209,6 +209,16 @@ class BoundedStochasticConicsGeneratorConfig(StrictModel):
     geometry: StochasticGeometryConfig
     initial_constraints: InitialConstraintsConfig
 
+    @model_validator(mode="after")
+    def supported_main_sequence_range(self) -> BoundedStochasticConicsGeneratorConfig:
+        if self.version == "0.4.2":
+            masses = self.stars.mass_solar
+            if masses.min < 0.3 or masses.max > 8.0:
+                raise ValueError(
+                    "stochastic_conics/0.4.2 main-sequence mass must be within 0.3..8 M_sun"
+                )
+        return self
+
 
 AnyGeneratorConfig = (
     GeneratorConfig | StochasticConicsGeneratorConfig | BoundedStochasticConicsGeneratorConfig
