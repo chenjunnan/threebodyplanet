@@ -237,10 +237,34 @@ def test_real_web_task_runs_two_ias15_segments_to_completion(tmp_path, resolved)
 
 
 def test_verified_body_metadata_uses_initial_state_hash_and_never_guesses(tmp_path,
-                                                                          long_thermal_fixture):
+                                                                          resolved):
+    from threebody.physics.longrun.config import load_long_run_settings
+    from threebody.physics.longrun.models import LongRunSettings
+    from threebody.physics.longrun.runner import start_long_run
     from threebody.web.science import query_body_metadata
+    from threebody.world.generators import generate_initial_state
 
-    run, _ = long_thermal_fixture
+    config, digest = resolved
+    state = generate_initial_state(
+        config.world_generation.generator, config.experiment.seed, 0, digest
+    )
+    base, _ = load_long_run_settings("configs/m5a_long_run.yaml")
+    raw = base.model_dump(mode="json")
+    raw["time"] = {
+        "start_time_s": 0.0, "end_time_s": 30.0, "output_interval_s": 10.0,
+    }
+    raw["segmentation"] = {"simulated_duration_s": 30.0}
+    raw["checkpoint"] = {
+        "simulation_interval_s": 10.0, "wall_interval_s": None, "retain_count": 3,
+    }
+    raw["resources"]["max_segments"] = 2
+    raw["resources"]["max_samples"] = 4
+    run = tmp_path / "verified-body-run"
+    result = start_long_run(
+        state, LongRunSettings.model_validate(raw, strict=True),
+        run, run_id=run.name,
+    )
+    assert result.manifest.task.status == "COMPLETED"
     with _server(tmp_path) as base:
         status, _, metadata = _request(
             f"{base}/api/v1/runs/{run.name}/bodies"
