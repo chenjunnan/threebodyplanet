@@ -1,7 +1,7 @@
 # P0-M4 development report
 
-Date: 2026-11-16  
-Branch: `feature/p0-m4-world-outcomes`  
+Date: 2026-11-16
+Branch: `feature/p0-m4-world-outcomes`
 M4 schema version: `0.4.0`
 
 ## Implemented scope
@@ -38,9 +38,9 @@ Executed with Python 3.11:
 
 ```text
 pytest -q
-........................................................................ [ 59%]
-.................................................                        [100%]
-121 passed
+........................................................................ [ 57%]
+.....................................................                    [100%]
+125 tests collected; exit code 0
 
 ruff check .
 All checks passed!
@@ -51,3 +51,16 @@ completed with exit code 0
 
 The end-to-end fixture ran a real 1,000 s REBOUND IAS15 archive, consumed it through M3 radiation/C0/C1,
 then produced and provenance-validated the complete M4 atomic archive.
+
+## Review fixes
+
+- Initial contacts were previously assigned only the generic timeline type `INITIAL_CONTACT`, while the
+  final collision flags inspected only normalized M2 runtime collision types. Consequently a t=0
+  star/planet contact was not marked `collision_with_planet`. Classification now derives initial collision
+  participation directly from validated `body_ids`, retaining the generic event and `INITIAL_CONTACT`
+  dynamical status while distinguishing planet-involved and star/star outcomes. Separate regressions cover
+  both participant combinations and their planet-status semantics.
+- The environmental branch previously treated a completed M3 manifest with flux but no C0 series as a
+  valid no-extreme interval, producing `TEMPERATE_INTERVAL`. C0 is now required for C0-derived frozen,
+  heat and temperate labels. C1-only input reports `DATA_INSUFFICIENT`; C0-only input can still support a
+  temperate interval because C1 statistics are optional and do not replace the global temperature model.

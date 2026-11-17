@@ -267,8 +267,18 @@ def assess_world(
     )
     initial_contact = bool(inputs.initial_outcomes)
     collisions = [event for event in dynamic_events if event.event_type.endswith("COLLISION")]
-    planet_collision = any(event.event_type == "PLANET_COLLISION" for event in collisions)
-    stellar_collision = any(event.event_type == "STELLAR_COLLISION" for event in collisions)
+    initial_planet_collision = any(
+        "planet-1" in outcome["body_ids"] for outcome in inputs.initial_outcomes
+    )
+    initial_stellar_collision = any(
+        "planet-1" not in outcome["body_ids"] for outcome in inputs.initial_outcomes
+    )
+    planet_collision = initial_planet_collision or any(
+        event.event_type == "PLANET_COLLISION" for event in collisions
+    )
+    stellar_collision = initial_stellar_collision or any(
+        event.event_type == "STELLAR_COLLISION" for event in collisions
+    )
     escape = any(event.event_type == "ESCAPE_CANDIDATE" for event in dynamic_events)
     if initial_contact:
         scientific_status = "INITIAL_CONTACT"
@@ -293,7 +303,7 @@ def assess_world(
     labels: list[str] = []
     if inputs.m3_manifest is not None and inputs.m3_manifest.get("status") == "FAILED":
         labels.extend(("THERMAL_SOLVER_FAILED", "DATA_INSUFFICIENT"))
-    elif inputs.m3_manifest is None or not inputs.flux:
+    elif inputs.m3_manifest is None or not inputs.flux or not inputs.c0:
         labels.append("DATA_INSUFFICIENT")
     else:
         if statistics.longest_cold_episode_s >= settings.classification.persistence_min_s:
@@ -339,7 +349,10 @@ def assess_world(
         score = 0.0
     selected = not (
         (settings.selection.survival_required and planet_status != "observed")
-        or (collisions and not settings.selection.include_collision_terminated)
+        or (
+            (collisions or initial_contact)
+            and not settings.selection.include_collision_terminated
+        )
         or (escape and not settings.selection.include_escape_candidates)
         or (
             dynamical not in {"COMPLETED_OBSERVATION_WINDOW", "ESCAPE_CANDIDATE"}

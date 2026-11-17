@@ -108,6 +108,18 @@ def _settings():
     return settings.model_copy(update={"classification": classification})
 
 
+def _initial_collision(body_ids: tuple[str, str]) -> dict:
+    return {
+        "event_type": "INITIAL_COLLISION",
+        "t_s": 0.0,
+        "body_ids": body_ids,
+        "center_distance_m": 1.0,
+        "contact_distance_m": 2.0,
+        "surface_gap_m": -1.0,
+        "detection_method": "initial_sphere_geometry",
+    }
+
+
 def test_piecewise_threshold_durations_and_sampled_statistics_are_auditable():
     statistics, episodes, events, classification = assess_world(
         _synthetic_inputs(), _settings()
@@ -159,6 +171,64 @@ def test_collision_classification_separates_stellar_and_planet_events(
     assert any(event.terminal for event in timeline)
     if expected_stellar:
         assert classification.planet_status == "unresolved"
+
+
+def test_initial_planet_collision_is_classified_from_participants():
+    _, _, timeline, classification = assess_world(
+        _synthetic_inputs(
+            m3_manifest=None,
+            flux=(),
+            c0=(),
+            c1=(),
+            initial_outcomes=(_initial_collision(("star-1", "planet-1")),),
+        ),
+        _settings(),
+    )
+    assert classification.dynamical_outcome == "INITIAL_CONTACT"
+    assert classification.collision_with_planet
+    assert not classification.stellar_collision
+    assert classification.planet_status == "collision_involved"
+    assert timeline[0].event_type == "INITIAL_CONTACT"
+
+
+def test_initial_stellar_collision_is_classified_from_participants():
+    _, _, timeline, classification = assess_world(
+        _synthetic_inputs(
+            m3_manifest=None,
+            flux=(),
+            c0=(),
+            c1=(),
+            initial_outcomes=(_initial_collision(("star-1", "star-2")),),
+        ),
+        _settings(),
+    )
+    assert classification.dynamical_outcome == "INITIAL_CONTACT"
+    assert not classification.collision_with_planet
+    assert classification.stellar_collision
+    assert classification.planet_status == "unresolved"
+    assert timeline[0].event_type == "INITIAL_CONTACT"
+
+
+def test_c0_only_can_support_temperate_interval_without_c1():
+    flat_flux = (_flux(0.0, 1000.0), _flux(20.0, 1000.0))
+    _, _, _, classification = assess_world(
+        _synthetic_inputs(
+            flux=flat_flux,
+            c0=(_c0(0.0, 280.0), _c0(20.0, 290.0)),
+            c1=(),
+        ),
+        _settings(),
+    )
+    assert classification.environmental_outcomes == ("TEMPERATE_INTERVAL",)
+
+
+def test_c1_only_is_insufficient_for_c0_temperate_interval():
+    flat_flux = (_flux(0.0, 1000.0), _flux(20.0, 1000.0))
+    _, _, _, classification = assess_world(
+        _synthetic_inputs(flux=flat_flux, c0=()), _settings()
+    )
+    assert "DATA_INSUFFICIENT" in classification.environmental_outcomes
+    assert "TEMPERATE_INTERVAL" not in classification.environmental_outcomes
 
 
 def test_escape_candidate_does_not_terminate_or_claim_permanent_escape():
