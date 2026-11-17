@@ -77,6 +77,21 @@ def test_native_m5a_thermal_derivation_real_c0_c1_and_hashes(
     assert all(row["flux_w_m2"]["total"] > 0 for row in data["rows"])
     assert all(row["c0_temperature_k"] > 0 for row in data["rows"])
     assert len(data["rows"][0]["c1_temperature_k"]) == 36
+    # Uniform initial C1 temperature is an explicit model setting, not a UI bug.
+    initial_c1 = data["rows"][0]["c1_temperature_k"]
+    assert max(initial_c1) == min(initial_c1) == 288.0
+    # Latitude-dependent forcing must not be replaced by the single C0 flux.
+    c1_rows = [
+        json.loads(line)
+        for line in (target / "c1_latitude_temperature.jsonl")
+        .read_text(encoding="utf-8").splitlines()
+    ]
+    incoming = c1_rows[0]["zonal_incoming_w_m2"]
+    assert max(incoming) > min(incoming)
+    # A nonzero integration interval evolves nonuniform latitude temperatures.
+    evolved = data["rows"][-1]["c1_temperature_k"]
+    assert max(evolved) > min(evolved)
+    assert max(evolved) - min(evolved) < 0.1  # 60 seconds and large heat capacity
     assert math.isclose(
         data["rows"][0]["flux_w_m2"]["total"],
         sum(data["rows"][0]["flux_w_m2"][x] for x in ("star-1", "star-2", "star-3")),
