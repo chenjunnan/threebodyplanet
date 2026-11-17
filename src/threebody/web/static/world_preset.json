@@ -1,0 +1,132 @@
+{
+  "schema_version": "0.4.1",
+  "experiment": {
+    "id": "web-worldset",
+    "seed": 20261117,
+    "candidate_count": 6
+  },
+  "world_generation": {
+    "body_count": {
+      "stars": 3,
+      "planets": 1
+    },
+    "generator": {
+      "type": "stochastic_conics",
+      "version": "0.4.1",
+      "stars": {
+        "mass_solar": {
+          "min": 0.3,
+          "max": 2.5,
+          "distribution": "log_uniform"
+        }
+      },
+      "planet": {
+        "mass_earth": {
+          "min": 0.1,
+          "max": 8,
+          "distribution": "log_uniform"
+        },
+        "density_kg_m3": {
+          "min": 2800,
+          "max": 8500,
+          "distribution": "uniform"
+        }
+      },
+      "geometry": {
+        "inner": {
+          "periapsis_m": {
+            "min": 10000000000,
+            "max": 2000000000000,
+            "distribution": "log_uniform"
+          },
+          "eccentricity": {
+            "min": 0,
+            "max": 1.8,
+            "distribution": "uniform"
+          }
+        },
+        "outer": {
+          "periapsis_m": {
+            "min": 20000000000,
+            "max": 20000000000000,
+            "distribution": "log_uniform"
+          },
+          "eccentricity": {
+            "min": 0,
+            "max": 2,
+            "distribution": "uniform"
+          }
+        },
+        "planet": {
+          "periapsis_m": {
+            "min": 2000000000,
+            "max": 5000000000000,
+            "distribution": "log_uniform"
+          },
+          "eccentricity": {
+            "min": 0,
+            "max": 2.2,
+            "distribution": "uniform"
+          },
+          "host_weights": {
+            "star-1": 1,
+            "star-2": 1,
+            "star-3": 1,
+            "barycenter": 1
+          }
+        },
+        "orientation": {
+          "normal": "isotropic",
+          "node": "uniform",
+          "periapsis_argument": "uniform"
+        },
+        "anomaly": {
+          "distribution": "true_anomaly_uniform_on_valid_domain"
+        },
+        "velocity_kick": {
+          "distribution": "isotropic_speed_fraction",
+          "speed_scale_fraction": {
+            "min": 0,
+            "max": 0.6,
+            "distribution": "uniform"
+          }
+        }
+      },
+      "initial_constraints": {
+        "mode": "bounded",
+        "max_attempts": 256,
+        "planet_star_distance_m": {
+          "min": null,
+          "max_nearest": 1500000000000,
+          "max_each": null
+        },
+        "stellar_pair_max_distance_m": null,
+        "planet_speed": {
+          "absolute_max_mps": 80000,
+          "escape_mode": "combined_potential",
+          "escape_speed_fraction_max": 0.9
+        },
+        "allow_initial_contact": false
+      }
+    }
+  },
+  "screening": {
+    "preset": "research",
+    "default_rule_state": "disabled",
+    "fail_fast": false,
+    "initial_physics": {
+      "enabled": true,
+      "rules": {}
+    },
+    "exploration": {
+      "enabled": false
+    }
+  },
+  "runtime": {
+    "simulation_enabled": false
+  },
+  "output": {
+    "max_candidates": 10000,
+    "format": "json"
+  }
+}
