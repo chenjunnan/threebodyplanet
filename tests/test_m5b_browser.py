@@ -121,11 +121,13 @@ def test_real_browser_world_3d_drag_science_and_report():
             - float(sample_c.removesuffix(" °C"))
         ) <= 0.011
         page.locator("#orbit-time").evaluate(
-            "(node) => { node.value = '0'; node.dispatchEvent(new Event('input', {bubbles: true})); }"
+            "(node) => { node.value = '0'; "
+            "node.dispatchEvent(new Event('input', {bubbles: true})); }"
         )
         assert "t=0.00000000" in page.locator("#c0-current-time").inner_text()
         page.locator("#orbit-time").evaluate(
-            "(node) => { node.value = node.max; node.dispatchEvent(new Event('input', {bubbles: true})); }"
+            "(node) => { node.value = node.max; "
+            "node.dispatchEvent(new Event('input', {bubbles: true})); }"
         )
         assert "t=60.0000000" in page.locator("#c0-current-time").inner_text()
 
