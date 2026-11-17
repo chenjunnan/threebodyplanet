@@ -63,6 +63,94 @@ async function apiPost(path, payload) {
   return result;
 }
 
+const scienceAutoRequested = new Set();
+
+function showTaskProgress(info) {
+  const physical = info.physical || {};
+  const committed = physical.committed_segments || 0;
+  const planned = physical.planned_segments || 0;
+  const progress = document.querySelector('#physical-progress');
+  progress.value = planned ? Math.min(100, Math.round(100 * committed / planned)) : 0;
+  document.querySelector('#physical-phase').textContent =
+    physical.status || info.phase || '尚未开始';
+  document.querySelector('#physical-progress-text').textContent =
+    '已提交物理分段 ' + committed + '/' + planned +
+    ' · REBOUND时间 ' + (physical.simulation_time_s ?? '—') + ' SI秒' +
+    (info.phase === 'RECOVERY_REQUIRED' ? ' · 检测到中断，请显式恢复' : '');
+  const analysis = info.analysis_status || 'NOT_STARTED';
+  document.querySelector('#analysis-phase').textContent = analysis;
+  const details = info.analysis || {};
+  const source = info.artifacts_present || {};
+  let message = {
+    NOT_STARTED: '尚未执行科学派生；已完成的旧运行可点击「重新验证/分析科学数据」。',
+    QUEUED: '真实物理积分已结束，辐射、温度与M4科学分析已排队。',
+    RUNNING: '正在运行M3辐射、C0/C1热积分及M4世界分类，请继续观察任务状态。',
+    COMPLETED: '科学分析结束，可在下方重新读取轨道、辐射、温度与M4分类。',
+    PARTIAL: '部分分析完成。' + (details.thermal || '有科学数据未计算'),
+    FAILED: '科学分析失败：' + (info.analysis_error || '请查看诊断信息'),
+    INTERRUPTED: '科学分析在服务重启前中断；请重新触发分析。',
+    DEFERRED_SHUTDOWN: '关闭Web服务期间推迟分析；可手动重新运行。',
+  }[analysis] || '当前科学派生状态：' + analysis;
+  if (physical.status === 'COLLISION') {
+    message += ' 碰撞终态不生成碰撞后的温度；M4动力学结局仍可计算。';
+  }
+  message += ' · 已保存归档：温度' + (source.thermal ? '有' : '无') +
+    '，M4' + (source.outcome ? '有' : '无') +
+    '（存在不代表已通过来源核验）。';
+  document.querySelector('#analysis-progress-text').textContent = message;
+}
+
+function scienceMissingNotice(info, kind) {
+  const physical = info?.physical?.status;
+  const analysis = info?.analysis_status || 'NOT_STARTED';
+  const title = kind === 'thermal' ? '辐射/C0/C1' : 'M4世界结局';
+  if (kind === 'thermal' && physical === 'COLLISION') {
+    return '碰撞终止：不推算碰撞后的辐射与温度；M4仍可分析动力学结局。';
+  }
+  if (['QUEUED', 'RUNNING'].includes(analysis)) {
+    return title + '正在真实计算或等待分析任务，完成后自动刷新；不是数据丢失。';
+  }
+  if (analysis === 'PARTIAL') {
+    return title + '暂不可用：' +
+      (info.analysis?.thermal || '超出物理采样或积分计算预算');
+  }
+  if (analysis === 'FAILED') {
+    return title + '分析失败：' +
+      (info.analysis_error || '原因见「诊断信息」') +
+      '；请检查物理归档后点击重新分析。';
+  }
+  if (physical === 'PAUSED' || physical === 'RUNNING') {
+    return '物理积分尚未完成，目前不生成最终' + title + '。';
+  }
+  if (analysis === 'COMPLETED') {
+    return title + '归档缺失，但任务报告分析完成；请重新验证/分析科学数据。';
+  }
+  return title + '尚未生成：可使用「重新验证/分析科学数据」补算。';
+}
+
+async function autoRecoverScienceIfNeeded(id, info) {
+  const physical = info?.physical?.status;
+  const status = info?.analysis_status;
+  if (!['COMPLETED', 'COLLISION'].includes(physical)) return info;
+  const existing = info?.artifacts_present || {};
+  const missing = !existing.outcome || (physical === 'COMPLETED' && !existing.thermal);
+  if (
+    !missing || !['NOT_STARTED', 'INTERRUPTED', 'DEFERRED_SHUTDOWN'].includes(status)
+    || scienceAutoRequested.has(id)
+  ) return info;
+  scienceAutoRequested.add(id);
+  try {
+    const queued = await apiPost('/api/v1/runs/' + encodeURIComponent(id) + '/analyze', {});
+    showTaskProgress(queued);
+    beginPoll(id);
+    return queued;
+  } catch(error) {
+    document.querySelector('#analysis-progress-text').textContent =
+      '自动补算未成功：' + error.message + '。可查看诊断并手动重新分析。';
+    return info;
+  }
+}
+
 async function pollJob() {
   if (!activeRunId) return;
   try {
@@ -70,6 +158,7 @@ async function pollJob() {
     if (!response.ok) throw new Error('当前进程没有该任务的活动记录');
     const info = await response.json();
     jobDetails.textContent = JSON.stringify(info, null, 2);
+    showTaskProgress(info);
     jobState.textContent = `任务 ${info.run_id}: ${info.phase} · 物理状态 ${info.physical?.status ?? 'PENDING'} · 科学派生 ${info.analysis_status ?? 'NOT_STARTED'}`;
     if (
       ['COMPLETED','COLLISION','FAILED','CANCELLED','CANCELLED_BEFORE_START','PAUSED','WORKER_ERROR'].includes(info.phase)
@@ -201,6 +290,18 @@ async function loadOrbit() {
     const e=await fetch(base+'/events?'+suffix.replace(/&?max_points=[^&]*/,''));
     const events=await e.json();
     if(!e.ok)throw Error(events.message||events.error);
+    let scienceJob = null;
+    try {
+      const jobResponse = await fetch('/api/v1/jobs/' + encodeURIComponent(id));
+      if (jobResponse.ok) {
+        scienceJob = await jobResponse.json();
+        showTaskProgress(scienceJob);
+        scienceJob = await autoRecoverScienceIfNeeded(id, scienceJob);
+      }
+    } catch(error) {
+      document.querySelector('#analysis-progress-text').textContent =
+        '科学任务状态未能读取：' + error.message;
+    }
     linkedThermal=null;
     try {
       const environmentResponse=await fetch(base+'/environment?'+suffix);
@@ -215,7 +316,7 @@ async function loadOrbit() {
           ' · '+environment.sample_count+'物理点 · 显示'+environment.display_count+'点';
       } else if(environmentResponse.status===404) {
         document.querySelector('#environment-status').textContent=
-          '未生成M5A热派生归档；辐射和C0/C1均不可用。';
+          scienceMissingNotice(scienceJob, 'thermal');
       } else {
         const detail=await environmentResponse.json();
         throw Error(detail.message||detail.error||'派生环境归档验证失败');
@@ -251,7 +352,7 @@ async function loadOrbit() {
         orbitEventItems.sort((a,b)=>a.t_s-b.t_s);
       }else if(response.status===404){
         document.querySelector('#m4-outcome-summary').textContent=
-          '未生成M4长期结局归档；尚无分类结论。';
+          scienceMissingNotice(scienceJob, 'outcome');
       }else{
         const detail=await response.json();
         throw Error(detail.message||detail.error||'M4分类读取失败');

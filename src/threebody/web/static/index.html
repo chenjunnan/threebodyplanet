@@ -58,20 +58,36 @@
     </section>
     <section class="panel task" aria-labelledby="task-heading">
       <div class="panel-head"><div><span class="index">03</span><h3 id="task-heading">真实长期模拟任务</h3></div><span>单机 · 单用户 · 安全分段</span></div>
-      <p>先使用命令行生成一个四体初始状态，将其 JSON 粘贴在下面，并提供 M5A 的已解析配置 JSON。后台仅执行真正的 IAS15 分段积分。</p>
-      <label for="run-id">运行ID</label><input id="run-id" value="web-run-001" maxlength="128">
-      <label for="initial-state">WorldInitialState JSON</label><textarea id="initial-state" spellcheck="false" placeholder='{"world_id":"candidate-000000", "bodies":[...]}'></textarea>
-      <label for="long-settings">M5A LongRunSettings JSON</label><textarea id="long-settings" spellcheck="false" placeholder='{"schema_version":"0.6.0", "backend":"rebound_ias15", "time":{...}}'></textarea>
+      <p>通过上方「创建随机三恒星世界」启动模拟，这里查看真实物理进度、控制任务和科学派生状态。关闭网页不会修改REBOUND物理时间。</p>
+      <label for="run-id">当前运行ID</label><input id="run-id" value="web-run-001" maxlength="128">
+      <div class="task-progress">
+        <div><span>物理积分</span><strong id="physical-phase">尚未载入</strong></div>
+        <progress id="physical-progress" max="100" value="0" aria-label="已提交物理分段进度"></progress>
+        <p id="physical-progress-text">等待读取真实M5A归档。</p>
+        <div><span>科学派生（辐射 / C0 / C1 / M4）</span><strong id="analysis-phase">尚未开始</strong></div>
+        <p id="analysis-progress-text">完成物理积分后，后台自动尝试科学分析。</p>
+      </div>
       <div class="actions">
-        <button id="start-run" class="primary">启动真实模拟</button>
         <button id="pause-run">请求暂停</button>
         <button id="resume-run">恢复模拟</button>
         <button id="cancel-run">请求取消</button>
-        <button id="restore-run">读取持久运行状态</button>
+        <button id="restore-run" class="primary">读取持久运行状态</button>
         <button id="analyze-run">重新验证/分析科学数据</button>
       </div>
-      <p id="job-state" aria-live="polite">尚未创建任务。暂停/取消请求可能需要等当前模拟分段结束。</p>
-      <pre id="job-details"></pre>
+      <p id="job-state" aria-live="polite">尚未创建任务。暂停与取消在安全分段边界才会生效。</p>
+      <details class="task-advanced">
+        <summary>高级模式：手动提交初始状态与M5A完整JSON配置</summary>
+        <p>仅供自定义物理初态和积分计划。普通用户请从页面上方生成并选择随机世界，不必填写JSON。</p>
+        <label for="initial-state">WorldInitialState JSON</label>
+        <textarea id="initial-state" spellcheck="false" placeholder='{"world_id":"candidate-000000", "bodies":[...]}'></textarea>
+        <label for="long-settings">M5A LongRunSettings JSON</label>
+        <textarea id="long-settings" spellcheck="false" placeholder='{"schema_version":"0.6.0", "backend":"rebound_ias15", "time":{...}}'></textarea>
+        <button id="start-run">高级模式：提交JSON并启动模拟</button>
+      </details>
+      <details class="task-diagnostics">
+        <summary>诊断信息：服务端任务和分析错误</summary>
+        <pre id="job-details"></pre>
+      </details>
     </section>
     <section class="panel observer" aria-labelledby="observe-heading">
       <div class="panel-head"><div><span class="index">04</span><h3 id="observe-heading">长期轨道观察</h3></div><span>真实分段轨迹 · 投影3D</span></div>
@@ -97,7 +113,7 @@
       <input id="orbit-time" type="range" min="0" max="0" value="0" step="1">
       <section class="thermal-panels" aria-labelledby="thermal-heading">
         <h3 id="thermal-heading">恒星辐射与行星温度（真实派生归档）</h3>
-        <p id="environment-status">热模型将在真实积分完成后自动尝试派生；超过计算预算时将标注不可用。</p>
+        <p id="environment-status" role="status">等待选择运行：物理积分完成后将自动尝试计算真实辐射与温度。</p>
         <canvas id="flux-canvas" width="940" height="220" aria-label="三颗恒星及总辐射时间曲线"></canvas>
         <canvas id="c0-canvas" width="940" height="180" aria-label="全球C0温度随物理时间变化"></canvas>
         <canvas id="c1-canvas" width="940" height="240" aria-label="C1纬度温度时空分布"></canvas>
@@ -105,11 +121,11 @@
       </section>
       <section class="world-outcome-panel" aria-labelledby="m4-heading">
         <h3 id="m4-heading">长期世界结局 · M4科学分类</h3>
-        <p id="m4-outcome-summary">积分完成后自动尝试计算M4结局；缺失信息不等于环境温和。</p>
+        <p id="m4-outcome-summary" role="status">等待选择运行：M4将使用已归档的真实动力学和可用温度数据分类。</p>
       </section>
       <div class="observe-bottom">
         <div><label for="orbit-events">事件跳转</label><select id="orbit-events"><option value="">无已载入事件</option></select></div>
-        <p id="orbit-event-detail">此视图显示M5A轨道与动力学事件；尚未接入M3/C0/C1环境时间序列。</p>
+        <p id="orbit-event-detail">事件只来自已验证的动力学与环境归档；时间轴同步显示可用辐射和C0/C1数据。</p>
       </div>
     </section>
   </main>

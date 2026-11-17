@@ -48,10 +48,13 @@ def derive_run_science(root: Path, run_id: str) -> dict[str, str]:
                 try:
                     derive_long_run_environment(run, thermal_config, env_dir)
                     result["thermal"] = "COMPLETED"
-                except ConfigError as exc:
-                    # Out-of-budget / too-sparse input must remain explicit.
-                    # M4 still reports the real dynamical result without thermal.
-                    result["thermal"] = "UNAVAILABLE: " + str(exc)
+                except (ConfigError, ValueError, ArithmeticError, RuntimeError) as exc:
+                    # Solver and input-domain failures do not erase the valid M5A
+                    # trajectory. M4 still runs in dynamics-only mode, and its
+                    # independent reader must verify the original source chain.
+                    result["thermal"] = (
+                        f"UNAVAILABLE: {type(exc).__name__}: {exc}"
+                    )
         else:
             result["thermal"] = "NOT_APPLICABLE_COLLISION"
         validated_env = env_dir if result["thermal"] in {

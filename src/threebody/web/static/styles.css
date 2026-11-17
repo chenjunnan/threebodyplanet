@@ -64,3 +64,17 @@ textarea { width:100%; min-height:285px; resize:vertical; background:#080c0d; bo
 .world-card:disabled{opacity:.53;cursor:not-allowed}
 .world-duration{border-top:1px solid var(--line);padding-top:18px}
 @media(max-width:780px){.world-builder{margin:0 0 24px}}
+
+/* P0: operational status first; raw scientific JSON is an opt-in advanced path. */
+.task-progress { margin:16px 0 20px; padding:14px; border:1px solid var(--line); }
+.task-progress > div { display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; }
+.task-progress > div span { color:var(--muted); }
+.task-progress strong { color:var(--lime); }
+.task-progress progress { display:block; width:100%; height:14px; margin:10px 0; accent-color:var(--lime); }
+.task-progress p { overflow-wrap:anywhere; margin:8px 0 15px; color:var(--muted); }
+.task-advanced, .task-diagnostics { margin-top:18px; border:1px solid var(--line); padding:13px; }
+.task-advanced summary, .task-diagnostics summary { cursor:pointer; color:var(--ink); }
+.task-advanced > p { margin:12px 0; color:var(--muted); }
+.task-advanced textarea { display:block; width:100%; min-height:135px; }
+.task-advanced button { margin-top:12px; }
+.task-diagnostics pre { margin-top:14px; overflow:auto; }

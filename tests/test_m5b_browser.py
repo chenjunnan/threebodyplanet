@@ -72,6 +72,11 @@ def test_real_browser_world_3d_drag_science_and_report():
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(url, wait_until="domcontentloaded")
+        assert not page.locator(".task-advanced").evaluate(
+            "(element) => element.open"
+        )
+        assert page.locator("#physical-progress").count() == 1
+        assert page.locator("#analysis-phase").count() == 1
         page.locator("#world-advanced-config").wait_for(state="attached")
         page.wait_for_function(
             "() => document.querySelector('#world-advanced-config')"
@@ -101,6 +106,11 @@ def test_real_browser_world_3d_drag_science_and_report():
             "() => document.querySelector('#environment-status').textContent.includes('已验证')",
             timeout=20000,
         )
+        assert page.locator("#analysis-phase").inner_text() == "COMPLETED"
+        assert "已保存归档：温度有，M4有" in (
+            page.locator("#analysis-progress-text").inner_text()
+        )
+        assert "未生成M4" not in page.locator("#m4-outcome-summary").inner_text()
         canvas = page.locator("#orbit-canvas")
         canvas.scroll_into_view_if_needed()
         before = canvas.evaluate("(node) => node.toDataURL()")
