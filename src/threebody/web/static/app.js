@@ -663,8 +663,9 @@ function renderThermal(){
     ['star-1','star-2','star-3','total'][i]],
     ['#f3a44a','#e27459','#8bb7ff','#fff'],
     '恒星辐照度 W/m²（星1/星2/星3/总计）',t);
-  drawTimeSeries(c0,rows,p=>p.c0_temperature_k,
-    ['#edb86c'],'C0 全球温度 K',t);
+  drawTimeSeries(c0,rows,(p,i)=>i===0?
+    p.c0_equilibrium_temperature_k:p.c0_temperature_k,
+    ['#8bb7ff','#edb86c'],'C0 温度 K：蓝=瞬时平衡，橙=实际',t);
   drawC1(rows,t);
   cursor.textContent='轨道t='+t.toPrecision(9)+'s · 环境最近真实采样t='+
     nearest.t_s.toPrecision(9)+'s · 时间差='+
