@@ -17,6 +17,7 @@ from threebody.errors import ConfigError
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.jobs import LocalRunController
 from threebody.web.science import query_events, query_trajectory
+from threebody.web.thermal_science import read_long_environment
 from threebody.world.models import WorldInitialState
 
 MAX_REQUEST_BYTES = 1_048_576
@@ -164,6 +165,33 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/v1/openapi.json":
                 self._static("openapi.json", "application/json; charset=utf-8")
+                return
+            thermal_match = re.fullmatch(r"/api/v1/runs/([^/]+)/environment", path)
+            if thermal_match:
+                run_id = unquote(thermal_match.group(1))
+                directory = _run_directory(self.artifact_root, run_id)
+                derived_root = self.artifact_root / "environments"
+                if derived_root.is_symlink() or not derived_root.is_dir():
+                    raise FileNotFoundError(run_id)
+                derived = _run_directory(derived_root, run_id)
+                params = parse_qs(parts.query, keep_blank_values=True, strict_parsing=True)
+                if set(params) - {"start_s", "end_s", "max_points"}:
+                    raise ValueError("unknown environment query parameter")
+                if any(len(values) != 1 for values in params.values()):
+                    raise ValueError("duplicate environment query parameter")
+                def env_time(key: str) -> float | None:
+                    if key not in params:
+                        return None
+                    value = float(params[key][0])
+                    if not math.isfinite(value):
+                        raise ValueError("non-finite environment time")
+                    return value
+                self._json(HTTPStatus.OK, read_long_environment(
+                    directory, derived,
+                    start_s=env_time("start_s"),
+                    end_s=env_time("end_s"),
+                    max_points=int(params.get("max_points", ["500"])[0]),
+                ))
                 return
             data_match = re.fullmatch(r"/api/v1/runs/([^/]+)/(trajectory|events)", path)
             if data_match:
