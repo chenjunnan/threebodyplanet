@@ -123,3 +123,54 @@ def test_path_traversal_and_symlinked_runs_are_not_exposed(tmp_path):
         status, _, listing = _request(f"{base}/api/v1/runs")
         assert status == 200
         assert listing["runs"] == []
+
+
+def test_task_start_api_accepts_canonical_json_state_and_settings(
+    tmp_path, example_path, monkeypatch
+):
+    from threebody.config.loader import load_and_resolve
+    from threebody.physics.longrun.config import load_long_run_settings
+    from threebody.web.jobs import LocalRunController
+    from threebody.world.generators import generate_initial_state
+
+    config, digest = load_and_resolve(example_path)
+    state = generate_initial_state(
+        config.world_generation.generator, config.experiment.seed, 0, digest
+    )
+    settings, _ = load_long_run_settings("configs/m5a_long_run.yaml")
+    seen = []
+
+    def capture_start(self, run_id, initial, long_settings):
+        seen.append((run_id, initial, long_settings))
+        return {"run_id": run_id, "phase": "QUEUED"}
+
+    monkeypatch.setattr(LocalRunController, "start", capture_start)
+    with _server(tmp_path) as base:
+        status, _, result = _request(
+            f"{base}/api/v1/runs",
+            method="POST",
+            payload={
+                "run_id": "test-run",
+                "initial_state": state.model_dump(mode="json"),
+                "settings": settings.model_dump(mode="json"),
+            },
+        )
+    assert status == 202
+    assert result["phase"] == "QUEUED"
+    assert seen[0] == ("test-run", state, settings)
+
+
+def test_task_start_api_rejects_bad_schema_without_starting(tmp_path):
+    with _server(tmp_path) as base:
+        status, _, payload = _request(
+            f"{base}/api/v1/runs",
+            method="POST",
+            payload={"run_id": "bad", "initial_state": {}, "settings": {}},
+        )
+        assert status == 422
+        assert payload["error"] == "invalid_request"
+        status, _, payload = _request(
+            f"{base}/api/v1/jobs/unknown"
+        )
+        assert status == 404
+        assert payload["error"] == "run_not_found"
