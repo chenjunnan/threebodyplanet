@@ -32,3 +32,14 @@ textarea { width:100%; min-height:285px; resize:vertical; background:#080c0d; bo
 .task #job-state { margin-top:18px; }
 .task #job-details { max-height:320px; }
 @media (max-width:780px) { .task { margin:0 0 24px; } }
+
+.observer { margin:0 28px 28px; min-height:0; border:1px solid var(--line); }
+.observer > p { color:var(--muted); margin-bottom:12px; }
+.observer label { color:var(--lime); font-size:12px; display:block; }
+.observe-filters { flex-wrap:wrap; align-items:end; }
+.observe-filters input { display:block; min-width:115px; max-width:180px; background:#080c0d; color:var(--ink); padding:8px; border:1px solid var(--line); }
+#orbit-canvas { display:block; width:100%; height:auto; background:#080c0d; border:1px solid var(--line); margin:12px 0; }
+#orbit-time { display:block; width:100%; margin:10px 0; }
+.observe-bottom { display:flex; flex-wrap:wrap; gap:24px; align-items:start; margin-top:20px; }
+.observe-bottom select { display:block; max-width:100%; margin-top:8px; padding:8px; background:var(--panel);color:var(--ink);border:1px solid var(--line); }
+@media(max-width:780px) { .observer {margin:0 0 24px;} }
