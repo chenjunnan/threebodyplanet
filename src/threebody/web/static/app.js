@@ -75,6 +75,12 @@ async function pollJob() {
       clearInterval(pollHandle);
       pollHandle = null;
       loadRuns();
+      if (
+        ['COMPLETED', 'COLLISION'].includes(info.phase)
+        && document.querySelector('#observe-run-id').value === info.run_id
+      ) {
+        loadOrbit();
+      }
     }
   } catch (error) {
     jobState.textContent = error.message;
