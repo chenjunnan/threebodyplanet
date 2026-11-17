@@ -23,7 +23,7 @@ sync_playwright = playwright.sync_playwright
 
 
 @contextmanager
-def _live_server():
+def _live_server(artifact_root=None):
     with tempfile.TemporaryDirectory(prefix="threebody-browser-") as temporary:
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
@@ -31,7 +31,7 @@ def _live_server():
         process = subprocess.Popen(
             [
                 sys.executable, "-m", "threebody", "web", "serve",
-                "--artifact-root", temporary, "--host", "127.0.0.1",
+                "--artifact-root", str(artifact_root or temporary), "--host", "127.0.0.1",
                 "--port", str(port),
             ],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -431,5 +431,117 @@ def test_surface_materials_equal_area_temperature_and_missing_data():
                 "const c=node.getContext('2d');"
                 "return c.getImageData(80,80,1,1).data[3]===255 && "
                 "c.getImageData(0,0,1,1).data[3]===0; }")
+        assert not errors, errors
+        browser.close()
+
+
+@pytest.mark.browser
+def test_collision_archive_markers_stop_and_event_validation(tmp_path):
+    from test_m5a_runner import _collision_world, _settings
+
+    from threebody.physics.longrun.runner import start_long_run
+
+    result = start_long_run(
+        _collision_world(), _settings(end_s=20.0), tmp_path / 'collision-test',
+        run_id='collision-test',
+    )
+    assert result.manifest.task.status == 'COLLISION'
+    with _live_server(tmp_path) as url, sync_playwright() as api:
+        browser = api.chromium.launch(
+            executable_path=os.environ.get('THREEBODY_TEST_CHROMIUM'), headless=True,
+            args=['--enable-unsafe-swiftshader', '--use-angle=swiftshader'],
+        )
+        page = browser.new_page(viewport={'width': 1300, 'height': 1000})
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        page.goto(url, wait_until='domcontentloaded')
+        page.locator('#observe-run-id').fill('collision-test')
+        page.locator('#observe-load').click()
+        page.wait_for_function("() => document.querySelector('#orbit-terminal-status')"
+                               ".textContent.includes('碰撞终止')")
+        assert page.evaluate('orbitSamples.at(-1).t_s') == result.manifest.task.simulation_time_s
+        source = page.evaluate('JSON.stringify(orbitSamples)')
+        assert page.evaluate('activeEventMarker().ids') == ['star-1', 'star-2']
+        page.locator('#event-next').click()
+        assert '没有后续' in page.locator('#orbit-event-sync').inner_text()
+        page.locator('#event-previous').click()
+        assert '没有更早' in page.locator('#orbit-event-sync').inner_text()
+        # Select the existing event explicitly, pausing display playback at its true endpoint.
+        event_index = page.locator('#orbit-events').input_value()
+        page.locator('#orbit-events').select_option(event_index)
+        assert '时间偏差 0 s' in page.locator('#orbit-event-sync').inner_text()
+        plain = page.locator('#orbit-canvas')
+        with_marker = plain.evaluate('node => node.toDataURL()')
+        page.locator('#event-markers').uncheck()
+        assert plain.evaluate('node => node.toDataURL()') != with_marker
+        page.locator('#event-markers').check()
+        page.locator('#enable-webgl').click()
+        assert page.locator('#enable-webgl').is_checked()
+        gpu = page.locator('#orbit-webgl')
+        with_marker = gpu.evaluate('node => node.toDataURL()')
+        page.locator('#event-markers').uncheck()
+        assert gpu.evaluate('node => node.toDataURL()') != with_marker
+        page.locator('#event-markers').check()
+        page.evaluate('() => orbitSetIndex(0)')
+        assert page.evaluate('activeEventMarker().ids') == []
+        page.locator('#orbit-play').click()
+        page.wait_for_function('() => orbitIndex===orbitSamples.length-1 && orbitTimer===null')
+        assert page.evaluate('JSON.stringify(orbitSamples)') == source
+        assert page.evaluate(
+            "document.querySelector('#orbit-webgl').getContext('webgl2').getError()"
+        ) == 0
+        checks = page.evaluate('''() => {
+          const a=ThreeBodyScienceAdapter;
+          const trajectory={run_id:'fixture',world_id:'fixture',time_end_s:10,
+            samples:[{t_s:0},{t_s:10}]};
+          const event={t_s:5,event_type:'CLOSE_ENCOUNTER',body_ids:['star-1','planet-1']};
+          const payload={run_id:'fixture',world_id:'fixture',event_count:1,events:[event]};
+          const before=JSON.stringify(payload);
+          a.validateEvents(trajectory,payload);
+          const rejects=[];
+          for(const change of [
+            {run_id:'other'}, {event_count:2},
+            {events:[{...event,t_s:NaN}]},
+            {events:[{...event,body_ids:['fake']}]},
+            {events:[{...event,event_type:'COLLISION'}]}
+          ]){
+            try{a.validateEvents(trajectory,{...payload,...change});rejects.push(false);}
+            catch(error){rejects.push(error.message.includes('M6.3 science'));}
+          }
+          return {rejects,unchanged:before===JSON.stringify(payload),
+            nearest:a.eventSample(trajectory.samples,event),
+            outside:a.eventSample(trajectory.samples,{...event,t_s:11})};
+        }''')
+        assert all(checks['rejects'])
+        assert checks['unchanged']
+        assert checks['nearest'] == {'index': 0, 'delta_s': 5}
+        assert checks['outside'] is None
+        # Near-encounter graphics fixture uses actual source positions.
+        page.evaluate("""() => {
+          orbitEventItems=[{t_s:(orbitSamples[0].t_s+orbitSamples.at(-1).t_s)/2,
+            event_type:'CLOSE_ENCOUNTER',body_ids:['star-1','planet-1'],
+            message:'GRAPHICS FIXTURE ONLY'}];
+          orbitSelectedEvent=0;orbitSetIndex(0);
+        }""")
+        assert page.evaluate('activeEventMarker().collision') is False
+        assert page.evaluate('activeEventMarker().ids') == ['star-1', 'planet-1']
+        assert '时间偏差' in page.locator('#orbit-event-sync').inner_text()
+        page.locator('#observe-run-id').fill('missing-run')
+        page.locator('#observe-load').click()
+        page.wait_for_function("() => document.querySelector('#observe-status')"
+                               ".textContent.includes('无法载入')")
+        assert page.locator('#orbit-terminal-status').inner_text() == ''
+        assert page.evaluate('activeEventMarker().ids') == []
+        page.add_init_script('''
+          const originalGetContext=HTMLCanvasElement.prototype.getContext;
+          HTMLCanvasElement.prototype.getContext=function(kind,...args){
+            return kind==='webgl2'?null:originalGetContext.call(this,kind,...args);
+          };
+        ''')
+        page.reload(wait_until='domcontentloaded')
+        page.locator('#enable-webgl').click()
+        assert not page.locator('#enable-webgl').is_checked()
+        assert page.locator('#orbit-canvas').is_visible()
+        assert 'WebGL不可用' in page.locator('#webgl-status').inner_text()
         assert not errors, errors
         browser.close()

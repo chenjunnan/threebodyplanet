@@ -222,6 +222,9 @@ const orbitBodySelect=document.querySelector('#orbit-body-select');
 const orbitBodyDetail=document.querySelector('#orbit-body-detail');
 const orbitEventSync=document.querySelector('#orbit-event-sync');
 let linkedBodyMetadata=null,orbitSelectedId=null,orbitFocusId=null;
+let orbitSelectedEvent=null,orbitArchiveStatus=null;
+const eventMarkers=document.querySelector('#event-markers');
+eventMarkers.addEventListener('change',()=>orbitDraw());
 function selectOrbitBody(id){
   orbitSelectedId=orbitIds.includes(id)?id:null;
   orbitBodySelect.value=orbitSelectedId||'';
@@ -300,7 +303,7 @@ webglToggle.addEventListener('change',()=>{
     webglRenderer.select(orbitSelectedId);
     webglRenderer.focus(orbitFocusId);
     webglRenderer.materials(materialToggle.checked);
-    webglRenderer.draw(orbitIndex);
+    orbitDraw();
     webglStatus.textContent='WebGL2已启用 · 仅使用已验证轨道点，无外推；拖动旋转、滚轮缩放。';
   } catch(error) {
     deactivateWebGL('WebGL不可用，保留Canvas观察器：'+error.message);
@@ -334,8 +337,35 @@ materialToggle.addEventListener('change',()=>{
 for(const [i,id] of ['surface-star-1','surface-star-2','surface-star-3','surface-rock'].entries()){
   document.getElementById(id).getContext('2d').drawImage(window.ThreeBodySurfaces.disk(i,160),0,0);
 }
+let orbitGeometry=null;
+function orbitWindowGeometry(){
+  if(orbitGeometry?.samples===orbitSamples)return orbitGeometry;
+  const points=orbitSamples.flatMap(s=>orbitIds.map(id=>s.positions_m[id]));
+  const center=[0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/Math.max(points.length,1));
+  let extent=1;
+  for(const p of points)extent=Math.max(extent,Math.hypot(...p.map((v,k)=>v-center[k])));
+  orbitGeometry={samples:orbitSamples,center,extent};return orbitGeometry;
+}
+function activeEventMarker(){
+  const event=orbitEventItems[orbitSelectedEvent];
+  const match=window.ThreeBodyScienceAdapter.eventSample(orbitSamples,event);
+  const current=match&&match.index===orbitIndex;
+  const terminal=document.querySelector('#orbit-terminal-status');
+  terminal.textContent=orbitArchiveStatus==='COLLISION'?
+    '碰撞终止归档：仅回放已提交历史；没有碰撞后轨迹、合并残骸或闪光能量预测。':'';
+  if(event&&match){
+    orbitEventSync.textContent='事件 '+event.event_type+' @ '+event.t_s+
+      ' SI s · 标记采样 '+orbitSamples[match.index].t_s+' SI s · 时间偏差 '+
+      match.delta_s+' s · '+(current?'当前显示事件附近的真实采样':'当前时间不在事件标记采样')+
+      '（无位置插值；标记不代表精确事件位置）。';
+  }else if(!event){orbitEventSync.textContent='尚未选中事件。';}
+  const enabled=eventMarkers.checked&&current;
+  return {ids:enabled?event.body_ids:[],collision:enabled&&event.event_type==='COLLISION'};
+}
 function orbitDraw() {
+  const marker=activeEventMarker();
   if(webglRenderer){
+    webglRenderer.markEvents(marker.ids,marker.collision);
     webglRenderer.materials(materialToggle.checked);
     webglRenderer.draw(orbitIndex);
     return;
@@ -347,10 +377,9 @@ function orbitDraw() {
     ctx.fillStyle='#8d9ba1'; ctx.fillText('尚无已提交轨道采样',22,32); return;
   }
   const end=orbitSamples[orbitIndex];
-  const points=orbitSamples.flatMap(s=>orbitIds.map(id=>s.positions_m[id]));
-  const center=orbitFocusId?end.positions_m[orbitFocusId]:
-    [0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
-  const extent=Math.max(1,...points.map(p=>Math.hypot(...p.map((v,k)=>v-center[k]))));
+  const geometry=orbitWindowGeometry();
+  const center=orbitFocusId?end.positions_m[orbitFocusId]:geometry.center;
+  const extent=geometry.extent;
   const scale=extent/(Math.min(w,h)*.40)*orbitZoom;
   orbitIds.forEach((id,bi)=>{
     ctx.beginPath(); ctx.lineWidth=id==='planet-1'?1.6:1.2;
@@ -366,6 +395,10 @@ function orbitDraw() {
       const size=id==='planet-1'?20:30;
       ctx.drawImage(window.ThreeBodySurfaces.disk(bi),w/2+px-size/2,h/2+py-size/2,size,size);
     }else{ctx.arc(w/2+px,h/2+py,id==='planet-1'?4:7,0,Math.PI*2);ctx.fill();}
+    if(marker.ids.includes(id)){
+      ctx.beginPath();ctx.strokeStyle=marker.collision?'#ff6685':'#65e9ed';ctx.lineWidth=2;
+      ctx.arc(w/2+px,h/2+py,23,0,Math.PI*2);ctx.stroke();
+    }
     ctx.font='12px system-ui';ctx.fillText(id,w/2+px+9,h/2+py-7);
   });
   ctx.fillStyle='#b7c5ca';ctx.font='13px monospace';
@@ -385,6 +418,7 @@ async function loadOrbit() {
   orbitStop();orbitSelectedId=null;orbitFocusId=null;linkedBodyMetadata=null;
   orbitBodySelect.value='';
   orbitBodyDetail.textContent='等待当前世界经验证的天体初态。';
+  orbitSelectedEvent=null;orbitArchiveStatus=null;
   orbitEventSync.textContent='尚未选中事件。';
   if(webglRenderer){webglRenderer.focus(null);webglRenderer.select(null);}
   orbitStatus.textContent='正在验证并读取M5A已提交分段…';
@@ -407,9 +441,7 @@ async function loadOrbit() {
     const e=await fetch(base+'/events?'+suffix.replace(/&?max_points=[^&]*/,''));
     const events=await e.json();
     if(!e.ok)throw Error(events.message||events.error);
-    window.ThreeBodyScienceAdapter.matchLinkedArchive(
-      validatedTrajectory,events,'events'
-    );
+    const validatedEvents=window.ThreeBodyScienceAdapter.validateEvents(validatedTrajectory,events);
     let scienceJob = null;
     try {
       const jobResponse = await fetch('/api/v1/jobs/' + encodeURIComponent(id));
@@ -465,7 +497,8 @@ async function loadOrbit() {
       orbitBodyDetail.textContent='天体初态属性不可用：'+error.message;
     }
     orbitSamples=validatedTrajectory.samples;
-    orbitEventItems=events.events;
+    orbitArchiveStatus=validatedTrajectory.data_status;
+    orbitEventItems=Array.from(validatedEvents);
     if(webglRenderer)webglRenderer.load(orbitSamples);
     try {
       const response=await fetch(base+'/outcome');
@@ -510,12 +543,22 @@ async function loadOrbit() {
       const collisionKind=event.observed?.collision_class;
       const displayType=collisionKind==='STAR_STAR'?'恒星碰撞':
         collisionKind==='STAR_PLANET'?'恒星—行星碰撞':event.event_type;
-      orbitEvents.add(new Option(displayType+' @ '+event.t_s+' s',String(i)));
+      const available=window.ThreeBodyScienceAdapter.eventSample(orbitSamples,event)!==null;
+      const option=new Option(displayType+' @ '+event.t_s+' s'+(available?'':'（当前采样窗口外）'),String(i));
+      option.disabled=!available;orbitEvents.add(option);
     });
+    if(orbitArchiveStatus==='COLLISION'){
+      const collision=orbitEventItems.findIndex(e=>e.event_type==='COLLISION'&&
+        window.ThreeBodyScienceAdapter.eventSample(orbitSamples,e));
+      if(collision>=0){orbitSelectedEvent=collision;orbitEvents.value=String(collision);}
+    }
     orbitSetIndex(orbitSamples.length-1);
     if(!orbitSamples.length){orbitDraw();renderThermal();}
   } catch(error) {
     orbitSamples=[];orbitEventItems=[];linkedBodyMetadata=null;linkedThermal=null;
+    orbitArchiveStatus=null;orbitSelectedEvent=null;
+    orbitEvents.replaceChildren(new Option('无已载入事件',''));
+    document.querySelector('#orbit-event-detail').textContent='没有当前运行的可信事件。';
     orbitText.textContent='—';orbitSlider.max=0;orbitSlider.value=0;
     renderThermal();
     orbitSelectedId=null;orbitFocusId=null;orbitBodySelect.value='';
@@ -544,18 +587,13 @@ document.querySelector('#orbit-play').addEventListener('click',()=>{
 });
 document.querySelector('#orbit-stop').addEventListener('click',orbitStop);
 orbitEvents.addEventListener('change',()=>{
-  if(orbitEvents.value===''||!orbitSamples.length)return;
+  if(orbitEvents.value===''||!orbitSamples.length){orbitSelectedEvent=null;orbitDraw();return;}
   const event=orbitEventItems[Number(orbitEvents.value)];
-  let nearest=0,delta=Infinity;
-  orbitSamples.forEach((sample,i)=>{
-    const difference=Math.abs(sample.t_s-event.t_s);
-    if(difference<delta){delta=difference;nearest=i;}
-  });
+  const match=window.ThreeBodyScienceAdapter.eventSample(orbitSamples,event);
+  if(!match){orbitEventSync.textContent='事件在当前采样窗口外，未推算位置。';return;}
+  orbitStop();orbitSelectedEvent=Number(orbitEvents.value);
+  const nearest=match.index,delta=match.delta_s;
   orbitSetIndex(nearest);
-  orbitEventSync.textContent='事件 '+event.event_type+' @ '+
-    event.t_s.toPrecision(9)+' SI s · 最近真实轨道样本 '+
-    orbitSamples[nearest].t_s.toPrecision(9)+' SI s · 时间偏差 '+
-    delta.toPrecision(6)+' s（无插值或外推）。';
   if(event.body_ids?.length && orbitIds.includes(event.body_ids[0])){
     selectOrbitBody(event.body_ids[0]);
   }
@@ -574,6 +612,17 @@ orbitEvents.addEventListener('change',()=>{
     event.event_type+' ('+event.body_ids.join(', ')+') @ '+event.t_s+' s · '+
     event.message+' · 采样时间偏差 '+delta.toPrecision(5)+' s'+mergerSummary;
 });
+for(const [id,direction] of [['event-previous',-1],['event-next',1]]){
+  document.getElementById(id).addEventListener('click',()=>{
+    let i=orbitSelectedEvent===null?(direction>0?-1:orbitEventItems.length):orbitSelectedEvent;
+    for(i+=direction;i>=0&&i<orbitEventItems.length;i+=direction){
+      if(window.ThreeBodyScienceAdapter.eventSample(orbitSamples,orbitEventItems[i])){
+        orbitEvents.value=String(i);orbitEvents.dispatchEvent(new Event('change'));return;
+      }
+    }
+    orbitEventSync.textContent='当前窗口内没有'+(direction>0?'后续':'更早')+'事件。';
+  });
+}
 document.querySelector('#runs').addEventListener('click',event=>{
   const button=event.target.closest('[data-run]');
   if(!button)return;
@@ -978,11 +1027,9 @@ orbitCanvas.addEventListener('pointermove',event=>{
 orbitCanvas.addEventListener('pointerup',event=>{
   if(!dragPoint || !orbitSamples.length ||
     Math.hypot(event.clientX-dragPoint[2],event.clientY-dragPoint[3])>=6)return;
-  const points=orbitSamples.flatMap(s=>orbitIds.map(id=>s.positions_m[id]));
-  const end=orbitSamples[orbitIndex];
-  const center=orbitFocusId?end.positions_m[orbitFocusId]:
-    [0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
-  const extent=Math.max(1,...points.map(p=>Math.hypot(...p.map((v,k)=>v-center[k]))));
+  const end=orbitSamples[orbitIndex],geometry=orbitWindowGeometry();
+  const center=orbitFocusId?end.positions_m[orbitFocusId]:geometry.center;
+  const extent=geometry.extent;
   const scale=extent/(Math.min(orbitCanvas.width,orbitCanvas.height)*.4)*orbitZoom;
   const rect=orbitCanvas.getBoundingClientRect();
   let picked=null,distance=Infinity;
