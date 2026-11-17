@@ -75,7 +75,7 @@ def list_runs(root: Path) -> list[dict[str, Any]]:
 
 
 def _run_directory(root: Path, run_id: str) -> Path:
-    if not RUN_ID.fullmatch(run_id):
+    if run_id in {".", ".."} or not RUN_ID.fullmatch(run_id):
         raise ValueError("invalid run_id")
     candidate = root / run_id
     if candidate.is_symlink() or not candidate.is_dir():
@@ -217,7 +217,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 if set(raw) != {"run_id", "initial_state", "settings"}:
                     raise ValueError("required fields: run_id, initial_state, settings")
                 run_id = raw["run_id"]
-                if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
+                if not isinstance(run_id, str) or run_id in {".", ".."} or not RUN_ID.fullmatch(run_id):
                     raise ValueError("invalid run_id")
                 initial = WorldInitialState.model_validate_json(
                     json.dumps(raw["initial_state"], allow_nan=False), strict=True
@@ -229,7 +229,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
             assert control is not None
             run_id, action = unquote(control.group(1)), control.group(2)
-            if not RUN_ID.fullmatch(run_id):
+            if run_id in {".", ".."} or not RUN_ID.fullmatch(run_id):
                 raise ValueError("invalid run_id")
             if raw:
                 raise ValueError("control request must contain an empty JSON object")
