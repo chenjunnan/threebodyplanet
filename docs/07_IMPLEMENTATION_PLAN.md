@@ -52,3 +52,13 @@
 - `IntegratorInputGuard`的未来需求（不等于S1）。
 - 事件输出格式和质量守恒/数值诊断的预留字段。
 - 未来积分器应能在不改变初态生成模块的情况下接入。
+
+
+## 当前P0-M5交付计划（2026-11-17，补充）
+
+上面阶段0～6是已完成M0/M1时期的历史执行计划。当前下一阶段以`docs/P0-M5_MASTER_ROADMAP.md`为权威计划；不得再将“只做M0/M1”误认成新里程碑约束。
+
+1. 先审查并依次合并G2.1 PR #5、M4 PR #6、VIS2 PR #7，各次均需重新运行最新main CI和真实G2.1→M2→M3→M4→VIS2端到端样例。
+2. M5A：实施严格长期模拟配置与状态机、真实REBOUND二进制检查点、分段积分/原子归档、可重复恢复与锁、逻辑只读时间序列和范围查询；完整的故障注入/守恒/事件验证见`P0-M5A_SCIENTIFIC_ACCEPTANCE_ADDENDUM.md`。
+3. M5B：先做单用户Web科学实验只读控制台、配置校验、候选浏览；依赖M5A提交状态API后，再实现真实pause/resume/cancel、任务管理和VIS2大轨迹分段读取。定义详见`P0-M5B_WEB_SCIENCE_CONSOLE_SPEC.md`。
+4. 所有编码子阶段拆成可独立审查的Draft PR，禁止自动合并；各PR测试、真实运行和Known Limitations写入开发报告；保留旧M0-M4/VIS命令和数据兼容性。
