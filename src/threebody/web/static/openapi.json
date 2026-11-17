@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Three Body Planet local science and M5A job console",
-    "version": "0.2.0"
+    "title": "Three Body Planet local M5A scientific task and range console",
+    "version": "0.3.0"
   },
   "servers": [
     {
@@ -250,6 +250,104 @@
           },
           "422": {
             "description": "Invalid task state"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/trajectory": {
+      "get": {
+        "operationId": "getCommittedTrajectoryRange",
+        "description": "M5A verified immutable segments; actual samples, no extrapolation, bounded display reduction",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
+            }
+          },
+          {
+            "name": "start_s",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            },
+            "description": "Inclusive physical time in SI seconds"
+          },
+          {
+            "name": "end_s",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            },
+            "description": "Inclusive physical time in SI seconds"
+          },
+          {
+            "name": "max_points",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 2000,
+              "default": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Actual four-body positions at selected committed sample times"
+          },
+          "404": {
+            "description": "No such run"
+          },
+          "422": {
+            "description": "Invalid query or science archive fails verification"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/events": {
+      "get": {
+        "operationId": "getCommittedDynamicsEvents",
+        "description": "Committed M5A dynamics events, escape candidates are not proven permanent escape",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
+            }
+          },
+          {
+            "name": "start_s",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            },
+            "description": "Inclusive physical time in SI seconds"
+          },
+          {
+            "name": "end_s",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            },
+            "description": "Inclusive physical time in SI seconds"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Up to 10000 real dynamics events in the interval"
+          },
+          "404": {
+            "description": "No such run"
+          },
+          "422": {
+            "description": "Invalid/corrupt archive or range too large"
           }
         }
       }

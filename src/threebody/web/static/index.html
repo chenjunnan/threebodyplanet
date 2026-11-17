@@ -37,6 +37,33 @@
       <p id="job-state" aria-live="polite">尚未创建任务。暂停/取消请求可能需要等当前模拟分段结束。</p>
       <pre id="job-details"></pre>
     </section>
+    <section class="panel observer" aria-labelledby="observe-heading">
+      <div class="panel-head"><div><span class="index">04</span><h3 id="observe-heading">长期轨道观察</h3></div><span>真实分段轨迹 · 投影3D</span></div>
+      <p>读取服务器已提交的四体轨迹。可旋转观察视角、选择时间范围、拖动时间轴并跳转到事件；未计算部分不会显示预测线。</p>
+      <div class="actions observe-filters">
+        <label>运行ID <input id="observe-run-id" value="web-run-001" maxlength="128"></label>
+        <label>开始时间(s) <input id="observe-start" type="number" step="any" placeholder="自动"></label>
+        <label>结束时间(s) <input id="observe-end" type="number" step="any" placeholder="自动"></label>
+        <label>最多采样 <input id="observe-count" type="number" min="2" max="2000" value="500"></label>
+        <button id="observe-load" class="primary">读取真实轨迹</button>
+      </div>
+      <p id="observe-status" role="status">请选择已提交的M5A运行。</p>
+      <canvas id="orbit-canvas" width="940" height="500" aria-label="四天体三维轨迹可旋转投影"></canvas>
+      <div class="actions">
+        <button id="orbit-left">视角向左</button>
+        <button id="orbit-right">视角向右</button>
+        <button id="orbit-up">抬高视角</button>
+        <button id="orbit-down">降低视角</button>
+        <button id="orbit-play">播放</button>
+        <button id="orbit-stop">暂停播放</button>
+      </div>
+      <label for="orbit-time">观察时间：<span id="orbit-time-text">—</span></label>
+      <input id="orbit-time" type="range" min="0" max="0" value="0" step="1">
+      <div class="observe-bottom">
+        <div><label for="orbit-events">事件跳转</label><select id="orbit-events"><option value="">无已载入事件</option></select></div>
+        <p id="orbit-event-detail">此视图显示M5A轨道与动力学事件；尚未接入M3/C0/C1环境时间序列。</p>
+      </div>
+    </section>
   </main>
   <footer><span>LOCAL · SINGLE USER</span><span>REBOUND t<sub>s</sub> ≠ DISPLAY TIME</span></footer>
   <script src="/app.js" defer></script>
