@@ -5,10 +5,10 @@ import threading
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
-from pathlib import Path
 
 import pytest
 
+from threebody.errors import ConfigError
 from threebody.experiments.longrun_assessment import assess_long_run
 from threebody.experiments.longrun_environment import derive_long_run_environment
 from threebody.physics.longrun.config import load_long_run_settings
@@ -108,5 +108,5 @@ def test_long_run_m4_uses_actual_c0_c1_and_source_hash(tmp_path, long_world):
     data = json.loads(env_manifest_path.read_text(encoding="utf-8"))
     data["thermal_mode"] = "c1"
     env_manifest_path.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(Exception):
+    with pytest.raises(ConfigError):
         read_long_outcome(long_world, outcome, environment)
