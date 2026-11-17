@@ -150,6 +150,26 @@ def test_real_browser_world_3d_drag_science_and_report():
         )
         assert "t=60.0000000" in page.locator("#c0-current-time").inner_text()
 
+        # Verified M5A initial state supplies properties; picker follows exact
+        # physical time without manufacturing evolved masses or radii.
+        body_picker=page.locator("#orbit-body-select")
+        body_picker.select_option("planet-1")
+        details=page.locator("#orbit-body-detail")
+        assert "初态质量" in details.inner_text()
+        assert "初态半径" in details.inner_text()
+        assert "惯性坐标" in details.inner_text()
+        assert "t=60.0000000" in details.inner_text()
+        page.locator("#orbit-time").evaluate(
+            "(node) => {node.value='0';"
+            "node.dispatchEvent(new Event('input',{bubbles:true}));}"
+        )
+        assert "t=0.00000000" in details.inner_text()
+        page.locator("#orbit-time").evaluate(
+            "(node) => {node.value=node.max;"
+            "node.dispatchEvent(new Event('input',{bubbles:true}));}"
+        )
+        page.locator("#orbit-focus-body").click()
+        page.locator("#orbit-reset-view").click()
         canvas = page.locator("#orbit-canvas")
         canvas.scroll_into_view_if_needed()
         before = canvas.evaluate("(node) => node.toDataURL()")
@@ -269,6 +289,15 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
           webglRenderer.draw(1);
         }""")
         before=canvas.evaluate("(node) => node.toDataURL()")
+        # The GPU screen projection is available for deterministic click picking.
+        hit=page.evaluate("() => webglRenderer.screenPosition('planet-1')")
+        assert hit is not None
+        page.mouse.click(hit[0],hit[1])
+        assert page.locator("#orbit-body-select").input_value()=="planet-1"
+        page.evaluate("() => webglRenderer.focus('planet-1')")
+        focused=canvas.evaluate("(node) => node.toDataURL()")
+        assert focused!=before
+        page.evaluate("() => webglRenderer.resetView()")
         bounds=canvas.bounding_box()
         assert bounds is not None
         x,y=bounds["x"]+bounds["width"]*.5,bounds["y"]+bounds["height"]*.5

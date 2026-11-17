@@ -105,3 +105,55 @@ def query_events(
         "range_type": "committed_m5a_events_only",
         "escape_semantics": "candidate_not_proven_permanent_escape",
     }
+
+
+def query_body_metadata(directory: Path) -> dict[str, Any]:
+    """Read-only body properties from fully verified, immutable M5A initial state.
+
+    All displayed masses, radii and rotation axes come from the actual archived
+    world, never from a visual-size or guessed stellar color heuristic.
+    """
+    from threebody.common.json import sha256_json
+    from threebody.world.models import WorldInitialState
+
+    reader = SegmentedTrajectoryReader(directory)
+    initial_path = directory / "initial_state.json"
+    if initial_path.is_symlink():
+        raise ConfigError("initial-state symlink forbidden")
+    try:
+        initial = WorldInitialState.model_validate_json(
+            initial_path.read_text(encoding="utf-8"), strict=True
+        )
+    except (OSError, ValueError) as exc:
+        raise ConfigError("cannot validate M5A initial state") from exc
+    if sha256_json(initial) != reader.manifest.initial_state_sha256:
+        raise ConfigError("M5A initial-state hash mismatch")
+    if initial.world_id != reader.manifest.world_id:
+        raise ConfigError("M5A initial world ID mismatch")
+    if initial.units != "SI" or initial.coordinate_frame != "BARYCENTRIC_INERTIAL":
+        raise ConfigError("M5A initial-state units/frame unsupported")
+    if tuple(body.id for body in initial.bodies) != BODY_IDS:
+        raise ConfigError("M5A bodies have unexpected order")
+    return {
+        "schema_version": "m6-3c-body-metadata-v1",
+        "run_id": reader.manifest.run_id,
+        "world_id": reader.manifest.world_id,
+        "initial_state_sha256": reader.manifest.initial_state_sha256,
+        "units": {"mass": "kg", "radius": "m", "rotation": "rad/s"},
+        "coordinate_frame": initial.coordinate_frame,
+        "bodies": [
+            {
+                "id": body.id,
+                "kind": body.kind.value,
+                "mass_kg": body.mass_kg,
+                "radius_m": body.radius_m,
+                "rotation_rate_rad_s": body.properties.get("rotation_rate_rad_s"),
+                "rotation_axis_inertial_unit":
+                    body.properties.get("rotation_axis_inertial_unit"),
+                "luminosity_w": body.properties.get("luminosity_w"),
+                "physical_profile_id": body.physical_profile_id,
+            }
+            for body in initial.bodies
+        ],
+        "data_semantics": "VERIFIED_INITIAL_STATE_NOT_EVOLVED_PROPERTIES",
+    }

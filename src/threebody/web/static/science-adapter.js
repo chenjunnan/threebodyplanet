@@ -60,6 +60,44 @@
     }
     return linked;
   }
+  function validateBodyMetadata(trajectory,metadata) {
+    ensure(metadata && metadata.schema_version==='m6-3c-body-metadata-v1',
+      'unsupported body metadata schema');
+    ensure(metadata.run_id===trajectory.run_id &&
+      metadata.world_id===trajectory.world_id,'body metadata run/world mismatch');
+    ensure(/^[0-9a-f]{64}$/.test(metadata.initial_state_sha256||''),
+      'body metadata provenance missing');
+    ensure(metadata.coordinate_frame==='BARYCENTRIC_INERTIAL',
+      'body metadata inertial frame mismatch');
+    ensure(metadata.units?.mass==='kg' && metadata.units?.radius==='m',
+      'body metadata SI units mismatch');
+    ensure(Array.isArray(metadata.bodies) && metadata.bodies.length===IDS.length,
+      'body metadata canonical count mismatch');
+    const entries={};
+    metadata.bodies.forEach((body,i)=>{
+      ensure(body.id===IDS[i] && body.kind===(i<3?'STAR':'PLANET'),
+        'body metadata canonical order/kind mismatch');
+      ensure(Number.isFinite(body.mass_kg)&&body.mass_kg>0 &&
+        Number.isFinite(body.radius_m)&&body.radius_m>0,
+        'body metadata mass or radius invalid');
+      for(const key of ['rotation_rate_rad_s','luminosity_w']){
+        ensure(body[key]==null||(Number.isFinite(body[key])&&body[key]>=0),
+          'body metadata '+key+' invalid');
+      }
+      if(body.rotation_axis_inertial_unit!=null){
+        const a=body.rotation_axis_inertial_unit;
+        ensure(Array.isArray(a)&&a.length===3&&a.every(Number.isFinite),
+          'body axis invalid');
+        ensure(Math.abs(Math.hypot(...a)-1)<1e-6,'body axis not normalized');
+      }
+      entries[body.id]=Object.freeze({
+        ...body,
+        rotation_axis_inertial_unit:body.rotation_axis_inertial_unit==null?
+          null:Object.freeze(body.rotation_axis_inertial_unit.slice()),
+      });
+    });
+    return Object.freeze({...metadata,bodies:Object.freeze(entries)});
+  }
   function atIndex(trajectory,index) {
     ensure(Number.isInteger(index)&&index>=0&&index<trajectory.samples.length,
       'sample index out of verified range');
@@ -88,7 +126,7 @@
     });
   }
   global.ThreeBodyScienceAdapter=Object.freeze({
-    bodyIds:IDS,validateTrajectory,matchLinkedArchive,
+    bodyIds:IDS,validateTrajectory,validateBodyMetadata,matchLinkedArchive,
     atIndex,positionAt,nearestRealThermal,
   });
 })(window);
