@@ -592,6 +592,253 @@
           }
         }
       }
+    },
+    "/api/v1/planet-scenarios": {
+      "post": {
+        "operationId": "computeReadOnlyPlanetScenario",
+        "summary": "Read-only parameterized planet experiment from an exact committed sample",
+        "description": "Does not modify science archives. Inputs are assumptions, not inferred composition. Hazard rates require an event definition; collisions and unsupported regimes are rejected.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "run_id",
+                  "parameters"
+                ],
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
+                  },
+                  "parameters": {
+                    "$ref": "#/components/schemas/PlanetScenarioV1"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Versioned parameter experiment with source hashes, assumptions, region grid and geometric star directions"
+          },
+          "404": {
+            "description": "Unknown archive"
+          },
+          "422": {
+            "description": "Invalid parameters, unsupported approximation or invalid scientific source"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "PlanetScenarioV1": {
+        "additionalProperties": false,
+        "properties": {
+          "t_s": {
+            "minimum": 0,
+            "title": "T S",
+            "type": "number"
+          },
+          "seed": {
+            "default": 42,
+            "maximum": 4294967295,
+            "minimum": 0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "albedo": {
+            "default": 0.3,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Albedo",
+            "type": "number"
+          },
+          "emissivity": {
+            "default": 1.0,
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "title": "Emissivity",
+            "type": "number"
+          },
+          "optical_depth": {
+            "default": 0.0,
+            "maximum": 20,
+            "minimum": 0,
+            "title": "Optical Depth",
+            "type": "number"
+          },
+          "core_temperature_k": {
+            "default": 4000.0,
+            "maximum": 20000,
+            "minimum": 0,
+            "title": "Core Temperature K",
+            "type": "number"
+          },
+          "mantle_thickness_m": {
+            "default": 2900000.0,
+            "minimum": 1,
+            "title": "Mantle Thickness M",
+            "type": "number"
+          },
+          "conductivity_w_m_k": {
+            "default": 3.0,
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Conductivity W M K",
+            "type": "number"
+          },
+          "atmosphere_mass_kg": {
+            "default": 5.15e+18,
+            "maximum": 1e+26,
+            "minimum": 0,
+            "title": "Atmosphere Mass Kg",
+            "type": "number"
+          },
+          "molar_mass_kg_mol": {
+            "default": 0.029,
+            "exclusiveMinimum": 0.001,
+            "maximum": 0.3,
+            "title": "Molar Mass Kg Mol",
+            "type": "number"
+          },
+          "oxygen_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Oxygen Mole Fraction",
+            "type": "number"
+          },
+          "water_vapor_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Water Vapor Mole Fraction",
+            "type": "number"
+          },
+          "surface_water_kg": {
+            "default": 1.4e+21,
+            "maximum": 1e+26,
+            "minimum": 0,
+            "title": "Surface Water Kg",
+            "type": "number"
+          },
+          "relief_m": {
+            "default": 6000.0,
+            "exclusiveMinimum": 0,
+            "maximum": 100000.0,
+            "title": "Relief M",
+            "type": "number"
+          },
+          "rotation_rate_rad_s": {
+            "anyOf": [
+              {
+                "maximum": 1,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rotation Rate Rad S"
+          },
+          "rotation_axis": {
+            "anyOf": [
+              {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Rotation Axis"
+          },
+          "longitude_phase_rad": {
+            "default": 0.0,
+            "title": "Longitude Phase Rad",
+            "type": "number"
+          },
+          "latitude_deg": {
+            "default": 0.0,
+            "maximum": 89,
+            "minimum": -89,
+            "title": "Latitude Deg",
+            "type": "number"
+          },
+          "longitude_deg": {
+            "default": 0.0,
+            "maximum": 180,
+            "minimum": -180,
+            "title": "Longitude Deg",
+            "type": "number"
+          },
+          "observer_height_m": {
+            "default": 2.0,
+            "maximum": 100000.0,
+            "minimum": 1,
+            "title": "Observer Height M",
+            "type": "number"
+          },
+          "horizon_years": {
+            "default": 1.0,
+            "exclusiveMinimum": 0,
+            "maximum": 1000,
+            "title": "Horizon Years",
+            "type": "number"
+          },
+          "hazard_definition": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Hazard Definition"
+          },
+          "hazard_rates_per_year": {
+            "additionalProperties": {
+              "maximum": 1000000.0,
+              "minimum": 0,
+              "type": "number"
+            },
+            "maxProperties": 1152,
+            "title": "Hazard Rates Per Year",
+            "type": "object"
+          }
+        },
+        "required": [
+          "t_s"
+        ],
+        "title": "PlanetScenario",
+        "type": "object"
+      }
     }
   }
 }
