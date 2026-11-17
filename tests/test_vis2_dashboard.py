@@ -252,6 +252,33 @@ def test_frame_selection_is_bounded_for_large_archives(sample_count):
     assert len(selected) <= 1000
 
 
+def test_off_sample_events_and_endpoints_share_the_strict_frame_budget():
+    archive = SimpleNamespace(
+        flux=tuple(SimpleNamespace(t_s=float(index)) for index in range(6)),
+        events=(SimpleNamespace(t_s=0.5), SimpleNamespace(t_s=3.5)),
+        t_start_s=0.0,
+        t_final_s=5.0,
+    )
+    selected = _select_times(archive, 5)
+    assert len(selected) == 5
+    assert {0.0, 0.5, 3.5, 5.0}.issubset(selected)
+
+
+def test_mandatory_off_sample_events_over_frame_cap_are_rejected():
+    archive = SimpleNamespace(
+        flux=(SimpleNamespace(t_s=0.0), SimpleNamespace(t_s=10.0)),
+        events=(
+            SimpleNamespace(t_s=1.0),
+            SimpleNamespace(t_s=2.0),
+            SimpleNamespace(t_s=3.0),
+        ),
+        t_start_s=0.0,
+        t_final_s=10.0,
+    )
+    with pytest.raises(VisualizationError, match="cannot retain overlap endpoints"):
+        _select_times(archive, 4)
+
+
 def test_dashboard_cli_and_vis1_command_coexist(tmp_path, m2_viz_archive_factory):
     m2_run = m2_viz_archive_factory(events=())
     m3_run = _m3_archive(tmp_path, m2_run)

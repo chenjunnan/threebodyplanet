@@ -59,17 +59,14 @@ def _select_times(archive: DashboardArchive, frame_cap: int) -> tuple[float, ...
         raise VisualizationError(
             f"frame_cap={frame_cap} cannot retain overlap endpoints and all events"
         )
-    if len(source) <= frame_cap:
-        return tuple(sorted(set(source) | mandatory))
     selected = set(mandatory)
-    for value in np.linspace(0, len(source) - 1, frame_cap):
-        selected.add(source[int(round(float(value)))])
-        if len(selected) >= frame_cap:
-            break
-    if len(selected) > frame_cap:
-        removable = sorted(selected - mandatory)
-        while len(selected) > frame_cap:
-            selected.remove(removable.pop())
+    candidates = [value for value in source if value not in mandatory]
+    remaining = frame_cap - len(selected)
+    if len(candidates) <= remaining:
+        selected.update(candidates)
+    elif remaining:
+        for value in np.linspace(0, len(candidates) - 1, remaining):
+            selected.add(candidates[int(round(float(value)))])
     return tuple(sorted(selected))
 
 

@@ -71,9 +71,9 @@ Executed from the repository root with the Python 3.11 Conda environment:
 
 ```text
 pytest -q
-........................................................................ [ 58%]
-....................................................                     [100%]
-124 tests collected; exit code 0
+........................................................................ [ 57%]
+......................................................                   [100%]
+126 tests collected; exit code 0
 
 ruff check .
 All checks passed!
@@ -84,3 +84,12 @@ exit code 0
 
 The browser-only smoke used Playwright 1.56.1 with Chromium 141 outside the project dependency set. It
 is a development verification, not a new runtime dependency.
+
+## Review fix — 2026-11-17
+
+The original frame selector returned `source samples ∪ mandatory times` directly whenever the source
+sample count itself fit the cap. An event between source samples therefore added a new display time after
+the capacity decision and could make the result larger than `frame_cap`. Selection now reserves capacity
+for overlap endpoints and every in-range event first, then uniformly samples source times using only the
+remaining budget. It raises a clear error when mandatory times alone cannot fit. Regressions cover
+multiple off-sample event times at the exact cap and the mandatory-overflow failure path.
