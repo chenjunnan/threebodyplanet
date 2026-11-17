@@ -1,5 +1,14 @@
 # Codex 工程代理指南（AGENTS.md）
 
+## 当前阶段授权覆盖（2026-11-17）
+
+此仓库目前已超出下方历史M0/M1、M3阶段限制。**开发P0-M5时，以 `docs/P0-M5_MASTER_ROADMAP.md`、`docs/P0-M5_LONG_HORIZON_SIMULATION_SPEC.md`、`docs/P0-M5A_SCIENTIFIC_ACCEPTANCE_ADDENDUM.md`、`docs/P0-M5B_WEB_SCIENCE_CONSOLE_SPEC.md` 为本次明确授权范围。** 下方“不可开发Web客户端/服务端”或“M3为当前里程碑”的文字只用于历史阶段，**不阻止按M5B设计实现单用户Web科学实验控制台和安全API**。多人在线游戏、碰撞后未知物理、复杂天气、生命文明仍不属于P0。
+
+M5A不得仅从舍入后的JSON重建IAS15并宣称无损恢复；不得在碰撞后伪造物理轨迹。M5B不得把UI快进当作求解器时间步，也不得提供假暂停/假恢复。分拆Draft PR，测试通过后由维护者合并，禁止自动合并。
+
+---
+
+
 ## 当前活动里程碑（2026-11-16）
 
 **P0-M3：多恒星辐射、行星自转、C0/C1热模型。** 执行M3时，以 `docs/P0-M3_IMPLEMENTATION_SPEC.md` 为当前范围和验收的权威文件。下方的“M0/M1任务”“仅做M0/M1”“不实现M2”等内容属于历史阶段约束，**不适用于M3**；其通用安全、科学数据、可复现和测试原则仍适用。已合并M2必须保持兼容。
