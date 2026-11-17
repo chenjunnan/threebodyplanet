@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from pydantic import ValidationError
 
@@ -15,6 +16,7 @@ from threebody.config.loader import resolve_mapping
 from threebody.errors import ConfigError
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.jobs import LocalRunController
+from threebody.web.science import query_events, query_trajectory
 from threebody.world.models import WorldInitialState
 
 MAX_REQUEST_BYTES = 1_048_576
@@ -147,7 +149,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802
-        path = urlsplit(self.path).path
+        parts = urlsplit(self.path)
+        path = parts.path
         try:
             if path == "/api/v1/health":
                 self._json(HTTPStatus.OK, {"status": "ok", "mode": "local_task_control"})
@@ -161,6 +164,38 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/v1/openapi.json":
                 self._static("openapi.json", "application/json; charset=utf-8")
+                return
+            data_match = re.fullmatch(r"/api/v1/runs/([^/]+)/(trajectory|events)", path)
+            if data_match:
+                run_id = unquote(data_match.group(1))
+                directory = _run_directory(self.artifact_root, run_id)
+                if not (directory / "long_run_manifest.json").is_file():
+                    raise ValueError("range science API requires M5A segmented archive")
+                params = parse_qs(parts.query, keep_blank_values=True, strict_parsing=True)
+                allowed = {"start_s", "end_s"}
+                if data_match.group(2) == "trajectory":
+                    allowed.add("max_points")
+                if set(params) - allowed:
+                    raise ValueError("unknown range query parameter")
+                if any(len(values) != 1 for values in params.values()):
+                    raise ValueError("duplicated range query parameter")
+                def time_arg(key: str) -> float | None:
+                    if key not in params:
+                        return None
+                    number = float(params[key][0])
+                    if not math.isfinite(number):
+                        raise ValueError("time must be finite")
+                    return number
+                start = time_arg("start_s")
+                end = time_arg("end_s")
+                if data_match.group(2) == "trajectory":
+                    count = int(params.get("max_points", ["500"])[0])
+                    data = query_trajectory(
+                        directory, start_s=start, end_s=end, max_points=count
+                    )
+                else:
+                    data = query_events(directory, start_s=start, end_s=end)
+                self._json(HTTPStatus.OK, data)
                 return
             match = re.fullmatch(r"/api/v1/runs/([^/]+)/manifest", path)
             if match:
@@ -190,7 +225,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
         except (FileNotFoundError, KeyError):
             self._json(HTTPStatus.NOT_FOUND, {"error": "run_not_found"})
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
+        except (ConfigError, OSError, ValueError, json.JSONDecodeError) as exc:
             self._json(
                 HTTPStatus.UNPROCESSABLE_ENTITY,
                 {"error": "invalid_artifact", "message": str(exc)},
