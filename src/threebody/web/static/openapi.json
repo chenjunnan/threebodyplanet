@@ -1,22 +1,257 @@
 {
   "openapi": "3.1.0",
-  "info": {"title": "Three Body Planet read-only science console", "version": "0.1.0"},
-  "servers": [{"url": "/"}],
+  "info": {
+    "title": "Three Body Planet local science and M5A job console",
+    "version": "0.2.0"
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
   "paths": {
-    "/api/v1/health": {"get": {"operationId": "health", "responses": {"200": {"description": "Read-only service health"}}}},
-    "/api/v1/runs": {"get": {"operationId": "listRuns", "responses": {"200": {"description": "Committed run summaries"}}}},
+    "/api/v1/health": {
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Local task-service health"
+          }
+        }
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "operationId": "listRuns",
+        "responses": {
+          "200": {
+            "description": "Committed run summaries"
+          }
+        }
+      },
+      "post": {
+        "operationId": "startRun",
+        "description": "Start real M5A integration in one bounded single-user worker",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "run_id",
+                  "initial_state",
+                  "settings"
+                ],
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9._-]{1,128}$"
+                  },
+                  "initial_state": {
+                    "type": "object"
+                  },
+                  "settings": {
+                    "type": "object"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted for asynchronous execution; not a claim of physical completion"
+          },
+          "422": {
+            "description": "Invalid configuration or duplicate run"
+          }
+        }
+      }
+    },
     "/api/v1/runs/{run_id}/manifest": {
       "get": {
         "operationId": "getRunManifests",
-        "parameters": [{"name": "run_id", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"}}],
-        "responses": {"200": {"description": "Unmodified committed manifests"}, "404": {"description": "Run not found"}}
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unmodified committed manifests"
+          },
+          "404": {
+            "description": "Run not found"
+          }
+        }
       }
     },
     "/api/v1/experiments/validate": {
       "post": {
         "operationId": "validateExperiment",
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["config"], "properties": {"config": {"type": "object"}}, "additionalProperties": false}}}},
-        "responses": {"200": {"description": "Strictly resolved configuration and SHA-256"}, "422": {"description": "Validation errors"}}
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "config"
+                ],
+                "properties": {
+                  "config": {
+                    "type": "object"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Strictly resolved configuration and SHA-256"
+          },
+          "422": {
+            "description": "Validation errors"
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{run_id}": {
+      "get": {
+        "operationId": "getJob",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Worker phase plus independently authoritative archived physics state"
+          },
+          "404": {
+            "description": "No job known to this server process"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/pause": {
+      "post": {
+        "operationId": "pauseRun",
+        "description": "Cooperatively request pause at the next safe segment boundary",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Control request accepted, not yet necessarily physically applied"
+          },
+          "422": {
+            "description": "Invalid task state"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/resume": {
+      "post": {
+        "operationId": "resumeRun",
+        "description": "Resume a durable PAUSED M5A run",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Control request accepted, not yet necessarily physically applied"
+          },
+          "422": {
+            "description": "Invalid task state"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/cancel": {
+      "post": {
+        "operationId": "cancelRun",
+        "description": "Cooperatively request cancel at the next safe segment boundary",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Control request accepted, not yet necessarily physically applied"
+          },
+          "422": {
+            "description": "Invalid task state"
+          }
+        }
       }
     }
   }
