@@ -203,11 +203,21 @@ class InitialConstraintsConfig(StrictModel):
 
 class BoundedStochasticConicsGeneratorConfig(StrictModel):
     type: Literal["stochastic_conics"]
-    version: Literal["0.4.1"]
+    version: Literal["0.4.1", "0.4.2"]
     stars: StellarDistributionConfig
     planet: PlanetDistributionConfig
     geometry: StochasticGeometryConfig
     initial_constraints: InitialConstraintsConfig
+
+    @model_validator(mode="after")
+    def supported_main_sequence_range(self) -> BoundedStochasticConicsGeneratorConfig:
+        if self.version == "0.4.2":
+            masses = self.stars.mass_solar
+            if masses.min < 0.3 or masses.max > 8.0:
+                raise ValueError(
+                    "stochastic_conics/0.4.2 main-sequence mass must be within 0.3..8 M_sun"
+                )
+        return self
 
 
 AnyGeneratorConfig = (
@@ -260,7 +270,7 @@ class OutputConfig(StrictModel):
 
 
 class ResolvedExperimentConfig(StrictModel):
-    schema_version: Literal["0.1.0", "0.4.0", "0.4.1"]
+    schema_version: Literal["0.1.0", "0.4.0", "0.4.1", "0.4.2"]
     experiment: ExperimentConfig
     world_generation: WorldGenerationConfig
     screening: ScreeningConfig
@@ -271,7 +281,7 @@ class ResolvedExperimentConfig(StrictModel):
     def cross_constraints(self) -> ResolvedExperimentConfig:
         generator = self.world_generation.generator
         if isinstance(generator, BoundedStochasticConicsGeneratorConfig):
-            expected_schema = "0.4.1"
+            expected_schema = generator.version
         elif isinstance(generator, StochasticConicsGeneratorConfig):
             expected_schema = "0.4.0"
         else:

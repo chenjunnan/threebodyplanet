@@ -26,16 +26,16 @@ from threebody.physics.nbody.models import BodyTrajectoryState
 from threebody.physics.rotation.geometry import PlanetRotation
 from threebody.physics.stellar.radiation import (
     StellarRadiation,
-    latitude_band_mean_top_of_atmosphere_flux,
+    latitude_band_means_vectorized,
     local_top_of_atmosphere_flux,
 )
 from threebody.physics.thermal.c0 import solve_c0
-from threebody.physics.thermal.c1 import equal_area_grid, solve_c1
+from threebody.physics.thermal.c1 import solve_c1
 from threebody.physics.thermal.config import load_thermal_settings
-from threebody.physics.thermal.models import ThermalSettings
+from threebody.physics.thermal.models import RotationSettings, ThermalSettings
 from threebody.world.models import WorldInitialState
 
-MAX_NATIVE_SAMPLES = 5000
+MAX_NATIVE_SAMPLES = 50000
 
 
 def _sha_file(path: Path) -> str:
@@ -151,7 +151,7 @@ def derive_long_run_environment(
     for sample in reader.iter_samples():
         if len(samples) == MAX_NATIVE_SAMPLES:
             raise ConfigError(
-                "M5A environment pass exceeds 5000 verified samples; "
+                "M5A environment pass exceeds 50000 verified samples; "
                 "process a shorter run or implement incremental thermal checkpoints"
             )
         samples.append(sample)
@@ -162,7 +162,19 @@ def derive_long_run_environment(
         raise ConfigError("M5A source cadence exceeds M3 maximum interpolation interval")
     ephemeris = _Ephemeris(tuple(samples))
     radiation = StellarRadiation(state, settings.planet.id)
-    rotation = PlanetRotation(settings.planet.rotation)
+    planet_body = next(body for body in state.bodies if body.id == settings.planet.id)
+    spin = planet_body.properties
+    if spin.get("rotation_model") == "kinematic_fixed_axis_v1":
+        rotation_settings = RotationSettings.model_validate({
+            "axis_inertial_unit": tuple(spin["rotation_axis_inertial_unit"]),
+            "prime_meridian_inertial_unit": tuple(spin["prime_meridian_inertial_unit"]),
+            "rotation_epoch_s": float(spin["rotation_epoch_s"]),
+            "initial_phase_rad": 0.0,
+            "rotation_rate_rad_s": float(spin["rotation_rate_rad_s"]),
+        }, strict=True)
+    else:
+        rotation_settings = settings.planet.rotation
+    rotation = PlanetRotation(rotation_settings)
     times = [sample.t_s for sample in samples]
     @lru_cache(maxsize=4096)
     def flux_at(t_s: float):
@@ -182,15 +194,12 @@ def derive_long_run_environment(
             integrator=physics.integrator,
         )
     if physics.mode in {"c1", "both"}:
-        xs, _, dx = equal_area_grid(physics.c1.latitude_bands)
         def zonal(time: float, _latitude) -> np.ndarray:
-            snapshot = flux_at(time)
-            return np.asarray([
-                latitude_band_mean_top_of_atmosphere_flux(
-                    snapshot, float(center-0.5*dx), float(center+0.5*dx),
-                    settings.planet.rotation.axis_inertial_unit,
-                ) for center in xs
-            ])
+            return latitude_band_means_vectorized(
+                flux_at(time),
+                physics.c1.latitude_bands,
+                rotation_settings.axis_inertial_unit,
+            )
         c1 = solve_c1(
             times_s=times, initial_temperature_k=physics.initial_temperature_k,
             zonal_incoming=zonal, latitude_bands=physics.c1.latitude_bands,
@@ -259,6 +268,8 @@ def derive_long_run_environment(
                 "C0/C1 greybody thermal models; not weather or proof of habitability",
                 "Hermite orbit interpolation of verified M5A samples is not N-body integration",
                 "no thermal forcing extrapolated beyond source coverage",
+                "planet spin axis uses archived world metadata when present; "
+                "stellar spins are kinematic only, isotropic bolometric emission",
             ],
         }
         write_json_atomic(temp / "long_environment_manifest.json", manifest)

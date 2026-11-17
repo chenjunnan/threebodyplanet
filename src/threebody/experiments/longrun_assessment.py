@@ -20,7 +20,7 @@ from threebody.physics.outcomes.models import C0Point, C1Point, FluxPoint
 from threebody.web.thermal_science import read_long_environment
 from threebody.world.models import WorldInitialState
 
-MAX_ASSESSMENT_SAMPLES = 5000
+MAX_ASSESSMENT_SAMPLES = 50000
 
 
 def assess_long_run(
@@ -41,7 +41,7 @@ def assess_long_run(
     points = []
     for sample in reader.iter_samples():
         if len(points) >= MAX_ASSESSMENT_SAMPLES:
-            raise ConfigError("M4 long-run assessment currently limited to 5000 samples")
+            raise ConfigError("M4 long-run assessment currently limited to 50000 samples")
         points.append(sample)
     if not points:
         raise ConfigError("M4 requires at least one committed M5A trajectory sample")

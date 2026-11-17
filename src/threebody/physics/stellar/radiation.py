@@ -180,3 +180,49 @@ def latitude_band_mean_top_of_atmosphere_flux(
     ]
     return float(np.dot(weights, values) / 2.0)
 
+
+def latitude_band_means_vectorized(
+    snapshot: StellarFluxSnapshot,
+    latitude_bands: int,
+    axis_inertial_unit: tuple[float, float, float],
+    *,
+    quadrature_order: int = 8,
+) -> np.ndarray:
+    """Vectorized 8-point equal-area insolation over all finite-volume bands.
+
+    Exact same zonal day-average and Gauss-Legendre rule as the scalar routine.
+    Returns a fresh array, so no shared mutable quadrature cache escapes.
+    """
+    if latitude_bands < 4 or latitude_bands > 720:
+        raise ConfigError("latitude_bands must be within [4, 720]")
+    if quadrature_order < 2 or quadrature_order > 64:
+        raise ConfigError("quadrature order must be between 2 and 64")
+    axis = np.asarray(axis_inertial_unit, dtype=np.float64)
+    if axis.shape != (3,) or not np.all(np.isfinite(axis)) or not math.isclose(
+        float(np.linalg.norm(axis)), 1.0, abs_tol=1.0e-10
+    ):
+        raise ConfigError("rotation axis must be a finite unit vector")
+    nodes, weights = _legendre_quadrature(quadrature_order)
+    dx = 2.0 / latitude_bands
+    x_center = -1.0 + (np.arange(latitude_bands) + 0.5) * dx
+    x = x_center[:, None] + 0.5 * dx * nodes[None, :]
+    sin_lat = x
+    cos_lat = np.sqrt(np.maximum(0.0, 1.0 - x*x))
+    total = np.zeros_like(x)
+    for star in snapshot.stars:
+        direction = np.asarray(star.direction_inertial_unit, dtype=np.float64)
+        sin_dec = float(np.clip(np.dot(direction, axis), -1.0, 1.0))
+        cos_dec = math.sqrt(max(0.0, 1.0 - sin_dec*sin_dec))
+        a = cos_lat * cos_dec
+        b = sin_lat * sin_dec
+        projection = np.maximum(0.0, b)
+        daytime = (a > 1.0e-15) & (b < a) & (b > -a)
+        day_angle = np.arccos(np.clip(-b / np.maximum(a, 1.0e-15), -1.0, 1.0))
+        intermediate = (a * np.sin(day_angle) + b * day_angle) / math.pi
+        projection = np.where(daytime, intermediate, projection)
+        projection = np.where(b <= -a, 0.0, projection)
+        total += star.flux_w_m2 * projection
+    result = np.asarray(total @ weights / 2.0, dtype=np.float64)
+    if not np.all(np.isfinite(result)) or np.any(result < -1.0e-12):
+        raise ConfigError("vectorized latitude radiation is invalid")
+    return result

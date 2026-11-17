@@ -6,9 +6,10 @@ from typing import Any
 
 import numpy as np
 
-from threebody.common.constants import G
+from threebody.common.constants import M_SUN_KG, G
 from threebody.physics.nbody.diagnostics import NumericalSafetyError
 from threebody.physics.nbody.models import IntegrationSettings, SimulationEvent
+from threebody.physics.stellar.main_sequence import main_sequence_properties
 
 
 def _simulation(value: Any) -> Any:
@@ -212,15 +213,102 @@ class EventObserver:
         if not np.isfinite(distance):
             raise NumericalSafetyError("collision-pair distance is non-finite")
         gap = distance - self.radii_m[first] - self.radii_m[second]
+        is_stellar_collision = first < 3 and second < 3
+        observed: dict[str, Any] = {
+            "surface_gap_at_halt_m": gap,
+            "contact_distance_m": self.radii_m[first] + self.radii_m[second],
+            "rebound_particle_indices": [callback_first, callback_second],
+            "collision_class": (
+                "STAR_STAR" if is_stellar_collision else
+                "STAR_PLANET" if first < 3 else "OTHER"
+            ),
+        }
+        if is_stellar_collision:
+            m1, m2 = float(first_particle.m), float(second_particle.m)
+            total_mass = m1 + m2
+            position1 = np.asarray([first_particle.x, first_particle.y, first_particle.z])
+            position2 = np.asarray([second_particle.x, second_particle.y, second_particle.z])
+            velocity1 = np.asarray(
+                [first_particle.vx, first_particle.vy, first_particle.vz]
+            )
+            velocity2 = np.asarray(
+                [second_particle.vx, second_particle.vy, second_particle.vz]
+            )
+            hypothetical_position = (m1*position1 + m2*position2)/total_mass
+            hypothetical_velocity = (m1*velocity1 + m2*velocity2)/total_mass
+            relative_kinetic = (
+                0.5*m1*m2/total_mass*float(np.dot(velocity1-velocity2, velocity1-velocity2))
+            )
+            scenario: dict[str, Any] = {
+                "hypothetical_merged_mass_kg": total_mass,
+                "momentum_conserving_com_position_m": hypothetical_position.tolist(),
+                "momentum_conserving_com_velocity_mps": hypothetical_velocity.tolist(),
+                "relative_kinetic_energy_available_j": relative_kinetic,
+                "radiative_efficiency": "UNKNOWN",
+                "status": "DIAGNOSTIC_ONLY_NO_POST_COLLISION_INTEGRATION",
+            }
+            if 0.3 <= total_mass/M_SUN_KG <= 8.0:
+                scenario["hypothetical_relaxed_main_sequence_luminosity_w"] = (
+                    main_sequence_properties(total_mass/M_SUN_KG)[1]
+                )
+                scenario["luminosity_semantics"] = (
+                    "post-relaxation main-sequence proxy, NOT transient collision flash"
+                )
+            else:
+                scenario["luminosity_semantics"] = (
+                    "merged mass outside validated 0.3..8 M_sun main-sequence proxy"
+                )
+            planet = particles[3]
+            planet_position = np.asarray([planet.x, planet.y, planet.z])
+            delta1 = position1 - planet_position
+            delta2 = position2 - planet_position
+            delta_merged = hypothetical_position - planet_position
+            d1, d2, dm = (
+                float(np.linalg.norm(delta1)),
+                float(np.linalg.norm(delta2)),
+                float(np.linalg.norm(delta_merged)),
+            )
+            if min(d1, d2, dm) > 0.0:
+                acceleration_before = G * (
+                    m1*delta1/d1**3 + m2*delta2/d2**3
+                )
+                acceleration_after = G * total_mass*delta_merged/dm**3
+                delta_accel = acceleration_after - acceleration_before
+                if np.all(np.isfinite(delta_accel)):
+                    scenario["planet_acceleration_change_at_contact_m_s2"] = (
+                        delta_accel.tolist()
+                    )
+                    scenario["gravity_semantics"] = (
+                        "instantaneous point-mass merger proxy only; "
+                        "no subsequent dynamics integrated"
+                    )
+            if (
+                0.3 <= m1/M_SUN_KG <= 8.0
+                and 0.3 <= m2/M_SUN_KG <= 8.0
+                and "hypothetical_relaxed_main_sequence_luminosity_w" in scenario
+                and min(d1, d2, dm) > 0.0
+            ):
+                lum1 = main_sequence_properties(m1/M_SUN_KG)[1]
+                lum2 = main_sequence_properties(m2/M_SUN_KG)[1]
+                before = lum1/(4.0*np.pi*d1**2) + lum2/(4.0*np.pi*d2**2)
+                after = (
+                    scenario["hypothetical_relaxed_main_sequence_luminosity_w"]
+                    / (4.0*np.pi*dm**2)
+                )
+                if np.isfinite(before) and np.isfinite(after):
+                    scenario["planet_bolometric_flux_proxy_before_w_m2"] = before
+                    scenario["planet_bolometric_flux_proxy_after_relaxation_w_m2"] = after
+                    scenario["planet_bolometric_flux_proxy_change_w_m2"] = after - before
+                    scenario["radiation_semantics"] = (
+                        "not a collision flash; hypothetical relaxed remnant versus "
+                        "two independent main-sequence point sources at contact geometry"
+                    )
+            observed["stellar_merger_scenario"] = scenario
         event = SimulationEvent(
             event_type="COLLISION",
             t_s=float(simulation.t),
             body_ids=(self.body_ids[first], self.body_ids[second]),
-            observed={
-                "surface_gap_at_halt_m": gap,
-                "contact_distance_m": self.radii_m[first] + self.radii_m[second],
-                "rebound_particle_indices": [callback_first, callback_second],
-            },
+            observed=observed,
             message=(
                 "REBOUND swept-line collision detector halted integration; "
                 "participants come directly from the collision callback and the "

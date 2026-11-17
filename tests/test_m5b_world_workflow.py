@@ -89,7 +89,7 @@ def test_web_generate_select_run_and_observe_real_ias15(tmp_path):
     with _web(tmp_path) as url:
         code, template = _request(f"{url}/api/v1/worlds/preset")
         assert code == 200
-        assert template["world_generation"]["generator"]["version"] == "0.4.1"
+        assert template["world_generation"]["generator"]["version"] == "0.4.2"
         code, batch = _request(
             f"{url}/api/v1/worldsets", {"config": preset, "count": 4}
         )

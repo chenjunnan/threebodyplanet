@@ -155,7 +155,7 @@ def simulation_settings(duration_s: float, output_interval_s: float) -> LongRunS
         raise ValueError("output_interval_s must be finite")
     if not 1 <= output_interval_s <= duration_s:
         raise ValueError("output_interval_s must be within simulation duration")
-    if math.ceil(duration_s / output_interval_s) + 1 > 20000:
+    if math.ceil(duration_s / output_interval_s) + 1 > 50000:
         raise ValueError("too many trajectory samples; increase output interval")
     segment = min(duration_s, 30 * 86400.0)
     settings = {
@@ -172,7 +172,7 @@ def simulation_settings(duration_s: float, output_interval_s: float) -> LongRunS
         },
         "resources": {
             "max_wall_seconds_per_invocation": 300.0,
-            "max_segments": 200, "max_samples": 20000,
+            "max_segments": 200, "max_samples": 50000,
             "max_checkpoint_bytes": 1073741824,
         },
         "resume": {

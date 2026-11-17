@@ -11,6 +11,8 @@ from threebody.physics.nbody.models import BodyTrajectoryState
 from threebody.physics.rotation.geometry import PlanetRotation
 from threebody.physics.stellar.radiation import (
     StellarRadiation,
+    latitude_band_mean_top_of_atmosphere_flux,
+    latitude_band_means_vectorized,
     local_top_of_atmosphere_flux,
     zonal_mean_top_of_atmosphere_flux,
 )
@@ -163,3 +165,23 @@ def test_zonal_insolation_handles_polar_day_night_and_global_quarter_law(resolve
     assert float(np.mean(means)) == pytest.approx(
         snapshot.planet_center_flux_w_m2 / 4.0, rel=2.0e-6
     )
+
+
+@pytest.mark.parametrize("bands", [4, 36, 72])
+def test_vectorized_c1_insolation_matches_original_quadrature(resolved, bands):
+    state, ephemeris = _radiation_fixture(resolved)
+    snapshot = StellarRadiation(state, "planet-1").evaluate(ephemeris)
+    axes = ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    for axis in axes:
+        vectorized = latitude_band_means_vectorized(snapshot, bands, axis)
+        dx = 2.0 / bands
+        original = np.asarray([
+            latitude_band_mean_top_of_atmosphere_flux(
+                snapshot, -1.0 + i*dx, -1.0 + (i+1)*dx, axis
+            )
+            for i in range(bands)
+        ])
+        assert vectorized == pytest.approx(original, rel=5e-13, abs=1e-10)
+        assert float(np.mean(vectorized)) == pytest.approx(
+            snapshot.planet_center_flux_w_m2/4, rel=2e-4
+        )
