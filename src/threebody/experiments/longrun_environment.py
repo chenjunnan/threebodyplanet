@@ -32,7 +32,7 @@ from threebody.physics.stellar.radiation import (
 from threebody.physics.thermal.c0 import solve_c0
 from threebody.physics.thermal.c1 import solve_c1
 from threebody.physics.thermal.config import load_thermal_settings
-from threebody.physics.thermal.models import ThermalSettings
+from threebody.physics.thermal.models import RotationSettings, ThermalSettings
 from threebody.world.models import WorldInitialState
 
 MAX_NATIVE_SAMPLES = 50000
@@ -162,7 +162,19 @@ def derive_long_run_environment(
         raise ConfigError("M5A source cadence exceeds M3 maximum interpolation interval")
     ephemeris = _Ephemeris(tuple(samples))
     radiation = StellarRadiation(state, settings.planet.id)
-    rotation = PlanetRotation(settings.planet.rotation)
+    planet_body = next(body for body in state.bodies if body.id == settings.planet.id)
+    spin = planet_body.properties
+    if spin.get("rotation_model") == "kinematic_fixed_axis_v1":
+        rotation_settings = RotationSettings.model_validate({
+            "axis_inertial_unit": tuple(spin["rotation_axis_inertial_unit"]),
+            "prime_meridian_inertial_unit": tuple(spin["prime_meridian_inertial_unit"]),
+            "rotation_epoch_s": float(spin["rotation_epoch_s"]),
+            "initial_phase_rad": 0.0,
+            "rotation_rate_rad_s": float(spin["rotation_rate_rad_s"]),
+        }, strict=True)
+    else:
+        rotation_settings = settings.planet.rotation
+    rotation = PlanetRotation(rotation_settings)
     times = [sample.t_s for sample in samples]
     @lru_cache(maxsize=4096)
     def flux_at(t_s: float):
@@ -186,7 +198,7 @@ def derive_long_run_environment(
             return latitude_band_means_vectorized(
                 flux_at(time),
                 physics.c1.latitude_bands,
-                settings.planet.rotation.axis_inertial_unit,
+                rotation_settings.axis_inertial_unit,
             )
         c1 = solve_c1(
             times_s=times, initial_temperature_k=physics.initial_temperature_k,
@@ -256,6 +268,8 @@ def derive_long_run_environment(
                 "C0/C1 greybody thermal models; not weather or proof of habitability",
                 "Hermite orbit interpolation of verified M5A samples is not N-body integration",
                 "no thermal forcing extrapolated beyond source coverage",
+                "planet spin axis uses archived world metadata when present; "
+                "stellar spins are kinematic only, isotropic bolometric emission",
             ],
         }
         write_json_atomic(temp / "long_environment_manifest.json", manifest)
