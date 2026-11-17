@@ -196,3 +196,95 @@ def test_thermal_modes_preserve_missing_data_semantics(
         (row["c1_temperature_k"] is not None) is c1_expected
         for row in data["rows"]
     )
+
+
+def test_m6_resumable_c0_c1_replays_and_matches_monolithic(
+    tmp_path, long_thermal_fixture
+):
+    run, config = long_thermal_fixture
+    legacy_path = tmp_path / "legacy-environment"
+    legacy = derive_long_run_environment(run, config, legacy_path)
+    checkpoints = tmp_path / "thermal_checkpoints" / run.name
+    segmented_path = tmp_path / "segmented-environment"
+    segmented = derive_long_run_environment(
+        run, config, segmented_path,
+        checkpoint_dir=checkpoints, chunk_output_samples=3,
+    )
+    assert segmented["processing"]["chunk_count"] == 3
+    assert segmented["processing"]["computed_chunks"] == 3
+    assert segmented["processing"]["reused_chunks"] == 0
+    assert segmented["processing"]["c0_function_evaluations"] > 0
+    assert segmented["processing"]["c1_function_evaluations"] > 0
+    assert segmented["source"] == legacy["source"]
+    old = read_long_environment(run, legacy_path)["rows"]
+    new = read_long_environment(run, segmented_path)["rows"]
+    assert [p["t_s"] for p in old] == [p["t_s"] for p in new]
+    for a, b in zip(old, new, strict=True):
+        assert a["c0_temperature_k"] == pytest.approx(
+            b["c0_temperature_k"], abs=2e-4
+        )
+        assert a["c1_temperature_k"] == pytest.approx(
+            b["c1_temperature_k"], abs=2e-4
+        )
+    assert segmented["energy_budget"]["c0"]["normalized_residual"] < 1e-4
+    assert segmented["energy_budget"]["c1"]["normalized_residual"] < 1e-4
+
+    second_path = tmp_path / "resumed-environment"
+    resumed = derive_long_run_environment(
+        run, config, second_path,
+        checkpoint_dir=checkpoints, chunk_output_samples=3,
+    )
+    assert resumed["processing"]["reused_chunks"] == 3
+    assert resumed["processing"]["computed_chunks"] == 0
+    assert (segmented_path / "c1_latitude_temperature.jsonl").read_bytes() == (
+        second_path / "c1_latitude_temperature.jsonl"
+    ).read_bytes()
+
+
+def test_m6_resume_after_last_chunk_missing_and_reject_corrupt_or_stale(
+    tmp_path, long_thermal_fixture
+):
+    run, config = long_thermal_fixture
+    checkpoints = tmp_path / "thermal-checkpoints"
+    derive_long_run_environment(
+        run, config, tmp_path / "first-pass",
+        checkpoint_dir=checkpoints, chunk_output_samples=3,
+    )
+    (checkpoints / "00000002.json").unlink()
+    result = derive_long_run_environment(
+        run, config, tmp_path / "recovered",
+        checkpoint_dir=checkpoints, chunk_output_samples=3,
+    )
+    assert result["processing"]["reused_chunks"] == 2
+    assert result["processing"]["computed_chunks"] == 1
+
+    target = checkpoints / "00000000.json"
+    doc = json.loads(target.read_text())
+    doc["payload"]["c0"]["samples"][0]["temperature_k"] = 100.0
+    target.write_text(json.dumps(doc))
+    with pytest.raises(ConfigError, match="digest mismatch"):
+        derive_long_run_environment(
+            run, config, tmp_path / "refuse-corruption",
+            checkpoint_dir=checkpoints, chunk_output_samples=3,
+        )
+    assert not (tmp_path / "refuse-corruption").exists()
+
+
+def test_m6_checkpoint_rejects_changed_thermal_parameters(
+    tmp_path, long_thermal_fixture
+):
+    run, config = long_thermal_fixture
+    checkpoints = tmp_path / "science-checkpoints"
+    derive_long_run_environment(
+        run, config, tmp_path / "original",
+        checkpoint_dir=checkpoints, chunk_output_samples=3,
+    )
+    document = yaml.safe_load(config.read_text(encoding="utf-8"))
+    document["thermal"]["bond_albedo"] = 0.5
+    updated = tmp_path / "different.yaml"
+    updated.write_text(yaml.safe_dump(document), encoding="utf-8")
+    with pytest.raises(ConfigError, match="provenance/settings mismatch"):
+        derive_long_run_environment(
+            run, updated, tmp_path / "must-not-exist",
+            checkpoint_dir=checkpoints, chunk_output_samples=3,
+        )

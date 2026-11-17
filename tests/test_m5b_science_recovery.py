@@ -157,7 +157,7 @@ def test_m3_numerical_failure_keeps_valid_m4_dynamics(
 ):
     from threebody.web import pipeline
 
-    def broken_thermal(*args):
+    def broken_thermal(*args, **kwargs):
         raise ValueError("injected thermal solver domain error")
 
     monkeypatch.setattr(pipeline, "derive_long_run_environment", broken_thermal)

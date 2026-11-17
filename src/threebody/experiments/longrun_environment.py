@@ -21,6 +21,7 @@ import numpy as np
 from threebody.common.json import sha256_json, write_json_atomic
 from threebody.errors import ConfigError
 from threebody.experiments.orbital_reader import EphemerisSample
+from threebody.experiments.thermal_segments import solve_resumable_thermal
 from threebody.physics.longrun.reader import SegmentedTrajectoryReader
 from threebody.physics.nbody.models import BodyTrajectoryState
 from threebody.physics.rotation.geometry import PlanetRotation
@@ -127,7 +128,9 @@ def _write_jsonl(path: Path, records) -> None:
 
 
 def derive_long_run_environment(
-    run_dir: str | Path, config_path: str | Path, out_dir: str | Path
+    run_dir: str | Path, config_path: str | Path, out_dir: str | Path,
+    *, checkpoint_dir: str | Path | None = None,
+    chunk_output_samples: int = 128,
 ) -> dict:
     """Compute flux and M3 C0/C1 from a fully verified, completed M5A run."""
     reader = SegmentedTrajectoryReader(run_dir)
@@ -209,34 +212,47 @@ def derive_long_run_environment(
     physics = settings.thermal
     c0 = None
     c1 = None
-    if physics.mode in {"c0", "both"}:
-        c0 = solve_c0(
+    processing = None
+    if checkpoint_dir is not None:
+        c0, c1, processing = solve_resumable_thermal(
             times_s=times,
-            initial_temperature_k=physics.initial_temperature_k,
-            planet_center_flux=lambda time: flux_at(time).planet_center_flux_w_m2,
-            bond_albedo=physics.bond_albedo,
-            effective_emissivity=physics.effective_emissivity,
-            areal_heat_capacity_j_m2_k=physics.areal_heat_capacity_j_m2_k,
-            internal_heat_flux_w_m2=physics.internal_heat_flux_w_m2,
-            integrator=physics.integrator,
+            physics=physics,
+            flux_at=flux_at,
+            axis_inertial_unit=rotation_settings.axis_inertial_unit,
+            checkpoint_dir=Path(checkpoint_dir),
+            source_contract=_source_contract(reader),
+            thermal_settings_sha256=settings_hash,
+            chunk_output_samples=chunk_output_samples,
         )
-    if physics.mode in {"c1", "both"}:
-        def zonal(time: float, _latitude) -> np.ndarray:
-            return latitude_band_means_vectorized(
-                flux_at(time),
-                physics.c1.latitude_bands,
-                rotation_settings.axis_inertial_unit,
+    else:
+        if physics.mode in {"c0", "both"}:
+            c0 = solve_c0(
+                times_s=times,
+                initial_temperature_k=physics.initial_temperature_k,
+                planet_center_flux=lambda time: flux_at(time).planet_center_flux_w_m2,
+                bond_albedo=physics.bond_albedo,
+                effective_emissivity=physics.effective_emissivity,
+                areal_heat_capacity_j_m2_k=physics.areal_heat_capacity_j_m2_k,
+                internal_heat_flux_w_m2=physics.internal_heat_flux_w_m2,
+                integrator=physics.integrator,
             )
-        c1 = solve_c1(
-            times_s=times, initial_temperature_k=physics.initial_temperature_k,
-            zonal_incoming=zonal, latitude_bands=physics.c1.latitude_bands,
-            bond_albedo=physics.bond_albedo,
-            effective_emissivity=physics.effective_emissivity,
-            areal_heat_capacity_j_m2_k=physics.areal_heat_capacity_j_m2_k,
-            internal_heat_flux_w_m2=physics.internal_heat_flux_w_m2,
-            diffusivity_w_m2_k=physics.c1.diffusivity_w_m2_k,
-            integrator=physics.integrator,
-        )
+        if physics.mode in {"c1", "both"}:
+            def zonal(time: float, _latitude) -> np.ndarray:
+                return latitude_band_means_vectorized(
+                    flux_at(time),
+                    physics.c1.latitude_bands,
+                    rotation_settings.axis_inertial_unit,
+                )
+            c1 = solve_c1(
+                times_s=times, initial_temperature_k=physics.initial_temperature_k,
+                zonal_incoming=zonal, latitude_bands=physics.c1.latitude_bands,
+                bond_albedo=physics.bond_albedo,
+                effective_emissivity=physics.effective_emissivity,
+                areal_heat_capacity_j_m2_k=physics.areal_heat_capacity_j_m2_k,
+                internal_heat_flux_w_m2=physics.internal_heat_flux_w_m2,
+                diffusivity_w_m2_k=physics.c1.diffusivity_w_m2_k,
+                integrator=physics.integrator,
+            )
     flux_rows = []
     for t in times:
         snapshot = flux_at(t)
@@ -285,6 +301,7 @@ def derive_long_run_environment(
                 "c0": None if c0 is None else c0.solver,
                 "c1": None if c1 is None else c1.solver,
             },
+            "processing": processing,
             "energy_budget": {
                 "c0": None if c0 is None else asdict(c0.energy_budget),
                 "c1": None if c1 is None else asdict(c1.energy_budget),
