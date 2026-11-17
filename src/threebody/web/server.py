@@ -18,7 +18,7 @@ from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.comparison import compare_runs
 from threebody.web.jobs import LocalRunController
 from threebody.web.outcome_science import read_long_outcome
-from threebody.web.science import query_events, query_trajectory
+from threebody.web.science import query_body_metadata, query_events, query_trajectory
 from threebody.web.thermal_science import read_long_environment
 from threebody.web.worldsets import (
     create_worldset,
@@ -242,6 +242,16 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     max_points=int(params.get("max_points", ["500"])[0]),
                 ))
                 return
+            bodies_match = re.fullmatch(r"/api/v1/runs/([^/]+)/bodies", path)
+            if bodies_match:
+                if parts.query:
+                    raise ValueError("body metadata does not accept query parameters")
+                run_id = unquote(bodies_match.group(1))
+                directory = _run_directory(self.artifact_root, run_id)
+                if not (directory / "long_run_manifest.json").is_file():
+                    raise ValueError("body metadata requires M5A archive")
+                self._json(HTTPStatus.OK, query_body_metadata(directory))
+                return
             data_match = re.fullmatch(r"/api/v1/runs/([^/]+)/(trajectory|events)", path)
             if data_match:
                 run_id = unquote(data_match.group(1))
@@ -298,6 +308,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
             if path == "/science-adapter.js":
                 self._static("science-adapter.js", "text/javascript; charset=utf-8")
+                return
+            if path == "/surface-materials.js":
+                self._static("surface-materials.js", "text/javascript; charset=utf-8")
                 return
             if path == "/webgl-observer.js":
                 self._static("webgl-observer.js", "text/javascript; charset=utf-8")

@@ -133,6 +133,8 @@ def test_real_browser_world_3d_drag_science_and_report():
         assert "纬度带中心" in c1_hover
         assert " K / " in c1_hover and " °C" in c1_hover
         assert "无插值" in c1_hover
+        assert "真实M3采样" in page.locator("#c1-sphere-status").inner_text()
+        assert "K" in page.locator("#c1-sphere-legend").inner_text()
         # C0 readout follows the selected actual physical time, not browser play speed.
         assert page.locator("#c0-current-k").inner_text().endswith(" K")
         assert page.locator("#c0-current-celsius").inner_text().endswith(" °C")
@@ -153,6 +155,26 @@ def test_real_browser_world_3d_drag_science_and_report():
         )
         assert "t=60.0000000" in page.locator("#c0-current-time").inner_text()
 
+        # Verified M5A initial state supplies properties; picker follows exact
+        # physical time without manufacturing evolved masses or radii.
+        body_picker=page.locator("#orbit-body-select")
+        body_picker.select_option("planet-1")
+        details=page.locator("#orbit-body-detail")
+        assert "初态质量" in details.inner_text()
+        assert "初态半径" in details.inner_text()
+        assert "惯性坐标" in details.inner_text()
+        assert "t=60.0000000" in details.inner_text()
+        page.locator("#orbit-time").evaluate(
+            "(node) => {node.value='0';"
+            "node.dispatchEvent(new Event('input',{bubbles:true}));}"
+        )
+        assert "t=0.00000000" in details.inner_text()
+        page.locator("#orbit-time").evaluate(
+            "(node) => {node.value=node.max;"
+            "node.dispatchEvent(new Event('input',{bubbles:true}));}"
+        )
+        page.locator("#orbit-focus-body").click()
+        page.locator("#orbit-reset-view").click()
         canvas = page.locator("#orbit-canvas")
         canvas.scroll_into_view_if_needed()
         before = canvas.evaluate("(node) => node.toDataURL()")
@@ -165,13 +187,6 @@ def test_real_browser_world_3d_drag_science_and_report():
         page.mouse.up()
         after = canvas.evaluate("(node) => node.toDataURL()")
         assert before != after, "mouse drag did not affect the 3D projection"
-        # Canvas focus uses the actual IAS15 coordinates, and persists on WebGL toggle.
-        source=page.evaluate("JSON.stringify(orbitSamples)")
-        page.locator("#orbit-focus").select_option("planet-1")
-        assert "planet-1" in page.locator("#orbit-body-detail").inner_text()
-        assert "SI s" in page.locator("#orbit-body-detail").inner_text()
-        assert page.evaluate("JSON.stringify(orbitSamples)")==source
-        page.locator("#orbit-reset").click()
         # Adapter rejects any synthetic or tampered cross-run/foreign-unit data.
         rejected=page.evaluate("""() => {
           const a=window.ThreeBodyScienceAdapter;
@@ -199,6 +214,7 @@ def test_real_browser_world_3d_drag_science_and_report():
             assert glcanvas.evaluate(
                 "(node) => node.getContext('webgl2') !== null"
             )
+            glcanvas.scroll_into_view_if_needed()
             glbefore=glcanvas.evaluate("(node) => node.toDataURL()")
             glbox=glcanvas.bounding_box()
             assert glbox is not None
@@ -276,10 +292,29 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
             display_count:2,samples
           },'gpu-fixture');
           orbitSamples=verified.samples;
-          webglRenderer.load(orbitSamples);
+          orbitSlider.max=1;
+          webglRenderer.load(verified.samples);
           orbitSetIndex(1);
         }""")
+        canvas.scroll_into_view_if_needed()
         before=canvas.evaluate("(node) => node.toDataURL()")
+        pixels=canvas.evaluate("node => node.toDataURL()")
+        page.locator("#surface-materials").uncheck()
+        page.evaluate("() => webglRenderer.draw(1)")
+        assert canvas.evaluate("node => node.toDataURL()") != pixels
+        page.locator("#surface-materials").check()
+        page.evaluate("() => webglRenderer.draw(1)")
+        assert canvas.evaluate("node => node.getContext('webgl2').getError()") == 0
+        canvas.scroll_into_view_if_needed()
+        # The GPU screen projection is available for deterministic click picking.
+        hit=page.evaluate("() => webglRenderer.screenPosition('planet-1')")
+        assert hit is not None
+        page.mouse.click(hit[0],hit[1])
+        assert page.locator("#orbit-body-select").input_value()=="planet-1"
+        page.evaluate("() => webglRenderer.focus('planet-1')")
+        focused=canvas.evaluate("(node) => node.toDataURL()")
+        assert focused!=before
+        page.evaluate("() => webglRenderer.resetView()")
         bounds=canvas.bounding_box()
         assert bounds is not None
         x,y=bounds["x"]+bounds["width"]*.5,bounds["y"]+bounds["height"]*.5
@@ -289,62 +324,112 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
         page.mouse.up()
         after=canvas.evaluate("(node) => node.toDataURL()")
         assert before!=after,"3D WebGL perspective shader must respond to drag"
-        # Shared keyboard/buttons, selection, replay and fallback use real UI events.
+        # Integration regression: preserve D materials while restoring old controls.
         original=page.evaluate("JSON.stringify(orbitSamples)")
+        state=page.evaluate("webglRenderer.cameraState()")
         canvas.focus()
-        initial_yaw=page.evaluate("orbitCamera.yaw")
         canvas.press("ArrowRight")
-        assert page.evaluate("orbitCamera.yaw") > initial_yaw
-        zoom=page.evaluate("orbitCamera.zoom")
-        page.mouse.wheel(0, 100)
-        assert page.evaluate("orbitCamera.zoom") > zoom
-        page.locator("#orbit-reset").click()
-        page.locator("#orbit-left").click()
-        assert page.evaluate("orbitCamera.yaw") == pytest.approx(.4)
-        canvas.scroll_into_view_if_needed()
-        point=page.evaluate("orbitHitPoints.find(p=>p.id==='star-1')")
-        bounds=canvas.bounding_box()
-        page.mouse.click(
-            bounds["x"]+point["x"]/940*bounds["width"],
-            bounds["y"]+point["y"]/500*bounds["height"],
-        )
-        assert page.locator("#orbit-focus").input_value()=="star-1"
-        assert "-90" in page.locator("#orbit-body-detail").inner_text()
-        page.locator("#orbit-focus").select_option("planet-1")
-        center=page.evaluate("webglRenderer.project('planet-1',orbitIndex)")
-        assert center["x"] == pytest.approx(470)
-        assert center["y"] == pytest.approx(250)
-        page.evaluate("orbitSetIndex(0)")
-        canvas.focus()
-        canvas.press("Space")
-        page.wait_for_function("() => orbitIndex===1 && orbitTimer===null")
-        assert "10" in page.locator("#orbit-time-text").inner_text()
-        # Toggle repeatedly: one drag still produces one camera update.
+        assert page.evaluate("webglRenderer.cameraState().yaw") == pytest.approx(state["yaw"]+.2)
+        zoom=page.evaluate("webglRenderer.cameraState().zoom")
+        canvas.press("+")
+        assert page.evaluate("webglRenderer.cameraState().zoom") < zoom
+        state=page.evaluate("webglRenderer.cameraState()")
         for _ in range(2):
             page.locator("#enable-webgl").uncheck()
+            assert page.evaluate("orbitAzimuth") == pytest.approx(state["yaw"])
             page.locator("#enable-webgl").check()
+            assert page.evaluate("webglRenderer.cameraState()") == state
         canvas.scroll_into_view_if_needed()
-        bounds=canvas.bounding_box()
-        x,y=bounds["x"]+bounds["width"]*.5,bounds["y"]+bounds["height"]*.5
-        yaw=page.evaluate("orbitCamera.yaw")
+        box=canvas.bounding_box()
+        x,y=box["x"]+box["width"]*.5,box["y"]+box["height"]*.5
         page.mouse.move(x,y)
         page.mouse.down()
         page.mouse.move(x+50,y,steps=5)
         page.mouse.up()
-        assert page.evaluate("orbitCamera.yaw") == pytest.approx(yaw+.4)
-        # Real context loss must restore Canvas and preserve camera/source state.
+        assert page.evaluate("webglRenderer.cameraState().yaw") == pytest.approx(state["yaw"]+.3)
         page.evaluate("document.querySelector('#orbit-webgl').getContext('webgl2')"
                       ".getExtension('WEBGL_lose_context').loseContext()")
         page.wait_for_function("() => !document.querySelector('#orbit-canvas').hidden")
-        assert not page.locator("#enable-webgl").is_checked()
         assert "上下文丢失" in page.locator("#webgl-status").inner_text()
+        assert page.evaluate("orbitAzimuth") == pytest.approx(state["yaw"]+.3)
+        plain=page.locator("#orbit-canvas")
+        plain.focus()
+        plain.press("Home")
+        assert page.evaluate("orbitAzimuth") == pytest.approx(.6)
+        page.evaluate("() => {orbitFocusId='planet-1';selectOrbitBody(null);orbitDraw();}")
+        plain.scroll_into_view_if_needed()
+        box=plain.bounding_box()
+        page.mouse.click(box["x"]+box["width"]*.5,box["y"]+box["height"]*.5)
+        assert page.locator("#orbit-body-select").input_value()=="planet-1"
+        page.evaluate("() => orbitSetIndex(0)")
+        plain.focus()
+        plain.press("Space")
+        page.wait_for_function("() => orbitIndex===1 && orbitTimer===null")
         assert page.evaluate("JSON.stringify(orbitSamples)")==original
-        # Clearing a failed/missing trajectory cannot leave stale coordinates.
-        page.locator("#observe-run-id").fill("missing-run")
-        page.locator("#observe-load").click()
-        page.wait_for_function(
-            "() => document.querySelector('#observe-status').textContent.includes('无法载入')"
-        )
-        assert "没有可信采样" in page.locator("#orbit-body-detail").inner_text()
+        assert page.locator("#surface-materials").is_checked()
         assert not errors,errors
+        browser.close()
+
+
+@pytest.mark.browser
+def test_surface_materials_equal_area_temperature_and_missing_data():
+    """Graphics fixtures check mapping and missing data, not a scientific simulation."""
+    with _live_server() as url, sync_playwright() as api:
+        browser = api.chromium.launch(
+            executable_path=os.environ.get("THREEBODY_TEST_CHROMIUM"), headless=True,
+            args=["--enable-unsafe-swiftshader", "--use-angle=swiftshader"],
+        )
+        page = browser.new_page(viewport={"width": 1300, "height": 1000})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(url, wait_until="domcontentloaded")
+        assert "无可信数据" in page.locator("#c1-sphere-status").inner_text()
+        result = page.evaluate("""() => {
+          const m=window.ThreeBodySurfaces;
+          const row={t_s:10,c1_temperature_k:[200,400],
+            c1_latitude_rad:[Math.asin(-.5),Math.asin(.5)]};
+          const thermal={rows:[row,{...row,t_s:20}],sampling_quality:'TEST_ONLY',
+            sampling_warning:'fixture warning'};
+          const copy=JSON.stringify(thermal);
+          const frame=m.thermalFrame(thermal,15);
+          const sphere=m.disk(3,256,frame).getContext('2d');
+          const pixel=(x,y)=>Array.from(sphere.getImageData(x,y,1,1).data);
+          window.surfaceFixture=thermal;
+          renderSurfaceThermal(thermal,15);
+          return {
+            north:pixel(128,64),south:pixel(128,192),corner:pixel(0,0),
+            hot:m.temperatureColor(400,200,400),cold:m.temperatureColor(200,200,400),
+            before:m.thermalFrame(thermal,0),after:m.thermalFrame(thermal,21),
+            bad:m.thermalFrame({rows:[{...row,c1_temperature_k:[NaN,400]}]},10),
+            wrongGrid:m.thermalFrame({rows:[{...row,c1_latitude_rad:[-.2,.2]}]},10),
+            missing:m.thermalFrame({rows:[{...row,c1_temperature_k:null}]},10),
+            unchanged:copy===JSON.stringify(thermal),
+          };
+        }""")
+        assert result["north"] == [*result["hot"], 255]
+        assert result["south"] == [*result["cold"], 255]
+        assert result["corner"][3] == 0
+        for key in ("before", "after", "bad", "wrongGrid", "missing"):
+            assert result[key] is None
+        assert result["unchanged"]
+        assert "相差 5 s" in page.locator("#c1-sphere-status").inner_text()
+        assert "fixture warning" in page.locator("#c1-sphere-status").inner_text()
+        canvas = page.locator("#c1-sphere")
+        canvas.scroll_into_view_if_needed()
+        bounds = canvas.bounding_box()
+        page.mouse.move(bounds["x"]+bounds["width"]*.5,
+                        bounds["y"]+bounds["height"]*.25)
+        assert "400" in page.locator("#c1-sphere-reading").inner_text()
+        page.evaluate("() => renderSurfaceThermal(null,15)")
+        assert "无可信数据" in page.locator("#c1-sphere-status").inner_text()
+        assert page.locator("#c1-sphere-legend").is_hidden()
+        assert canvas.evaluate("node => node.getContext('2d')"
+                               ".getImageData(128,64,1,1).data[3]") == 0
+        # All local material previews are actual nonuniform sphere images.
+        for name in ("surface-star-1", "surface-star-2", "surface-star-3", "surface-rock"):
+            assert page.locator("#"+name).evaluate("node => {"
+                "const c=node.getContext('2d');"
+                "return c.getImageData(80,80,1,1).data[3]===255 && "
+                "c.getImageData(0,0,1,1).data[3]===0; }")
+        assert not errors, errors
         browser.close()

@@ -218,12 +218,71 @@ for (const action of ['pause','resume','cancel']) {
 const webglCanvas = document.querySelector('#orbit-webgl');
 const webglToggle = document.querySelector('#enable-webgl');
 const webglStatus = document.querySelector('#webgl-status');
+const orbitBodySelect=document.querySelector('#orbit-body-select');
+const orbitBodyDetail=document.querySelector('#orbit-body-detail');
+const orbitEventSync=document.querySelector('#orbit-event-sync');
+let linkedBodyMetadata=null,orbitSelectedId=null,orbitFocusId=null;
+function selectOrbitBody(id){
+  orbitSelectedId=orbitIds.includes(id)?id:null;
+  orbitBodySelect.value=orbitSelectedId||'';
+  if(webglRenderer)webglRenderer.select(orbitSelectedId);
+  renderOrbitBodyDetails();
+}
+function renderOrbitBodyDetails(){
+  if(!orbitSelectedId || !orbitSamples.length){
+    orbitBodyDetail.textContent='请选择天体查看归档质量、半径及当前已积分的位置。';
+    return;
+  }
+  const sample=orbitSamples[orbitIndex],body=linkedBodyMetadata?.bodies?.[orbitSelectedId];
+  const xyz=sample.positions_m[orbitSelectedId].map(v=>
+    (v/149597870700).toPrecision(6)).join(', ');
+  if(!body){
+    orbitBodyDetail.textContent=orbitSelectedId+' · t='+sample.t_s.toPrecision(9)+
+      ' SI s · 惯性坐标(AU) ['+xyz+'] · 初态质量、半径与自转数据缺失。';
+    return;
+  }
+  const mass=body.kind==='STAR'?
+    (body.mass_kg/1.98847e30).toPrecision(5)+' M☉':
+    (body.mass_kg/5.9722e24).toPrecision(5)+' M⊕';
+  const radius=body.kind==='STAR'?
+    (body.radius_m/6.957e8).toPrecision(5)+' R☉':
+    (body.radius_m/6371000).toPrecision(5)+' R⊕';
+  const lum=Number.isFinite(body.luminosity_w)?
+    ' · 初态光度 '+(body.luminosity_w/3.828e26).toPrecision(5)+' L☉':'';
+  const spin=Number.isFinite(body.rotation_rate_rad_s)?
+    ' · 自转角速度 '+body.rotation_rate_rad_s.toExponential(4)+' rad/s':'';
+  orbitBodyDetail.textContent=orbitSelectedId+
+    ' · 初态质量 '+mass+' · 初态半径 '+radius+lum+spin+
+    ' · t='+sample.t_s.toPrecision(9)+' SI s · 惯性坐标(AU) ['+xyz+
+    '] · 属性来自哈希核验的M5A初态，不代表碰撞后残骸演化。';
+}
+orbitBodySelect.addEventListener('change',()=>{
+  selectOrbitBody(orbitBodySelect.value);orbitDraw();
+});
+document.querySelector('#orbit-focus-body').addEventListener('click',()=>{
+  if(!orbitSelectedId || !orbitSamples.length){
+    orbitEventSync.textContent='请先加载轨道并选择天体。';return;
+  }
+  orbitFocusId=orbitSelectedId;
+  if(webglRenderer)webglRenderer.focus(orbitFocusId);
+  orbitDraw();
+});
+document.querySelector('#orbit-reset-view').addEventListener('click',()=>{
+  orbitFocusId=null;orbitAzimuth=.6;orbitAltitude=.35;orbitZoom=1;
+  if(webglRenderer)webglRenderer.resetView();
+  orbitDraw();
+});
+
 let webglRenderer = null;
 function deactivateWebGL(reason) {
   webglToggle.checked = false;
   orbitCanvas.hidden = false;
   webglCanvas.hidden = true;
-  if (webglRenderer) {webglRenderer.dispose();webglRenderer = null;}
+  if (webglRenderer) {
+    const camera=webglRenderer.cameraState();
+    orbitAzimuth=camera.yaw;orbitAltitude=camera.pitch;orbitZoom=camera.zoom;
+    webglRenderer.dispose();webglRenderer = null;
+  }
   orbitDraw();
   webglStatus.textContent = reason || '已切换回Canvas，已归档物理数据不变。';
 }
@@ -233,10 +292,14 @@ webglToggle.addEventListener('change',()=>{
     if(!window.createM63WebGL || !window.ThreeBodyScienceAdapter) {
       throw new Error('WebGL渲染模块不可用');
     }
-    webglRenderer=window.createM63WebGL(webglCanvas,deactivateWebGL,{camera:orbitCamera});
+    webglRenderer=window.createM63WebGL(webglCanvas,deactivateWebGL,(id)=>selectOrbitBody(id));
     orbitCanvas.hidden=true;
     webglCanvas.hidden=false;
+    webglRenderer.setCamera({yaw:orbitAzimuth,pitch:orbitAltitude,zoom:orbitZoom});
     webglRenderer.load(orbitSamples);
+    webglRenderer.select(orbitSelectedId);
+    webglRenderer.focus(orbitFocusId);
+    webglRenderer.materials(materialToggle.checked);
     webglRenderer.draw(orbitIndex);
     webglStatus.textContent='WebGL2已启用 · 仅使用已验证轨道点，无外推；拖动旋转、滚轮缩放。';
   } catch(error) {
@@ -249,35 +312,32 @@ const orbitSlider = document.querySelector('#orbit-time');
 const orbitText = document.querySelector('#orbit-time-text');
 const orbitStatus = document.querySelector('#observe-status');
 const orbitEvents = document.querySelector('#orbit-events');
-let orbitSamples = [], orbitEventItems = [], orbitIndex = 0;
-const orbitCamera={yaw:.6,pitch:.35,zoom:1,focus:''};
-const orbitFocus=document.querySelector('#orbit-focus');
-let orbitHitPoints=[];
+let orbitSamples = [], orbitEventItems = [], orbitIndex = 0, orbitAzimuth = .6, orbitAltitude = .35;
 let linkedThermal = null;
 let orbitTimer = null;
-
+let orbitZoom = 1;
 const orbitIds = ['star-1','star-2','star-3','planet-1'];
 const orbitColors = ['#f3a44a','#e27459','#8bb7ff','#d7e9dc'];
 
 function projectOrbit(position, scale, center) {
   const x=(position[0]-center[0])/scale, y=(position[1]-center[1])/scale;
   const z=(position[2]-center[2])/scale;
-  const ca=Math.cos(orbitCamera.yaw), sa=Math.sin(orbitCamera.yaw);
-  const ce=Math.cos(orbitCamera.pitch), se=Math.sin(orbitCamera.pitch);
+  const ca=Math.cos(orbitAzimuth), sa=Math.sin(orbitAzimuth);
+  const ce=Math.cos(orbitAltitude), se=Math.sin(orbitAltitude);
   return [x*ca-y*sa, (x*sa+y*ca)*se-z*ce];
 }
+const materialToggle=document.querySelector('#surface-materials');
+materialToggle.addEventListener('change',()=>{
+  if(webglRenderer)webglRenderer.materials(materialToggle.checked);
+  orbitDraw();
+});
+for(const [i,id] of ['surface-star-1','surface-star-2','surface-star-3','surface-rock'].entries()){
+  document.getElementById(id).getContext('2d').drawImage(window.ThreeBodySurfaces.disk(i,160),0,0);
+}
 function orbitDraw() {
-  orbitHitPoints=[];
-  const detail=document.querySelector('#orbit-body-detail');
-  const sample=orbitSamples[orbitIndex];
-  detail.textContent=sample && orbitCamera.focus ?
-    orbitCamera.focus+' · t='+sample.t_s+' SI s · 位置 ['+
-    sample.positions_m[orbitCamera.focus].map(v=>v.toPrecision(9)).join(', ')+
-    '] m（原始惯性系坐标；仅为已归档采样）' :
-    '未选择天体或没有可信采样；符号大小不代表物理半径。';
   if(webglRenderer){
+    webglRenderer.materials(materialToggle.checked);
     webglRenderer.draw(orbitIndex);
-    if(sample)orbitHitPoints=orbitIds.map(id=>({id,...webglRenderer.project(id,orbitIndex)}));
     return;
   }
   const ctx=orbitContext, w=orbitCanvas.width, h=orbitCanvas.height;
@@ -288,10 +348,10 @@ function orbitDraw() {
   }
   const end=orbitSamples[orbitIndex];
   const points=orbitSamples.flatMap(s=>orbitIds.map(id=>s.positions_m[id]));
-  const systemCenter=[0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
-  const center=orbitCamera.focus?end.positions_m[orbitCamera.focus]:systemCenter;
-  const extent=Math.max(1,...points.map(p=>Math.hypot(...p.map((v,k)=>v-systemCenter[k]))));
-  const scale=extent/(Math.min(w,h)*.40)*orbitCamera.zoom;
+  const center=orbitFocusId?end.positions_m[orbitFocusId]:
+    [0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
+  const extent=Math.max(1,...points.map(p=>Math.hypot(...p.map((v,k)=>v-center[k]))));
+  const scale=extent/(Math.min(w,h)*.40)*orbitZoom;
   orbitIds.forEach((id,bi)=>{
     ctx.beginPath(); ctx.lineWidth=id==='planet-1'?1.6:1.2;
     ctx.strokeStyle=orbitColors[bi];
@@ -301,9 +361,11 @@ function orbitDraw() {
       if(i===0)ctx.moveTo(sx,sy);else ctx.lineTo(sx,sy);
     }); ctx.stroke();
     const [px,py]=projectOrbit(end.positions_m[id],scale,center);
-    orbitHitPoints.push({id,x:w/2+px,y:h/2+py});
     ctx.beginPath();ctx.fillStyle=orbitColors[bi];
-    ctx.arc(w/2+px,h/2+py,id==='planet-1'?4:7,0,Math.PI*2);ctx.fill();
+    if(materialToggle.checked){
+      const size=id==='planet-1'?20:30;
+      ctx.drawImage(window.ThreeBodySurfaces.disk(bi),w/2+px-size/2,h/2+py-size/2,size,size);
+    }else{ctx.arc(w/2+px,h/2+py,id==='planet-1'?4:7,0,Math.PI*2);ctx.fill();}
     ctx.font='12px system-ui';ctx.fillText(id,w/2+px+9,h/2+py-7);
   });
   ctx.fillStyle='#b7c5ca';ctx.font='13px monospace';
@@ -315,11 +377,17 @@ function orbitSetIndex(i) {
   orbitSlider.value=orbitIndex;
   orbitText.textContent=orbitSamples[orbitIndex].t_s.toPrecision(9)+' SI s';
   orbitDraw();
+  renderOrbitBodyDetails();
   renderThermal();
 }
 function orbitStop(){if(orbitTimer!==null)clearInterval(orbitTimer);orbitTimer=null;}
 async function loadOrbit() {
-  orbitStop(); orbitStatus.textContent='正在验证并读取M5A已提交分段…';
+  orbitStop();orbitSelectedId=null;orbitFocusId=null;linkedBodyMetadata=null;
+  orbitBodySelect.value='';
+  orbitBodyDetail.textContent='等待当前世界经验证的天体初态。';
+  orbitEventSync.textContent='尚未选中事件。';
+  if(webglRenderer){webglRenderer.focus(null);webglRenderer.select(null);}
+  orbitStatus.textContent='正在验证并读取M5A已提交分段…';
   const id=document.querySelector('#observe-run-id').value;
   const params=new URLSearchParams();
   for(const [idName,key] of [['observe-start','start_s'],['observe-end','end_s']]){
@@ -385,7 +453,17 @@ async function loadOrbit() {
         '温度/辐射无法载入：'+thermalError.message;
       linkedThermal=null;
     }
-    orbitCamera.focus='';orbitFocus.value='';
+    linkedBodyMetadata=null;
+    try {
+      const res=await fetch(base+'/bodies');
+      const raw=await res.json();
+      if(!res.ok)throw Error(raw.message||raw.error||res.status);
+      linkedBodyMetadata=window.ThreeBodyScienceAdapter.validateBodyMetadata(
+        validatedTrajectory,raw
+      );
+    } catch(error) {
+      orbitBodyDetail.textContent='天体初态属性不可用：'+error.message;
+    }
     orbitSamples=validatedTrajectory.samples;
     orbitEventItems=events.events;
     if(webglRenderer)webglRenderer.load(orbitSamples);
@@ -435,11 +513,13 @@ async function loadOrbit() {
       orbitEvents.add(new Option(displayType+' @ '+event.t_s+' s',String(i)));
     });
     orbitSetIndex(orbitSamples.length-1);
-    if(!orbitSamples.length)orbitDraw();
+    if(!orbitSamples.length){orbitDraw();renderThermal();}
   } catch(error) {
-    orbitSamples=[];orbitEventItems=[];linkedThermal=null;
-    orbitCamera.focus='';orbitFocus.value='';orbitText.textContent='—';
-    orbitSlider.max=0;orbitSlider.value=0;renderThermal();
+    orbitSamples=[];orbitEventItems=[];linkedBodyMetadata=null;linkedThermal=null;
+    orbitText.textContent='—';orbitSlider.max=0;orbitSlider.value=0;
+    renderThermal();
+    orbitSelectedId=null;orbitFocusId=null;orbitBodySelect.value='';
+    orbitBodyDetail.textContent='当前运行没有有效的天体属性。';
     if(webglRenderer)webglRenderer.load(orbitSamples);
     orbitStatus.textContent='无法载入：'+error.message;
     orbitDraw();
@@ -448,8 +528,9 @@ async function loadOrbit() {
 document.querySelector('#observe-load').addEventListener('click',loadOrbit);
 for(const [id,axis,delta] of [['orbit-left','azimuth',-.2],['orbit-right','azimuth',.2],['orbit-up','altitude',.14],['orbit-down','altitude',-.14]]){
   document.getElementById(id).addEventListener('click',()=>{
-    if(axis==='azimuth')orbitCamera.yaw+=delta;
-    else orbitCamera.pitch=Math.max(-1.45,Math.min(1.45,orbitCamera.pitch+delta));
+    if(axis==='azimuth')orbitAzimuth+=delta;
+    else orbitAltitude=Math.max(-1.45,Math.min(1.45,orbitAltitude+delta));
+    if(webglRenderer)webglRenderer.rotate(axis==='azimuth'?'yaw':'pitch',delta);
     orbitDraw();
   });
 }
@@ -471,6 +552,13 @@ orbitEvents.addEventListener('change',()=>{
     if(difference<delta){delta=difference;nearest=i;}
   });
   orbitSetIndex(nearest);
+  orbitEventSync.textContent='事件 '+event.event_type+' @ '+
+    event.t_s.toPrecision(9)+' SI s · 最近真实轨道样本 '+
+    orbitSamples[nearest].t_s.toPrecision(9)+' SI s · 时间偏差 '+
+    delta.toPrecision(6)+' s（无插值或外推）。';
+  if(event.body_ids?.length && orbitIds.includes(event.body_ids[0])){
+    selectOrbitBody(event.body_ids[0]);
+  }
   const scenario=event.observed?.stellar_merger_scenario;
   const mergerSummary=scenario?
     ' · 恒星合并假设：质量 '+
@@ -700,11 +788,51 @@ function updateCurrentC0Reading(row, selectedTime) {
     + Math.abs(selectedTime - sourceTime).toPrecision(4)
     + ' 秒（使用最近采样，不插值）';
 }
+let sphereFrame=null;
+const sphereCanvas=document.querySelector('#c1-sphere');
+function renderSurfaceThermal(thermal,time){
+  const ctx=sphereCanvas.getContext('2d');ctx.clearRect(0,0,256,256);
+  sphereFrame=window.ThreeBodySurfaces.thermalFrame(thermal,time);
+  const status=document.querySelector('#c1-sphere-status');
+  const legend=document.querySelector('#c1-sphere-legend');
+  document.querySelector('#c1-sphere-reading').textContent='将鼠标移到球面查看真实纬带温度。';
+  if(!sphereFrame){
+    status.textContent='C1球面：无可信数据（缺失、无效或在归档时间范围外）';
+    legend.textContent='无数据';legend.hidden=true;return;
+  }
+  ctx.drawImage(window.ThreeBodySurfaces.disk(3,256,sphereFrame),0,0);
+  status.textContent='真实M3采样 t='+sphereFrame.row.t_s+' SI s · 与轨道相差 '+
+    sphereFrame.delta_s+' s · '+sphereFrame.row.c1_temperature_k.length+
+    '个等面积纬带 · 无插值 · '+(thermal.sampling_quality||'质量未指定')+
+    (thermal.sampling_warning?' · '+thermal.sampling_warning:'');
+  legend.hidden=false;
+  legend.style.borderImage=sphereFrame.max===sphereFrame.min?
+    'linear-gradient(to right,hsl(240,85%,54%),hsl(240,85%,54%)) 1':'';
+  legend.textContent=sphereFrame.min.toFixed(6)+' K（蓝） → '+
+    sphereFrame.max.toFixed(6)+(sphereFrame.max===sphereFrame.min?' K（等温，统一蓝色）':' K（红）')+' · 当前窗口固定色标'+
+    (sphereFrame.max-sphereFrame.min<.01?' · 温差不足0.01 K，颜色仅显示微小相对变化':'');
+}
+sphereCanvas.addEventListener('pointermove',event=>{
+  if(!sphereFrame)return;
+  const rect=sphereCanvas.getBoundingClientRect();
+  const x=2*(event.clientX-rect.left)/rect.width-1;
+  const y=2*(event.clientY-rect.top)/rect.height-1;
+  const target=document.querySelector('#c1-sphere-reading');
+  if(x*x+y*y>1){target.textContent='球面外无温度数据。';return;}
+  const row=sphereFrame.row;
+  const band=window.ThreeBodySurfaces.bandAt(y,row.c1_temperature_k.length);
+  target.textContent='纬带中心 '+(row.c1_latitude_rad[band]*180/Math.PI).toFixed(2)+
+    '° · '+c1TemperatureText(row.c1_temperature_k[band])+' · t='+row.t_s+' SI s';
+});
+sphereCanvas.addEventListener('pointerleave',()=>{
+  document.querySelector('#c1-sphere-reading').textContent='将鼠标移到球面查看真实纬带温度。';
+});
 function renderThermal(){
   const flux=document.querySelector('#flux-canvas');
   const c0=document.querySelector('#c0-canvas');
   const cursor=document.querySelector('#thermal-cursor');
   const c1=document.querySelector('#c1-canvas');
+  renderSurfaceThermal(linkedThermal,orbitSamples[orbitIndex]?.t_s);
   if(!linkedThermal||!linkedThermal.rows.length||!orbitSamples.length){
     blankThermal(flux,'恒星辐照度：无可信数据');
     blankThermal(c0,'C0：无可信数据');
@@ -830,70 +958,67 @@ document.querySelector('#world-start').addEventListener('click',async()=>{
 });
 loadWorldPreset();
 
-/* Shared camera for Canvas and WebGL: presentation never mutates SI samples. */
-function resetOrbitCamera(){
-  Object.assign(orbitCamera,{yaw:.6,pitch:.35,zoom:1,focus:''});
-  orbitFocus.value='';orbitDraw();
-}
-orbitFocus.addEventListener('change',()=>{
-  orbitCamera.focus=orbitFocus.value;orbitDraw();
+/* 3D scientific orbit camera: drag rotates inertial Cartesian view; wheel zooms. */
+orbitCanvas.style.touchAction='none';
+let dragPoint=null;
+orbitCanvas.addEventListener('pointerdown',event=>{
+  if(event.button!==0)return;
+  orbitCanvas.focus();
+  dragPoint=[event.clientX,event.clientY,event.clientX,event.clientY];
+  orbitCanvas.setPointerCapture(event.pointerId);
 });
-document.querySelector('#orbit-reset').addEventListener('click',resetOrbitCamera);
-for(const canvas of [orbitCanvas,webglCanvas]){
-  canvas.style.touchAction='none';
-  let drag=null;
-  canvas.addEventListener('pointerdown',event=>{
-    if(event.button!==0)return;
-    canvas.focus();
-    drag={x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false};
-    canvas.setPointerCapture(event.pointerId);
-  });
-  canvas.addEventListener('pointermove',event=>{
-    if(!drag)return;
-    const dx=event.clientX-drag.x,dy=event.clientY-drag.y;
-    drag.moved ||= Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)>4;
-    if(drag.moved){
-      orbitCamera.yaw+=dx*.008;
-      orbitCamera.pitch=Math.max(-1.45,Math.min(1.45,orbitCamera.pitch+dy*.008));
-      orbitDraw();
-    }
-    drag.x=event.clientX;drag.y=event.clientY;
-  });
-  canvas.addEventListener('pointerup',event=>{
-    if(drag && !drag.moved){
-      const rect=canvas.getBoundingClientRect();
-      const candidates=orbitHitPoints.filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))
-        .map(p=>({...p,distance:Math.hypot(
-          rect.left+p.x/canvas.width*rect.width-event.clientX,
-          rect.top+p.y/canvas.height*rect.height-event.clientY)}))
-        .filter(p=>p.distance<=16).sort((a,b)=>
-          a.distance-b.distance || (a.depth||0)-(b.depth||0));
-      if(candidates.length){
-        orbitCamera.focus=candidates[0].id;orbitFocus.value=orbitCamera.focus;orbitDraw();
-      }
-    }
-    drag=null;
-  });
-  for(const kind of ['pointercancel','lostpointercapture']){
-    canvas.addEventListener(kind,()=>{drag=null;});
+orbitCanvas.addEventListener('pointermove',event=>{
+  if(!dragPoint)return;
+  const dx=event.clientX-dragPoint[0],dy=event.clientY-dragPoint[1];
+  dragPoint=[event.clientX,event.clientY,dragPoint[2],dragPoint[3]];
+  orbitAzimuth+=dx*.008;
+  orbitAltitude=Math.max(-1.55,Math.min(1.55,orbitAltitude+dy*.008));
+  orbitDraw();
+});
+orbitCanvas.addEventListener('pointerup',event=>{
+  if(!dragPoint || !orbitSamples.length ||
+    Math.hypot(event.clientX-dragPoint[2],event.clientY-dragPoint[3])>=6)return;
+  const points=orbitSamples.flatMap(s=>orbitIds.map(id=>s.positions_m[id]));
+  const end=orbitSamples[orbitIndex];
+  const center=orbitFocusId?end.positions_m[orbitFocusId]:
+    [0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
+  const extent=Math.max(1,...points.map(p=>Math.hypot(...p.map((v,k)=>v-center[k]))));
+  const scale=extent/(Math.min(orbitCanvas.width,orbitCanvas.height)*.4)*orbitZoom;
+  const rect=orbitCanvas.getBoundingClientRect();
+  let picked=null,distance=Infinity;
+  for(const id of orbitIds){
+    const [x,y]=projectOrbit(end.positions_m[id],scale,center);
+    const d=Math.hypot(rect.left+(orbitCanvas.width/2+x)*rect.width/orbitCanvas.width-event.clientX,
+      rect.top+(orbitCanvas.height/2+y)*rect.height/orbitCanvas.height-event.clientY);
+    if(d<distance){distance=d;picked=id;}
   }
-  canvas.addEventListener('wheel',event=>{
-    event.preventDefault();
-    orbitCamera.zoom=Math.max(.12,Math.min(15,orbitCamera.zoom*Math.exp(event.deltaY*.001)));
-    orbitDraw();
-  },{passive:false});
+  if(distance<=16){selectOrbitBody(picked);orbitDraw();}
+});
+for(const kind of ['pointerup','pointercancel','lostpointercapture']){
+  orbitCanvas.addEventListener(kind,()=>{dragPoint=null;});
+}
+orbitCanvas.addEventListener('wheel',event=>{
+  event.preventDefault();
+  orbitZoom=Math.max(.12,Math.min(15,orbitZoom*Math.exp(event.deltaY*.001)));
+  orbitDraw();
+},{passive:false});
+
+/* Accessible controls target the active renderer without changing science time. */
+for(const canvas of [orbitCanvas,webglCanvas]){
   canvas.addEventListener('keydown',event=>{
-    const keys={ArrowLeft:[-.2,0],ArrowRight:[.2,0],ArrowUp:[0,.14],ArrowDown:[0,-.14]};
-    if(keys[event.key]){
-      orbitCamera.yaw+=keys[event.key][0];
-      orbitCamera.pitch=Math.max(-1.45,Math.min(1.45,orbitCamera.pitch+keys[event.key][1]));
-    }else if(['+','=','-'].includes(event.key)){
-      orbitCamera.zoom=Math.max(.12,Math.min(15,orbitCamera.zoom*(event.key==='-'?1.12:.89)));
-    }else if(event.key==='Home')resetOrbitCamera();
+    const rotation={ArrowLeft:['orbit-left'],ArrowRight:['orbit-right'],
+      ArrowUp:['orbit-up'],ArrowDown:['orbit-down']};
+    if(rotation[event.key])document.getElementById(rotation[event.key][0]).click();
+    else if(['+','=','-'].includes(event.key)){
+      const factor=event.key==='-'?1.12:.89;
+      if(webglRenderer)webglRenderer.zoomBy(factor);
+      else orbitZoom=Math.max(.12,Math.min(15,orbitZoom*factor));
+      orbitDraw();
+    }else if(event.key==='Home')document.querySelector('#orbit-reset-view').click();
     else if(event.key===' '){
       if(orbitTimer!==null)orbitStop();else document.querySelector('#orbit-play').click();
     }else return;
-    event.preventDefault();orbitDraw();
+    event.preventDefault();
   });
 }
 

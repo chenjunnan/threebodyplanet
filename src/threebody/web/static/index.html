@@ -101,25 +101,36 @@
       </div>
       <p id="observe-status" role="status">请选择已提交的M5A运行。</p>
       <label class="webgl-experiment-label"><input type="checkbox" id="enable-webgl"> 实验性WebGL2三维观察（可随时返回Canvas）</label>
+      <label><input id="surface-materials" type="checkbox" checked> 恒星颗粒与岩石表面（视觉示意）</label>
+      <p>表面纹理、球体明暗及增强尺寸仅为视觉示意，不表示真实地形、光谱、物理半径或昼夜。</p>
+      <div class="surface-gallery" aria-label="表面材质预览"><figure><canvas id="surface-star-1" width="160" height="160" aria-label="恒星1颗粒材质示意"></canvas><figcaption>恒星1 · 暖金颗粒</figcaption></figure><figure><canvas id="surface-star-2" width="160" height="160" aria-label="恒星2颗粒材质示意"></canvas><figcaption>恒星2 · 赤橙颗粒</figcaption></figure><figure><canvas id="surface-star-3" width="160" height="160" aria-label="恒星3颗粒材质示意"></canvas><figcaption>恒星3 · 蓝白颗粒</figcaption></figure><figure><canvas id="surface-rock" width="160" height="160" aria-label="行星岩石材质示意"></canvas><figcaption>行星 · 岩石示意</figcaption></figure></div>
       <p id="webgl-status" role="status">默认Canvas观察器；WebGL仅用于渲染真实已归档轨道。</p>
-      <canvas id="orbit-canvas" width="940" height="500" tabindex="0" aria-label="四天体三维轨迹可旋转投影"></canvas>
-      <canvas id="orbit-webgl" width="940" height="500" tabindex="0" hidden aria-label="WebGL2四天体历史三维轨道，无任何后续物理外推"></canvas>
-      <label for="orbit-focus">聚焦天体（也可点击天体选择）</label>
-      <select id="orbit-focus">
-        <option value="">整个系统</option>
-        <option value="star-1">恒星1</option>
-        <option value="star-2">恒星2</option>
-        <option value="star-3">恒星3</option>
-        <option value="planet-1">行星</option>
-      </select>
-      <p id="orbit-body-detail" role="status">未选择天体；符号大小不代表物理半径。</p>
-      <p>画布键盘：方向键旋转，+ / − 缩放，Home 重置，空格播放或暂停；播放仅遍历已归档采样。</p>
+      <canvas id="orbit-canvas" tabindex="0" width="940" height="500" aria-label="四天体三维轨迹可旋转投影"></canvas>
+      <canvas id="orbit-webgl" tabindex="0" width="940" height="500" hidden aria-label="WebGL2四天体历史三维轨道，无任何后续物理外推"></canvas>
+      <p>画布键盘：方向键旋转，+ / − 缩放，Home 重置，空格播放或暂停；仅回放已归档采样。</p>
+      <div class="observer-select-controls">
+        <label for="orbit-body-select">天体选择（Canvas / WebGL 球点可点击）</label>
+        <select id="orbit-body-select" aria-label="选择观察天体">
+          <option value="">未选择天体</option>
+          <option value="star-1">恒星一</option>
+          <option value="star-2">恒星二</option>
+          <option value="star-3">恒星三</option>
+          <option value="planet-1">行星</option>
+        </select>
+        <button id="orbit-focus-body">聚焦所选天体</button>
+        <button id="orbit-reset-view">重置视角 / 系统中心</button>
+      </div>
+      <p id="orbit-body-detail" role="status" aria-live="polite">
+        请选择天体查看归档质量、半径及当前已积分的位置。
+      </p>
+      <p id="orbit-event-sync" role="status" aria-live="polite">
+        选择事件后跳转到最近的已归档物理样本，不在采样之间预测轨迹。
+      </p>
       <div class="actions">
         <button id="orbit-left">视角向左</button>
         <button id="orbit-right">视角向右</button>
         <button id="orbit-up">抬高视角</button>
         <button id="orbit-down">降低视角</button>
-        <button id="orbit-reset">重置视角</button>
         <button id="orbit-play">播放</button>
         <button id="orbit-stop">暂停播放</button>
       </div>
@@ -140,6 +151,12 @@
         <canvas id="c1-canvas" width="940" height="240" aria-label="C1纬度温度时空分布，鼠标悬停显示该时刻及纬度的温度"></canvas>
         <p id="c1-temperature-summary" aria-live="polite">C1纬度温差：等待真实数据。</p>
         <p id="c1-temperature-hover" aria-live="polite">将鼠标移到热图上查看纬度、物理时间及温度（K / °C）。</p>
+        <h4>C1 行星温度球面</h4>
+        <p>北纬向上，等面积纬带；这是行星局部坐标中的纬向平均温度，不与轨道自转轴对齐，不表示经度、地形或昼夜。热图颜色不叠加材质明暗。</p>
+        <canvas id="c1-sphere" width="256" height="256" tabindex="0" aria-label="C1真实纬带温度球面，北纬向上"></canvas>
+        <p id="c1-sphere-status" role="status">C1球面：无可信数据</p>
+        <div id="c1-sphere-legend" aria-label="C1温度色标"></div>
+        <p id="c1-sphere-reading" aria-live="polite">将鼠标移到球面查看真实纬带温度。</p>
         <p id="thermal-cursor" aria-live="polite">物理时间与轨道观察时间同步。缺失的C0/C1数据不会被补造。</p>
       </section>
       <section class="world-outcome-panel" aria-labelledby="m4-heading">
@@ -154,6 +171,7 @@
   </main>
   <footer><span>LOCAL · SINGLE USER</span><span>REBOUND t<sub>s</sub> ≠ DISPLAY TIME</span></footer>
   <script src="/science-adapter.js" defer></script>
+  <script src="/surface-materials.js" defer></script>
   <script src="/webgl-observer.js" defer></script>
   <script src="/app.js" defer></script>
 </body>

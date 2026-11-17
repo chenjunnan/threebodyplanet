@@ -1,37 +1,35 @@
-# M6.3-c 相机、点选与真实采样回放
+# M6.3-c observer-controls 分支集成记录
 
-日期：2026-11-17。基线：main 47871a2（M6.3-a/b 与五年验收已合并）。
+2026-11-17：将 main add84d5（已合并 PR #30、#31）合入旧 observer-controls 分支。
+原 51fa105 与 main 上另一套 M6.3-c 实现重叠，不能直接以旧界面覆盖 main。
 
-## 交付
+## 冲突解决
 
-- Canvas/WebGL 共用 yaw、pitch、zoom 与聚焦目标；按钮、鼠标及键盘均操作当前观察器。
-- 点击当前帧天体或选择下拉项聚焦，详情显示原始惯性系 SI 坐标及真实采样时间。
-- 回放逐点遍历当前窗口已经验证的轨迹，并停在最后一点；不插值、不外推。
-- WebGL 按画布宽高比投影；点选使用同样的透视变换。双精度减去渲染原点、聚焦偏移之后才转换 GPU 单精度。
-- 切换渲染器保留相机/所选时间；销毁时移除 context-loss 监听器，重复启用不会累积拖动监听器。
-- 实际 WebGL context loss 回退 Canvas；轨迹读取失败清除旧位置、温度游标与选择。
-- 没有修改求解器、归档 schema、科学数据及科学分类。
+保留 main 的哈希核验天体元数据 API、科学适配器、选择/聚焦面板、事件时间联动，
+以及 M6.3-d 本地材质、WebGL 纹理、C1 温度球面、色标和浏览器测试。
+将旧分支的独有功能适配进 main 现有接口：
+
+- Canvas/WebGL 画布键盘旋转、缩放、重置和历史回放。
+- 切换观察器保留相机角度、缩放、选择、聚焦与当前采样；实际 WebGL context loss 自动绘制 Canvas。
+- Canvas 点击天体复用现有选择及真实属性面板，不增加第二套选择 UI。
+- 销毁 WebGL 时移除全部实例监听器，保留材质纹理释放；反复切换不重复响应拖动。
+- WebGL 宽高比投影与点选变换一致；渲染原点/聚焦偏移以双精度相减后转换 GPU 单精度。
+- 失败轨迹读取清除时间标签/滑块，沿用 D 的温度数据清空。
+
+物理求解器、归档格式、M3/M4 算法没有修改。没有自动合并到 main。
 
 ## 验证
 
-当前云环境 Python 3.12、系统 Chromium，通过：
-
 ```
 THREEBODY_TEST_CHROMIUM=/usr/bin/chromium .venv/bin/pytest -o addopts='' -q
-# 246 passed in 25.70s（含两个真实浏览器测试）
 .venv/bin/ruff check .
 node --check src/threebody/web/static/app.js
 node --check src/threebody/web/static/webgl-observer.js
 ```
 
-浏览器真实科学链路覆盖世界生成、IAS15、M3/M4、Canvas 聚焦及报告。
-软件 WebGL2 测试使用明确标注的图形夹具，覆盖 shader、鼠标旋转、滚轮、键盘、
-按钮、点选、聚焦居中、回放终点、重复开关、实际 context loss、缺失轨迹清空以及源坐标不变。
-图形夹具不是科学计算结果。CI 默认仍用 Playwright 管理的 Chromium；环境已有 Chromium
-可通过 THREEBODY_TEST_CHROMIUM 指定。当前浏览器下载域名被网络策略拒绝，使用已有系统浏览器完成测试。
+浏览器回归覆盖真实 IAS15→M3/M4→温度球面/报告、材质开关和 GPU 纹理、
+新旧控制集成、反复切换相机状态、单次拖动响应、实际 context loss、Canvas 点选、
+键盘回放停止于真实样本末尾及源数据不变。纯图形夹具不视为科学积分结果。
 
-## 剩余范围
-
-M6.3-d 恒星材质及 C1 球面热图、M6.3-e 事件视觉与性能基准尚未实现。
-本增量不重跑五年科学验收（未改科学计算）；已有五年验收记录参见 docs/acceptance/。
-WebGL 仍为实验选项，不支持在 GPU 上推进物理状态。
+本次结果：248 项测试全部通过（30.59 秒，含 3 项真实 Chromium 测试）；Ruff、
+JavaScript 语法及冲突标记/空白检查通过。
