@@ -46,7 +46,10 @@ def derive_run_science(root: Path, run_id: str) -> dict[str, str]:
                 result["thermal"] = "VERIFIED_EXISTING"
             else:
                 try:
-                    derive_long_run_environment(run, thermal_config, env_dir)
+                    derive_long_run_environment(
+                        run, thermal_config, env_dir,
+                        checkpoint_dir=root / "thermal_checkpoints" / run_id,
+                    )
                     result["thermal"] = "COMPLETED"
                 except (ConfigError, ValueError, ArithmeticError, RuntimeError) as exc:
                     # Solver and input-domain failures do not erase the valid M5A
