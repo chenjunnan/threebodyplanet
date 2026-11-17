@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Three Body Planet P0 local world science console",
-    "version": "0.5.0"
+    "version": "0.6.0"
   },
   "servers": [
     {
@@ -533,6 +533,62 @@
           },
           "422": {
             "description": "Provenance or integrity check failed"
+          }
+        }
+      }
+    },
+    "/api/v1/experiments/compare": {
+      "get": {
+        "operationId": "compareVerifiedRuns",
+        "description": "Provenance-verified one to eight runs; missing thermal/outcome remains explicit; report contains immutable digest",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "runs",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Comma-separated distinct run IDs, max eight"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified multi-world physical comparison / JSON report"
+          },
+          "404": {
+            "description": "Unknown run"
+          },
+          "422": {
+            "description": "Invalid request or corrupted scientific source"
+          }
+        }
+      }
+    },
+    "/api/v1/experiments/report": {
+      "get": {
+        "operationId": "exportVerifiedScienceReport",
+        "description": "Provenance-verified one to eight runs; missing thermal/outcome remains explicit; report contains immutable digest",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "runs",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Comma-separated distinct run IDs, max eight"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified multi-world physical comparison / JSON report"
+          },
+          "404": {
+            "description": "Unknown run"
+          },
+          "422": {
+            "description": "Invalid request or corrupted scientific source"
           }
         }
       }
