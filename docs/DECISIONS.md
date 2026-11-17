@@ -115,7 +115,8 @@
 - Absolute planet speed is measured relative to the three-star COM. The selected-host escape proxy is
   an explicit two-body/concentrated-mass approximation; the combined-potential proxy is an instantaneous
   frozen-position speed scale. Neither proves permanent binding or future survival.
-- Initial contact has explicit priority: it is retained as the existing terminal t=0 outcome when
-  `allow_initial_contact=true`, otherwise that attempt is rejected. The M2 guard remains unchanged and
-  rejects all initial contact before IAS15.
+- Initial-contact policy is evaluated independently of every enabled distance, speed and escape-proxy
+  bound. `allow_initial_contact=true` suppresses only the contact-policy rejection; a contact state is
+  retained as the existing terminal t=0 outcome only when all other active bounds also pass. The M2
+  guard remains unchanged and rejects every initial contact before IAS15.
 
