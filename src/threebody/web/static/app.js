@@ -218,6 +218,39 @@ async function loadOrbit() {
     }
     orbitSamples=trajectory.samples;
     orbitEventItems=events.events;
+    try {
+      const response=await fetch(base+'/outcome');
+      if(response.ok){
+        const outcome=await response.json();
+        if(outcome.world_id!==trajectory.world_id || outcome.run_id!==id){
+          throw Error('M4与当前轨道来源不同');
+        }
+        const report=outcome.classification;
+        const labels=(report.environmental_outcomes||[]).join('、')||'无';
+        document.querySelector('#m4-outcome-summary').textContent=
+          '动力学：'+report.dynamical_outcome+
+          ' · 行星状态：'+report.planet_status+
+          ' · 环境：'+labels+
+          ' · 来源：M5A '+outcome.source.m5a+
+          ' / M3 '+outcome.source.thermal;
+        orbitEventItems.push(...outcome.timeline
+          .filter(e=>e.source==='M4')
+          .map(e=>({
+            event_type:e.event_type,body_ids:e.body_ids||[],
+            t_s:e.t_start_s,message:e.message,source:'M4'
+          })));
+        orbitEventItems.sort((a,b)=>a.t_s-b.t_s);
+      }else if(response.status===404){
+        document.querySelector('#m4-outcome-summary').textContent=
+          '未生成M4长期结局归档；尚无分类结论。';
+      }else{
+        const detail=await response.json();
+        throw Error(detail.message||detail.error||'M4分类读取失败');
+      }
+    }catch(error){
+      document.querySelector('#m4-outcome-summary').textContent=
+        'M4结局不可用：'+error.message;
+    }
     orbitIndex=0;orbitSlider.min=0;
     orbitSlider.max=Math.max(0,orbitSamples.length-1);
     orbitStatus.textContent='世界 '+trajectory.world_id+' · '+trajectory.sample_count+
