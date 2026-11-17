@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/threebody/g21_initial_constraints.schema.json",
+  "title": "Three Body Planet G2.1 initial-state constraints",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode", "max_attempts", "planet_star_distance_m",
+    "stellar_pair_max_distance_m", "planet_speed", "allow_initial_contact"
+  ],
+  "properties": {
+    "mode": {"enum": ["unrestricted", "bounded"]},
+    "max_attempts": {"type": "integer", "minimum": 1, "maximum": 100000},
+    "planet_star_distance_m": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max_nearest", "max_each"],
+      "properties": {
+        "min": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "max_nearest": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "max_each": {"type": ["number", "null"], "exclusiveMinimum": 0}
+      }
+    },
+    "stellar_pair_max_distance_m": {
+      "type": ["number", "null"], "exclusiveMinimum": 0
+    },
+    "planet_speed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "absolute_max_mps", "escape_mode", "escape_speed_fraction_max"
+      ],
+      "properties": {
+        "absolute_max_mps": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "escape_mode": {"enum": ["none", "selected_host", "combined_potential"]},
+        "escape_speed_fraction_max": {
+          "type": ["number", "null"], "exclusiveMinimum": 0
+        }
+      }
+    },
+    "allow_initial_contact": {"type": "boolean"}
+  }
+}

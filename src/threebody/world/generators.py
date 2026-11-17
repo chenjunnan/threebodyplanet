@@ -209,9 +209,17 @@ def generate_initial_state(
     config: AnyGeneratorConfig, seed: int, candidate_index: int, config_sha256: str
 ) -> WorldInitialState:
     if config.type == "stochastic_conics":
-        from threebody.world.stochastic_conics import generate_stochastic_state
+        from threebody.world.stochastic_conics import (
+            generate_bounded_stochastic_state,
+            generate_stochastic_state,
+        )
 
-        return generate_stochastic_state(config, seed, candidate_index, config_sha256).state
+        generate = (
+            generate_bounded_stochastic_state
+            if config.version == "0.4.1"
+            else generate_stochastic_state
+        )
+        return generate(config, seed, candidate_index, config_sha256).state
     generator = GENERATORS[config.type]
     if config.version != generator.version:
         raise ValueError(
@@ -224,9 +232,17 @@ def generate_initial_state_with_metadata(
     config: AnyGeneratorConfig, seed: int, candidate_index: int, config_sha256: str
 ) -> tuple[WorldInitialState, object | None, tuple[object, ...]]:
     if config.type == "stochastic_conics":
-        from threebody.world.stochastic_conics import generate_stochastic_state
+        from threebody.world.stochastic_conics import (
+            generate_bounded_stochastic_state,
+            generate_stochastic_state,
+        )
 
-        generated = generate_stochastic_state(config, seed, candidate_index, config_sha256)
+        generate = (
+            generate_bounded_stochastic_state
+            if config.version == "0.4.1"
+            else generate_stochastic_state
+        )
+        generated = generate(config, seed, candidate_index, config_sha256)
         return generated.state, generated.metadata, generated.initial_contacts
     return generate_initial_state(config, seed, candidate_index, config_sha256), None, ()
 

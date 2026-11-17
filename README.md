@@ -105,6 +105,24 @@ threebody world generate \
 仍会拒绝把它交给 IAS15。研究预置可保留并报告这类游戏结局，不代表点质量积分对接触后状态
 有效。
 
+### G2.1 可选初态边界
+
+`stochastic_conics/0.4.1` 增加独立、严格版本化的生成后约束。它不会改变 0.4.0 配置、
+哈希或随机结果，也不会裁切速度：
+
+```bash
+threebody world generate \
+  --config configs/g21_bounded_worlds.yaml \
+  --count 100 \
+  --out-dir runs/g21-bounded
+```
+
+`mode: bounded` 在速度 kick 和最终质心归一后检查行星到三颗恒星的真实瞬时距离、三对恒星
+距离、行星相对恒星系统质心速度，以及所选宿主二体或三恒星冻结组合势的逃逸速度代理。
+不满足条件时使用有上限的确定性拒绝采样；每次尝试及原因均归档，耗尽后报告
+`GENERATION_CONSTRAINT_EXHAUSTED`。`mode: unrestricted` 保留首个完整混沌样本，不应用这些
+偏好。逃逸速度比例只是 `t=0` 指标，不证明未来不会飞离；碰撞和不稳定演化仍由 M2 决定。
+
 ## M2 四体轨道演进
 
 先生成初态，再选择一个候选运行模拟：

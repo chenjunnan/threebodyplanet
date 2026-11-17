@@ -117,4 +117,18 @@
 - Planet-involved and star-star collisions are distinct. No collision aftermath is synthesized. Initial
   contact produces an incomplete terminal report without requiring fabricated M2/M3 data.
 - Scenario preference scores are reporting/ranking outputs only and never remove the raw world report.
+## 0.4.1 — 2026-11-16
+
+- G2.1 uses a separate strict `stochastic_conics/0.4.1` configuration. Version 0.4.0 accepts no new
+  fields and retains its resolved hash, PCG64 entropy layout and generated states.
+- Bounded generation checks the completed Cartesian state after velocity kicks and barycentric
+  normalization. It never clamps a sampled velocity or distance. Attempts use independent
+  `SeedSequence([seed, candidate_index, attempt, stream_id])` substreams and stop at `max_attempts`.
+- Absolute planet speed is measured relative to the three-star COM. The selected-host escape proxy is
+  an explicit two-body/concentrated-mass approximation; the combined-potential proxy is an instantaneous
+  frozen-position speed scale. Neither proves permanent binding or future survival.
+- Initial-contact policy is evaluated independently of every enabled distance, speed and escape-proxy
+  bound. `allow_initial_contact=true` suppresses only the contact-policy rejection; a contact state is
+  retained as the existing terminal t=0 outcome only when all other active bounds also pass. The M2
+  guard remains unchanged and rejects every initial contact before IAS15.
 
