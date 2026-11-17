@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
+from pydantic import ValidationError
+
 from threebody.config.loader import resolve_mapping
-from threebody.errors import ThreeBodyError, ConfigError
+from threebody.errors import ConfigError
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.jobs import LocalRunController
 from threebody.world.models import WorldInitialState
-from pydantic import ValidationError
 
 MAX_REQUEST_BYTES = 1_048_576
 RUN_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
@@ -82,6 +83,14 @@ def _run_directory(root: Path, run_id: str) -> Path:
     if candidate.resolve().parent != root:
         raise ValueError("run path escapes artifact root")
     return candidate
+
+
+class ScienceConsoleServer(ThreadingHTTPServer):
+    def server_close(self) -> None:
+        jobs = getattr(self, "jobs", None)
+        if jobs is not None:
+            jobs.close()
+        super().server_close()
 
 
 class ConsoleHandler(BaseHTTPRequestHandler):
@@ -250,7 +259,7 @@ def create_console_server(
         raise ValueError("local task control may bind only to a loopback address")
     if not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535")
-    server = ThreadingHTTPServer((host, port), ConsoleHandler)
+    server = ScienceConsoleServer((host, port), ConsoleHandler)
     server.artifact_root = root  # type: ignore[attr-defined]
     server.jobs = LocalRunController(root)  # type: ignore[attr-defined]
     return server
