@@ -17,6 +17,7 @@ from threebody.errors import ConfigError
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.jobs import LocalRunController
 from threebody.web.science import query_events, query_trajectory
+from threebody.web.outcome_science import read_long_outcome
 from threebody.web.thermal_science import read_long_environment
 from threebody.world.models import WorldInitialState
 from threebody.web.worldsets import (\n    create_worldset, list_worldsets, load_candidate, simulation_settings,\n)
@@ -172,6 +173,25 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/v1/openapi.json":
                 self._static("openapi.json", "application/json; charset=utf-8")
+                return
+            outcome_match = re.fullmatch(r"/api/v1/runs/([^/]+)/outcome", path)
+            if outcome_match:
+                run_id = unquote(outcome_match.group(1))
+                directory = _run_directory(self.artifact_root, run_id)
+                outcome_root = self.artifact_root / "outcomes"
+                if outcome_root.is_symlink() or not outcome_root.is_dir():
+                    raise FileNotFoundError(run_id)
+                outcome_dir = _run_directory(outcome_root, run_id)
+                env_root = self.artifact_root / "environments"
+                environment = None
+                if env_root.is_dir() and not env_root.is_symlink():
+                    try:
+                        environment = _run_directory(env_root, run_id)
+                    except FileNotFoundError:
+                        pass
+                self._json(HTTPStatus.OK, read_long_outcome(
+                    directory, outcome_dir, environment,
+                ))
                 return
             thermal_match = re.fullmatch(r"/api/v1/runs/([^/]+)/environment", path)
             if thermal_match:
