@@ -60,6 +60,18 @@ class PhysicalClock:
             )
         ) + 1
 
+    def is_safe_boundary(self, t_s: float) -> bool:
+        time = _decimal(t_s)
+        if time < self._start or time > self._end:
+            return False
+        if time in {self._start, self._end}:
+            return True
+        output_ratio = (time - self._start) / self._output
+        if output_ratio == output_ratio.to_integral_value():
+            return True
+        segment_ratio = (time - self._start) / self._segment
+        return segment_ratio == segment_ratio.to_integral_value()
+
 
 def build_segment_index(settings: LongRunSettings) -> tuple[SegmentIndexEntry, ...]:
     clock = PhysicalClock(settings)

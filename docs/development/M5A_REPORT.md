@@ -2,7 +2,7 @@
 
 Date: 2026-11-17
 Branch: `feature/p0-m5a-contracts`
-Current scope: M5A-01 contracts only
+Current scope: M5A-01 contracts and M5A-02 binary checkpoint foundation
 
 ## Implemented
 
@@ -19,8 +19,22 @@ Current scope: M5A-01 contracts only
   explicit idempotent task state machine including `PAUSING`, `PAUSED`, cancellation and distinct physical
   or numerical terminal states.
 
-This PR intentionally does not implement checkpoint files, resume, locks, long-run CLI, Web controls or
-background workers. Those are separately reviewable M5A/M5B stages; no UI may advertise them yet.
+The M5A-01 PR intentionally contains no checkpoint files or resume controls. Its dependent M5A-02 PR adds
+the programmatic binary checkpoint foundation described below, but still does not expose long-run CLI,
+segmented archives, locks, Web controls or background workers. No UI may advertise pause/resume yet.
+
+## M5A-02 checkpoint foundation
+
+- `save_checkpoint` accepts only deterministic output/segment times, writes REBOUND binary state plus
+  strict external observer/diagnostic state, fsyncs all artifacts and atomically renames a new directory.
+- `load_checkpoint` verifies byte size and SHA-256 before REBOUND parsing, enforces initial/physics/
+  schedule hashes, version/platform policy, SI G, IAS15 epsilon, canonical particle order and masses/radii.
+- REBOUND function pointers are explicitly reattached. Encounter deduplication, escape persistence,
+  emitted events, minimum distances and the original conservation baseline/maxima survive recovery.
+- Terminal collision checkpoints are inspectable artifacts but are rejected by the active resume path.
+  Existing checkpoint directories cannot be overwritten.
+- Corrupt binary and observer state, altered versions/platform, changed contract hashes, unsafe physical
+  times and observer error states have explicit rejection tests.
 
 ## REBOUND IAS15 binary recovery experiment
 
@@ -60,10 +74,10 @@ Executed with the Python 3.11 Conda environment:
 
 ```text
 pytest -q
-........................................................................ [ 45%]
-........................................................................ [ 91%]
-..............                                                           [100%]
-158 tests collected; exit code 0
+........................................................................ [ 42%]
+........................................................................ [ 84%]
+...........................                                              [100%]
+171 tests collected; exit code 0
 
 ruff check .
 All checks passed!
@@ -76,8 +90,11 @@ Fourteen M5A-01 tests cover strict loading, finite resource bounds, non-divisibl
 time schedules, segment ownership including empty-output segments, independent hash domains, checkpoint
 manifest order, task transitions, cancellation semantics and machine-readable JSON contracts.
 
+M5A-02 adds thirteen real-checkpoint tests covering atomicity, exact same-environment continuation,
+callback restoration, cross-checkpoint escape persistence, corruption and compatibility rejection.
+
 ## Known limits and next PR
 
-The next dependent PR must implement atomic REBOUND binary checkpoints and verified restore, including
-callback reattachment, escape persistence, encounter deduplication, diagnostic baseline continuity and
-corruption/version rejection. A schema alone is not pause/resume functionality.
+The next dependent PR must implement immutable trajectory segments, checkpoint retention/indexing,
+single-writer locking, idempotent crash recovery and failure injection. The checkpoint API alone is not a
+complete pause/resume product.
