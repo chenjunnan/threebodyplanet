@@ -3,7 +3,7 @@ input:
   initial_state: ../runs/sample/candidates/000000.initial.json
   m2_archive: ../runs/sample/simulations/000000
   allow_collision_terminated: false
-  max_orbit_sample_interval_s: 86400.0
+  max_orbit_sample_interval_s: 2592000.0
 planet:
   id: planet-1
   rotation:

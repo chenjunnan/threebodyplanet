@@ -62,7 +62,7 @@ def read_long_environment(
     }
     series = {}
     count = manifest["sample_count"]
-    if not isinstance(count, int) or not 2 <= count <= 5000:
+    if not isinstance(count, int) or not 2 <= count <= 50000:
         raise ConfigError("derived thermal sample count out of range")
     for key, model in models.items():
         info = artifacts[key]
@@ -83,6 +83,31 @@ def read_long_environment(
     source_times = [sample.t_s for sample in reader.iter_samples()]
     if times != source_times:
         raise ConfigError("derived thermal time grid differs from verified M5A samples")
+    max_gap = max(
+        b - a for a, b in zip(source_times, source_times[1:], strict=False)
+    )
+    recorded_gap = manifest.get("source_max_orbit_gap_s")
+    if recorded_gap is not None:
+        if (
+            isinstance(recorded_gap, bool)
+            or not isinstance(recorded_gap, (int, float))
+            or not math.isfinite(recorded_gap)
+            or not math.isclose(
+                max_gap, recorded_gap, rel_tol=1.0e-12, abs_tol=1.0e-6
+            )
+        ):
+            raise ConfigError("derived thermal cadence differs from verified M5A source")
+        expected_quality = (
+            "COARSE_UNVERIFIED_TEMPORAL_VARIABILITY"
+            if max_gap > 86400.0 else "DAILY_OR_FINER"
+        )
+        if manifest.get("sampling_quality") != expected_quality:
+            raise ConfigError("thermal cadence quality contradicts verified M5A source")
+        warning = manifest.get("sampling_warning")
+        if (expected_quality != "DAILY_OR_FINER") != (
+            isinstance(warning, str) and bool(warning)
+        ):
+            raise ConfigError("thermal cadence warning contradicts verified M5A source")
     for key in ("c0", "c1"):
         points = series[key]
         if points and [p.t_s for p in points] != times:
@@ -135,5 +160,8 @@ def read_long_environment(
         "time_grid": manifest["time_grid"],
         "temperature_missing_is_null": True,
         "interpolation": manifest["interpolation"],
+        "source_max_orbit_gap_s": manifest.get("source_max_orbit_gap_s"),
+        "sampling_quality": manifest.get("sampling_quality", "LEGACY_UNSPECIFIED"),
+        "sampling_warning": manifest.get("sampling_warning"),
         "rows": rows,
     }

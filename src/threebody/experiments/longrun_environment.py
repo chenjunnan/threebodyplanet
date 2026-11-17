@@ -157,9 +157,36 @@ def derive_long_run_environment(
         samples.append(sample)
     if len(samples) < 2:
         raise ConfigError("M5A environment requires at least two samples")
-    max_gap = max(b.t_s-a.t_s for a,b in zip(samples, samples[1:], strict=False))
-    if max_gap > settings.input.max_orbit_sample_interval_s:
-        raise ConfigError("M5A source cadence exceeds M3 maximum interpolation interval")
+    max_gap = max(
+        b.t_s - a.t_s for a, b in zip(samples, samples[1:], strict=False)
+    )
+    allowed_gap = settings.input.max_orbit_sample_interval_s
+    # A schedule exactly on the configured SI-second boundary must not fail
+    # because of sub-microsecond floating-point serialization differences.
+    if max_gap > allowed_gap and not math.isclose(
+        max_gap, allowed_gap, rel_tol=1.0e-12, abs_tol=1.0e-6
+    ):
+        raise ConfigError(
+            "M5A source cadence exceeds M3 maximum interpolation interval: "
+            f"verified max gap {max_gap:.9g} s ({max_gap/86400:.3f} days), "
+            f"allowed {allowed_gap:.9g} s ({allowed_gap/86400:.3f} days). "
+            "This is an orbit-output-data resolution limit, not an IAS15 failure; "
+            "reduce orbit output interval for new simulations. Existing completed "
+            "archives cannot reconstruct missing orbital extrema exactly."
+        )
+    # A sparse orbit can be interpolated but its unobserved close passages
+    # and irradiation spikes cannot be certified by Hermite interpolation.
+    cadence_quality = (
+        "COARSE_UNVERIFIED_TEMPORAL_VARIABILITY"
+        if max_gap > 86400.0 else "DAILY_OR_FINER"
+    )
+    cadence_warning = (
+        "Orbital sampling exceeds 1 day: piecewise Hermite interpolation may "
+        "miss close encounters and rapid irradiation peaks. C0/C1 are "
+        "low-confidence approximations, NOT validated high-cadence temperatures; "
+        "use <=1-day output for research-grade results."
+        if cadence_quality != "DAILY_OR_FINER" else None
+    )
     ephemeris = _Ephemeris(tuple(samples))
     radiation = StellarRadiation(state, settings.planet.id)
     planet_body = next(body for body in state.bodies if body.id == settings.planet.id)
@@ -249,6 +276,9 @@ def derive_long_run_environment(
             "t_start_s": times[0],
             "t_final_s": times[-1],
             "sample_count": len(times),
+            "source_max_orbit_gap_s": max_gap,
+            "sampling_quality": cadence_quality,
+            "sampling_warning": cadence_warning,
             "time_grid": "exact_m5a_committed_output_samples",
             "interpolation": "piecewise_cubic_hermite_position_velocity",
             "solver": {
@@ -268,6 +298,8 @@ def derive_long_run_environment(
                 "C0/C1 greybody thermal models; not weather or proof of habitability",
                 "Hermite orbit interpolation of verified M5A samples is not N-body integration",
                 "no thermal forcing extrapolated beyond source coverage",
+                "sparse orbit cadence may miss unobserved irradiation extremes; "
+                "sampling quality and gap are explicit in this manifest",
                 "planet spin axis uses archived world metadata when present; "
                 "stellar spins are kinematic only, isotropic bolometric emission",
             ],

@@ -313,7 +313,12 @@ async function loadOrbit() {
         linkedThermal=environment;
         document.querySelector('#environment-status').textContent=
           'M5A已验证派生数据 · '+environment.thermal_mode+
-          ' · '+environment.sample_count+'物理点 · 显示'+environment.display_count+'点';
+          ' · '+environment.sample_count+'物理点 · 显示'+environment.display_count+'点'+
+          (environment.sampling_warning?
+            ' · ⚠ 轨道最大采样间隔'+
+            (environment.source_max_orbit_gap_s/86400).toFixed(2)+
+            '天，温度为低置信度近似，无法还原采样之间的近距离经过及辐照峰值。'+
+            '建议以后使用不超过1天的轨道输出间隔。':'');
       } else if(environmentResponse.status===404) {
         document.querySelector('#environment-status').textContent=
           scienceMissingNotice(scienceJob, 'thermal');
