@@ -33,7 +33,7 @@
       <div id="world-candidates" class="world-candidates" aria-label="可选随机世界列表"></div>
       <div class="world-controls world-duration">
         <label>模拟时长<select id="world-duration"><option value="60">演示：60秒</option><option value="86400">1个标准24小时</option><option value="604800">7天</option><option value="31557600" selected>1个儒略年</option><option value="157788000">5年</option><option value="315576000">10年</option></select></label>
-        <label>输出采样间隔<select id="world-sampling"><option value="10">演示：10秒</option><option value="3600">1小时</option><option value="21600" selected>6小时（推荐用于温度）</option><option value="86400">1个标准24小时</option><option value="432000">5天</option><option value="2592000">30天</option></select></label>
+        <label>输出采样间隔<select id="world-sampling"><option value="10">演示：10秒</option><option value="3600">1小时</option><option value="21600" selected>6小时（推荐用于温度）</option><option value="86400">1个标准24小时</option><option value="432000">5天（温度低置信度）</option><option value="2592000">30天（温度低置信度）</option></select></label>
         <label>运行ID<input id="world-run-id" value="my-world-001" maxlength="128"></label>
       </div>
       <div class="actions"><button id="world-start" class="primary" disabled>启动选中世界的真实模拟</button><span id="world-start-status" role="status">请选择可积分的候选世界。</span></div>
