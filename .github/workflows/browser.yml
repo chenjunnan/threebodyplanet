@@ -27,5 +27,21 @@ jobs:
           python -m pip install -e '.[dev,physics,viz]'
           python -m pip install 'playwright>=1.55,<2'
           python -m playwright install --with-deps chromium
+      - name: Verify installed-wheel science presets
+        run: |
+          python -m pip wheel --no-deps -w /tmp/threebody-release-wheel .
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          candidates = list(Path("/tmp/threebody-release-wheel").glob("*.whl"))
+          assert len(candidates) == 1, candidates
+          with ZipFile(candidates[0]) as bundle:
+              names = set(bundle.namelist())
+              for path in (
+                  "threebody/web/static/m3_default.yaml",
+                  "threebody/web/static/m4_default.yaml",
+              ):
+                  assert path in names, f"packaged wheel misses {path}"
+          PY
       - name: Real browser science workflow
         run: pytest -q tests/test_m5b_browser.py -m browser
