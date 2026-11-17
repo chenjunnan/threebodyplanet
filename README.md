@@ -481,3 +481,17 @@ pytest -q tests/test_m5b_browser.py -m browser
 - `tests`：对应 `docs/06_TEST_AND_ACCEPTANCE.md` 的单元与端到端测试。
 
 科学和配置契约详见 `docs/`，实现时的明确取舍记录在 `docs/DECISIONS.md`。
+
+### M6.3-c：相机与天体选择
+
+Canvas 和实验性 WebGL2 共用相机控制。点击天体或使用「聚焦天体」选择框，可将
+所选天体放在画面中心；详情显示所选**真实归档采样**的惯性系 SI 位置与时间。
+聚焦只改变相机，轨迹及数值不变。点击空白处不改变选择，拖动不会误选。
+
+画布获得焦点后，方向键旋转，`+` / `-` 缩放，`Home` 重置整个系统视角，空格
+播放或暂停。按钮提供相同操作。回放逐个遍历已下载的真实采样点，并在最后一点停止；
+采样时间间隔可能不均匀，播放节奏不代表物理流速。切换 Canvas / WebGL 保留相机和
+时间，WebGL 上下文丢失自动退回 Canvas。符号大小不代表天体物理半径。
+
+浏览器测试默认使用 Playwright 管理的 Chromium；已有浏览器环境可指定
+`THREEBODY_TEST_CHROMIUM=/usr/bin/chromium pytest -q tests/test_m5b_browser.py`。

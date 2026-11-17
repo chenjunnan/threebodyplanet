@@ -102,13 +102,24 @@
       <p id="observe-status" role="status">请选择已提交的M5A运行。</p>
       <label class="webgl-experiment-label"><input type="checkbox" id="enable-webgl"> 实验性WebGL2三维观察（可随时返回Canvas）</label>
       <p id="webgl-status" role="status">默认Canvas观察器；WebGL仅用于渲染真实已归档轨道。</p>
-      <canvas id="orbit-canvas" width="940" height="500" aria-label="四天体三维轨迹可旋转投影"></canvas>
-      <canvas id="orbit-webgl" width="940" height="500" hidden aria-label="WebGL2四天体历史三维轨道，无任何后续物理外推"></canvas>
+      <canvas id="orbit-canvas" width="940" height="500" tabindex="0" aria-label="四天体三维轨迹可旋转投影"></canvas>
+      <canvas id="orbit-webgl" width="940" height="500" tabindex="0" hidden aria-label="WebGL2四天体历史三维轨道，无任何后续物理外推"></canvas>
+      <label for="orbit-focus">聚焦天体（也可点击天体选择）</label>
+      <select id="orbit-focus">
+        <option value="">整个系统</option>
+        <option value="star-1">恒星1</option>
+        <option value="star-2">恒星2</option>
+        <option value="star-3">恒星3</option>
+        <option value="planet-1">行星</option>
+      </select>
+      <p id="orbit-body-detail" role="status">未选择天体；符号大小不代表物理半径。</p>
+      <p>画布键盘：方向键旋转，+ / − 缩放，Home 重置，空格播放或暂停；播放仅遍历已归档采样。</p>
       <div class="actions">
         <button id="orbit-left">视角向左</button>
         <button id="orbit-right">视角向右</button>
         <button id="orbit-up">抬高视角</button>
         <button id="orbit-down">降低视角</button>
+        <button id="orbit-reset">重置视角</button>
         <button id="orbit-play">播放</button>
         <button id="orbit-stop">暂停播放</button>
       </div>

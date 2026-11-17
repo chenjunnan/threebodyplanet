@@ -6,6 +6,7 @@ Run with: pip install playwright && python -m playwright install chromium
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -64,7 +65,9 @@ def _live_server():
 @pytest.mark.browser
 def test_real_browser_world_3d_drag_science_and_report():
     with _live_server() as url, sync_playwright() as api:
-        browser = api.chromium.launch(headless=True)
+        browser = api.chromium.launch(
+            executable_path=os.environ.get("THREEBODY_TEST_CHROMIUM"), headless=True,
+        )
         context = browser.new_context(accept_downloads=True, viewport={
             "width": 1300, "height": 1000,
         })
@@ -162,6 +165,13 @@ def test_real_browser_world_3d_drag_science_and_report():
         page.mouse.up()
         after = canvas.evaluate("(node) => node.toDataURL()")
         assert before != after, "mouse drag did not affect the 3D projection"
+        # Canvas focus uses the actual IAS15 coordinates, and persists on WebGL toggle.
+        source=page.evaluate("JSON.stringify(orbitSamples)")
+        page.locator("#orbit-focus").select_option("planet-1")
+        assert "planet-1" in page.locator("#orbit-body-detail").inner_text()
+        assert "SI s" in page.locator("#orbit-body-detail").inner_text()
+        assert page.evaluate("JSON.stringify(orbitSamples)")==source
+        page.locator("#orbit-reset").click()
         # Adapter rejects any synthetic or tampered cross-run/foreign-unit data.
         rejected=page.evaluate("""() => {
           const a=window.ThreeBodyScienceAdapter;
@@ -234,7 +244,7 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
     """
     with _live_server() as url, sync_playwright() as api:
         browser=api.chromium.launch(
-            headless=True,
+            executable_path=os.environ.get("THREEBODY_TEST_CHROMIUM"), headless=True,
             args=["--enable-unsafe-swiftshader","--use-angle=swiftshader"],
         )
         page=browser.new_page(viewport={"width":1300,"height":900})
@@ -265,8 +275,9 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
             display_sampling:'uniform_record_index_no_interpolation',
             display_count:2,samples
           },'gpu-fixture');
-          webglRenderer.load(verified.samples);
-          webglRenderer.draw(1);
+          orbitSamples=verified.samples;
+          webglRenderer.load(orbitSamples);
+          orbitSetIndex(1);
         }""")
         before=canvas.evaluate("(node) => node.toDataURL()")
         bounds=canvas.bounding_box()
@@ -278,5 +289,62 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
         page.mouse.up()
         after=canvas.evaluate("(node) => node.toDataURL()")
         assert before!=after,"3D WebGL perspective shader must respond to drag"
+        # Shared keyboard/buttons, selection, replay and fallback use real UI events.
+        original=page.evaluate("JSON.stringify(orbitSamples)")
+        canvas.focus()
+        initial_yaw=page.evaluate("orbitCamera.yaw")
+        canvas.press("ArrowRight")
+        assert page.evaluate("orbitCamera.yaw") > initial_yaw
+        zoom=page.evaluate("orbitCamera.zoom")
+        page.mouse.wheel(0, 100)
+        assert page.evaluate("orbitCamera.zoom") > zoom
+        page.locator("#orbit-reset").click()
+        page.locator("#orbit-left").click()
+        assert page.evaluate("orbitCamera.yaw") == pytest.approx(.4)
+        canvas.scroll_into_view_if_needed()
+        point=page.evaluate("orbitHitPoints.find(p=>p.id==='star-1')")
+        bounds=canvas.bounding_box()
+        page.mouse.click(
+            bounds["x"]+point["x"]/940*bounds["width"],
+            bounds["y"]+point["y"]/500*bounds["height"],
+        )
+        assert page.locator("#orbit-focus").input_value()=="star-1"
+        assert "-90" in page.locator("#orbit-body-detail").inner_text()
+        page.locator("#orbit-focus").select_option("planet-1")
+        center=page.evaluate("webglRenderer.project('planet-1',orbitIndex)")
+        assert center["x"] == pytest.approx(470)
+        assert center["y"] == pytest.approx(250)
+        page.evaluate("orbitSetIndex(0)")
+        canvas.focus()
+        canvas.press("Space")
+        page.wait_for_function("() => orbitIndex===1 && orbitTimer===null")
+        assert "10" in page.locator("#orbit-time-text").inner_text()
+        # Toggle repeatedly: one drag still produces one camera update.
+        for _ in range(2):
+            page.locator("#enable-webgl").uncheck()
+            page.locator("#enable-webgl").check()
+        canvas.scroll_into_view_if_needed()
+        bounds=canvas.bounding_box()
+        x,y=bounds["x"]+bounds["width"]*.5,bounds["y"]+bounds["height"]*.5
+        yaw=page.evaluate("orbitCamera.yaw")
+        page.mouse.move(x,y)
+        page.mouse.down()
+        page.mouse.move(x+50,y,steps=5)
+        page.mouse.up()
+        assert page.evaluate("orbitCamera.yaw") == pytest.approx(yaw+.4)
+        # Real context loss must restore Canvas and preserve camera/source state.
+        page.evaluate("document.querySelector('#orbit-webgl').getContext('webgl2')"
+                      ".getExtension('WEBGL_lose_context').loseContext()")
+        page.wait_for_function("() => !document.querySelector('#orbit-canvas').hidden")
+        assert not page.locator("#enable-webgl").is_checked()
+        assert "上下文丢失" in page.locator("#webgl-status").inner_text()
+        assert page.evaluate("JSON.stringify(orbitSamples)")==original
+        # Clearing a failed/missing trajectory cannot leave stale coordinates.
+        page.locator("#observe-run-id").fill("missing-run")
+        page.locator("#observe-load").click()
+        page.wait_for_function(
+            "() => document.querySelector('#observe-status').textContent.includes('无法载入')"
+        )
+        assert "没有可信采样" in page.locator("#orbit-body-detail").inner_text()
         assert not errors,errors
         browser.close()

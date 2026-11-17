@@ -224,6 +224,7 @@ function deactivateWebGL(reason) {
   orbitCanvas.hidden = false;
   webglCanvas.hidden = true;
   if (webglRenderer) {webglRenderer.dispose();webglRenderer = null;}
+  orbitDraw();
   webglStatus.textContent = reason || '已切换回Canvas，已归档物理数据不变。';
 }
 webglToggle.addEventListener('change',()=>{
@@ -232,7 +233,7 @@ webglToggle.addEventListener('change',()=>{
     if(!window.createM63WebGL || !window.ThreeBodyScienceAdapter) {
       throw new Error('WebGL渲染模块不可用');
     }
-    webglRenderer=window.createM63WebGL(webglCanvas,deactivateWebGL);
+    webglRenderer=window.createM63WebGL(webglCanvas,deactivateWebGL,{camera:orbitCamera});
     orbitCanvas.hidden=true;
     webglCanvas.hidden=false;
     webglRenderer.load(orbitSamples);
@@ -248,23 +249,35 @@ const orbitSlider = document.querySelector('#orbit-time');
 const orbitText = document.querySelector('#orbit-time-text');
 const orbitStatus = document.querySelector('#observe-status');
 const orbitEvents = document.querySelector('#orbit-events');
-let orbitSamples = [], orbitEventItems = [], orbitIndex = 0, orbitAzimuth = .6, orbitAltitude = .35;
+let orbitSamples = [], orbitEventItems = [], orbitIndex = 0;
+const orbitCamera={yaw:.6,pitch:.35,zoom:1,focus:''};
+const orbitFocus=document.querySelector('#orbit-focus');
+let orbitHitPoints=[];
 let linkedThermal = null;
 let orbitTimer = null;
-let orbitZoom = 1;
+
 const orbitIds = ['star-1','star-2','star-3','planet-1'];
 const orbitColors = ['#f3a44a','#e27459','#8bb7ff','#d7e9dc'];
 
 function projectOrbit(position, scale, center) {
   const x=(position[0]-center[0])/scale, y=(position[1]-center[1])/scale;
   const z=(position[2]-center[2])/scale;
-  const ca=Math.cos(orbitAzimuth), sa=Math.sin(orbitAzimuth);
-  const ce=Math.cos(orbitAltitude), se=Math.sin(orbitAltitude);
+  const ca=Math.cos(orbitCamera.yaw), sa=Math.sin(orbitCamera.yaw);
+  const ce=Math.cos(orbitCamera.pitch), se=Math.sin(orbitCamera.pitch);
   return [x*ca-y*sa, (x*sa+y*ca)*se-z*ce];
 }
 function orbitDraw() {
+  orbitHitPoints=[];
+  const detail=document.querySelector('#orbit-body-detail');
+  const sample=orbitSamples[orbitIndex];
+  detail.textContent=sample && orbitCamera.focus ?
+    orbitCamera.focus+' · t='+sample.t_s+' SI s · 位置 ['+
+    sample.positions_m[orbitCamera.focus].map(v=>v.toPrecision(9)).join(', ')+
+    '] m（原始惯性系坐标；仅为已归档采样）' :
+    '未选择天体或没有可信采样；符号大小不代表物理半径。';
   if(webglRenderer){
     webglRenderer.draw(orbitIndex);
+    if(sample)orbitHitPoints=orbitIds.map(id=>({id,...webglRenderer.project(id,orbitIndex)}));
     return;
   }
   const ctx=orbitContext, w=orbitCanvas.width, h=orbitCanvas.height;
@@ -275,9 +288,10 @@ function orbitDraw() {
   }
   const end=orbitSamples[orbitIndex];
   const points=orbitSamples.flatMap(s=>orbitIds.map(id=>s.positions_m[id]));
-  const center=[0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
-  const extent=Math.max(1,...points.map(p=>Math.hypot(...p.map((v,k)=>v-center[k]))));
-  const scale=extent/(Math.min(w,h)*.40)*orbitZoom;
+  const systemCenter=[0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
+  const center=orbitCamera.focus?end.positions_m[orbitCamera.focus]:systemCenter;
+  const extent=Math.max(1,...points.map(p=>Math.hypot(...p.map((v,k)=>v-systemCenter[k]))));
+  const scale=extent/(Math.min(w,h)*.40)*orbitCamera.zoom;
   orbitIds.forEach((id,bi)=>{
     ctx.beginPath(); ctx.lineWidth=id==='planet-1'?1.6:1.2;
     ctx.strokeStyle=orbitColors[bi];
@@ -287,6 +301,7 @@ function orbitDraw() {
       if(i===0)ctx.moveTo(sx,sy);else ctx.lineTo(sx,sy);
     }); ctx.stroke();
     const [px,py]=projectOrbit(end.positions_m[id],scale,center);
+    orbitHitPoints.push({id,x:w/2+px,y:h/2+py});
     ctx.beginPath();ctx.fillStyle=orbitColors[bi];
     ctx.arc(w/2+px,h/2+py,id==='planet-1'?4:7,0,Math.PI*2);ctx.fill();
     ctx.font='12px system-ui';ctx.fillText(id,w/2+px+9,h/2+py-7);
@@ -370,6 +385,7 @@ async function loadOrbit() {
         '温度/辐射无法载入：'+thermalError.message;
       linkedThermal=null;
     }
+    orbitCamera.focus='';orbitFocus.value='';
     orbitSamples=validatedTrajectory.samples;
     orbitEventItems=events.events;
     if(webglRenderer)webglRenderer.load(orbitSamples);
@@ -421,7 +437,9 @@ async function loadOrbit() {
     orbitSetIndex(orbitSamples.length-1);
     if(!orbitSamples.length)orbitDraw();
   } catch(error) {
-    orbitSamples=[];orbitEventItems=[];
+    orbitSamples=[];orbitEventItems=[];linkedThermal=null;
+    orbitCamera.focus='';orbitFocus.value='';orbitText.textContent='—';
+    orbitSlider.max=0;orbitSlider.value=0;renderThermal();
     if(webglRenderer)webglRenderer.load(orbitSamples);
     orbitStatus.textContent='无法载入：'+error.message;
     orbitDraw();
@@ -430,8 +448,8 @@ async function loadOrbit() {
 document.querySelector('#observe-load').addEventListener('click',loadOrbit);
 for(const [id,axis,delta] of [['orbit-left','azimuth',-.2],['orbit-right','azimuth',.2],['orbit-up','altitude',.14],['orbit-down','altitude',-.14]]){
   document.getElementById(id).addEventListener('click',()=>{
-    if(axis==='azimuth')orbitAzimuth+=delta;
-    else orbitAltitude=Math.max(-1.45,Math.min(1.45,orbitAltitude+delta));
+    if(axis==='azimuth')orbitCamera.yaw+=delta;
+    else orbitCamera.pitch=Math.max(-1.45,Math.min(1.45,orbitCamera.pitch+delta));
     orbitDraw();
   });
 }
@@ -812,30 +830,72 @@ document.querySelector('#world-start').addEventListener('click',async()=>{
 });
 loadWorldPreset();
 
-/* 3D scientific orbit camera: drag rotates inertial Cartesian view; wheel zooms. */
-orbitCanvas.style.touchAction='none';
-let dragPoint=null;
-orbitCanvas.addEventListener('pointerdown',event=>{
-  if(event.button!==0)return;
-  dragPoint=[event.clientX,event.clientY];
-  orbitCanvas.setPointerCapture(event.pointerId);
-});
-orbitCanvas.addEventListener('pointermove',event=>{
-  if(!dragPoint)return;
-  const dx=event.clientX-dragPoint[0],dy=event.clientY-dragPoint[1];
-  dragPoint=[event.clientX,event.clientY];
-  orbitAzimuth+=dx*.008;
-  orbitAltitude=Math.max(-1.55,Math.min(1.55,orbitAltitude+dy*.008));
-  orbitDraw();
-});
-for(const kind of ['pointerup','pointercancel','lostpointercapture']){
-  orbitCanvas.addEventListener(kind,()=>{dragPoint=null;});
+/* Shared camera for Canvas and WebGL: presentation never mutates SI samples. */
+function resetOrbitCamera(){
+  Object.assign(orbitCamera,{yaw:.6,pitch:.35,zoom:1,focus:''});
+  orbitFocus.value='';orbitDraw();
 }
-orbitCanvas.addEventListener('wheel',event=>{
-  event.preventDefault();
-  orbitZoom=Math.max(.12,Math.min(15,orbitZoom*Math.exp(event.deltaY*.001)));
-  orbitDraw();
-},{passive:false});
+orbitFocus.addEventListener('change',()=>{
+  orbitCamera.focus=orbitFocus.value;orbitDraw();
+});
+document.querySelector('#orbit-reset').addEventListener('click',resetOrbitCamera);
+for(const canvas of [orbitCanvas,webglCanvas]){
+  canvas.style.touchAction='none';
+  let drag=null;
+  canvas.addEventListener('pointerdown',event=>{
+    if(event.button!==0)return;
+    canvas.focus();
+    drag={x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false};
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener('pointermove',event=>{
+    if(!drag)return;
+    const dx=event.clientX-drag.x,dy=event.clientY-drag.y;
+    drag.moved ||= Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)>4;
+    if(drag.moved){
+      orbitCamera.yaw+=dx*.008;
+      orbitCamera.pitch=Math.max(-1.45,Math.min(1.45,orbitCamera.pitch+dy*.008));
+      orbitDraw();
+    }
+    drag.x=event.clientX;drag.y=event.clientY;
+  });
+  canvas.addEventListener('pointerup',event=>{
+    if(drag && !drag.moved){
+      const rect=canvas.getBoundingClientRect();
+      const candidates=orbitHitPoints.filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))
+        .map(p=>({...p,distance:Math.hypot(
+          rect.left+p.x/canvas.width*rect.width-event.clientX,
+          rect.top+p.y/canvas.height*rect.height-event.clientY)}))
+        .filter(p=>p.distance<=16).sort((a,b)=>
+          a.distance-b.distance || (a.depth||0)-(b.depth||0));
+      if(candidates.length){
+        orbitCamera.focus=candidates[0].id;orbitFocus.value=orbitCamera.focus;orbitDraw();
+      }
+    }
+    drag=null;
+  });
+  for(const kind of ['pointercancel','lostpointercapture']){
+    canvas.addEventListener(kind,()=>{drag=null;});
+  }
+  canvas.addEventListener('wheel',event=>{
+    event.preventDefault();
+    orbitCamera.zoom=Math.max(.12,Math.min(15,orbitCamera.zoom*Math.exp(event.deltaY*.001)));
+    orbitDraw();
+  },{passive:false});
+  canvas.addEventListener('keydown',event=>{
+    const keys={ArrowLeft:[-.2,0],ArrowRight:[.2,0],ArrowUp:[0,.14],ArrowDown:[0,-.14]};
+    if(keys[event.key]){
+      orbitCamera.yaw+=keys[event.key][0];
+      orbitCamera.pitch=Math.max(-1.45,Math.min(1.45,orbitCamera.pitch+keys[event.key][1]));
+    }else if(['+','=','-'].includes(event.key)){
+      orbitCamera.zoom=Math.max(.12,Math.min(15,orbitCamera.zoom*(event.key==='-'?1.12:.89)));
+    }else if(event.key==='Home')resetOrbitCamera();
+    else if(event.key===' '){
+      if(orbitTimer!==null)orbitStop();else document.querySelector('#orbit-play').click();
+    }else return;
+    event.preventDefault();orbitDraw();
+  });
+}
 
 /* Bounded immutable science comparison, explicitly displaying missing evidence. */
 function selectedComparisonIds() {

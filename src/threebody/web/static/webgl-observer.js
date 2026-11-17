@@ -10,6 +10,7 @@
     uniform float u_yaw;
     uniform float u_pitch;
     uniform float u_point_size;
+    uniform float u_aspect;
     void main(){
       float cy=cos(u_yaw),sy=sin(u_yaw),cp=cos(u_pitch),sp=sin(u_pitch);
       vec3 p=vec3(
@@ -19,7 +20,7 @@
       );
       vec3 q=vec3(p.x,cp*p.z-sp*p.y,sp*p.z+cp*p.y);
       float w=3.6+q.z*0.25;
-      gl_Position=vec4(q.x*2.1,q.y*2.1,q.z*0.15,w);
+      gl_Position=vec4(q.x*2.1/u_aspect,q.y*2.1,q.z*0.15,w);
       gl_PointSize=u_point_size;
     }`;
   const FS=`#version 300 es
@@ -36,7 +37,7 @@
     }
     return shader;
   }
-  function create(canvas,onFailure){
+  function create(canvas,onFailure,controls={}){
     const gl=canvas.getContext('webgl2',{
       antialias:true,alpha:false,preserveDrawingBuffer:true,
     });
@@ -55,37 +56,43 @@
     const yawLoc=gl.getUniformLocation(program,'u_yaw');
     const pitchLoc=gl.getUniformLocation(program,'u_pitch');
     const sizeLoc=gl.getUniformLocation(program,'u_point_size');
+    const aspectLoc=gl.getUniformLocation(program,'u_aspect');
     const colorLoc=gl.getUniformLocation(program,'u_color');
     const buffer=gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
     gl.enableVertexAttribArray(pos);
     gl.vertexAttribPointer(pos,3,gl.FLOAT,false,0,0);
     gl.enable(gl.DEPTH_TEST);
-    let yaw=.5,pitch=.25,zoom=1,drag=null,disposed=false;
-    let normalized=null,sourceCount=0;
-    function fail(){disposed=true;onFailure('WebGL上下文丢失，已恢复Canvas观察器');}
-    canvas.addEventListener('webglcontextlost',(event)=>{
-      event.preventDefault();fail();
-    });
-    canvas.addEventListener('pointerdown',(event)=>{
-      drag=[event.clientX,event.clientY];
-      canvas.setPointerCapture(event.pointerId);
-    });
-    canvas.addEventListener('pointermove',(event)=>{
-      if(!drag)return;
-      yaw+=(event.clientX-drag[0])*.006;
-      pitch=Math.max(-1.45,Math.min(1.45,
-        pitch+(event.clientY-drag[1])*.006));
-      drag=[event.clientX,event.clientY];
-      if(normalized)draw(normalized.selectedIndex);
-    });
-    canvas.addEventListener('pointerup',()=>{drag=null;});
-    canvas.addEventListener('pointercancel',()=>{drag=null;});
-    canvas.addEventListener('wheel',(event)=>{
-      event.preventDefault();zoom=Math.max(.2,Math.min(15,zoom*
-        (event.deltaY>0?1.12:.89)));
-      if(normalized)draw(normalized.selectedIndex);
-    },{passive:false});
+    let disposed=false, normalized=null,sourceCount=0;
+    const camera=controls.camera || {yaw:.6,pitch:.35,zoom:1,focus:''};
+    function lost(event){
+      event.preventDefault();
+      onFailure('WebGL上下文丢失，已恢复Canvas观察器');
+    }
+    canvas.addEventListener('webglcontextlost',lost);
+    function sceneData(index){
+      const focus=camera.focus ? normalized.coords[IDs.indexOf(camera.focus)] : null;
+      return normalized.coords.map(data=>{
+        const scaled=new Float32Array((index+1)*3);
+        for(let n=0;n<scaled.length;n++) {
+          scaled[n]=(data[n]-(focus ? focus[index*3+n%3] : 0))/camera.zoom;
+        }
+        return scaled;
+      });
+    }
+    function project(body,index){
+      if(!normalized || disposed)return null;
+      const data=sceneData(index)[IDs.indexOf(body)];
+      const x=data[index*3],y=data[index*3+1],z=data[index*3+2];
+      const cy=Math.cos(camera.yaw),sy=Math.sin(camera.yaw);
+      const cp=Math.cos(camera.pitch),sp=Math.sin(camera.pitch);
+      const px=cy*x-sy*y,py=sy*x+cy*y;
+      const qy=cp*z-sp*py,qz=sp*z+cp*py,w=3.6+qz*.25;
+      if(w<=0 || Math.abs(qz*.15)>w)return null;
+      const nx=px*2.1/(canvas.width/canvas.height)/w,ny=qy*2.1/w;
+      if(Math.abs(nx)>1 || Math.abs(ny)>1)return null;
+      return {x:(nx+1)*canvas.width/2,y:(1-ny)*canvas.height/2,depth:qz*.15/w};
+    }
     function load(samples){
       if(disposed)return;
       if(!samples.length){normalized=null;sourceCount=0;return;}
@@ -101,7 +108,7 @@
           p[0]-center[0],p[1]-center[1],p[2]-center[2]
         ));
       }
-      const coords=IDs.map(id=>new Float32Array(samples.flatMap(s=>
+      const coords=IDs.map(id=>new Float64Array(samples.flatMap(s=>
         s.positions_m[id].map((x,k)=>(x-center[k])/extent)
       )));
       normalized={coords,samples,selectedIndex:0};
@@ -116,19 +123,14 @@
       const i=Math.min(sourceCount-1,Math.max(0,Math.trunc(index)));
       normalized.selectedIndex=i;
       gl.useProgram(program);
-      gl.uniform1f(yawLoc,yaw);
-      gl.uniform1f(pitchLoc,pitch);
+      gl.uniform1f(yawLoc,camera.yaw);
+      gl.uniform1f(pitchLoc,camera.pitch);
+      gl.uniform1f(aspectLoc,canvas.width/canvas.height);
+      const scene=sceneData(i);
       // Zoom adjusts visible scene scale, never source coordinates.
       for(let body=0;body<4;body++){
-        const data=normalized.coords[body];
         gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
-        if(zoom!==1){
-          const scaled=new Float32Array((i+1)*3);
-          for(let n=0;n<scaled.length;n++)scaled[n]=data[n]/zoom;
-          gl.bufferData(gl.ARRAY_BUFFER,scaled,gl.DYNAMIC_DRAW);
-        }else{
-          gl.bufferData(gl.ARRAY_BUFFER,data.subarray(0,(i+1)*3),gl.DYNAMIC_DRAW);
-        }
+        gl.bufferData(gl.ARRAY_BUFFER,scene[body],gl.DYNAMIC_DRAW);
         gl.uniform3fv(colorLoc,COLORS[body]);
         gl.uniform1f(sizeLoc,1);
         gl.drawArrays(gl.LINE_STRIP,0,i+1);
@@ -137,9 +139,10 @@
       }
     }
     return Object.freeze({
-      load,draw,
+      load,draw,project,
       supported:true,
-      dispose(){disposed=true;gl.deleteBuffer(buffer);gl.deleteProgram(program);},
+      dispose(){disposed=true;canvas.removeEventListener('webglcontextlost',lost);
+        gl.deleteBuffer(buffer);gl.deleteProgram(program);},
     });
   }
   global.createM63WebGL=create;
