@@ -193,3 +193,22 @@
 - Temporary orphan directories are reported but retained for inspection. Automatic deletion would lose
   crash evidence and could race an operator's recovery decision.
 
+## P0-M5A-05/06 runner and validation — 2026-11-17
+
+- The runner advances IAS15 only to integer-indexed outputs, configured simulated-time checkpoints and
+  immutable segment boundaries. Wall time is evaluated only after a durable segment commit; it never
+  becomes an integration target or changes the physics/schedule hashes.
+- Checkpoints inside an uncommitted segment include its already-owned trajectory samples and the event
+  stream offset, in addition to REBOUND and observer/diagnostic state. The global task atomically points
+  to the latest active checkpoint, so a crash can resume inside a segment without dropping or duplicating
+  samples and events.
+- A segment-boundary checkpoint is referenced by the segment manifest. After commit, deterministic
+  retention keeps the configured number of newest verified checkpoint directories; immutable segment
+  manifests retain the historical checkpoint hashes.
+- A collision may create a terminal checkpoint at the causal callback halt time even though it is not a
+  scheduled output. That checkpoint is inspectable but cannot resume; no post-collision gravity is run.
+- Execution-policy hash differences such as a wall quota do not invalidate the same physics/schedule
+  checkpoint. Physics or deterministic target changes remain hard resume errors.
+- The read-only `SegmentedTrajectoryReader` verifies the entire immutable chain, then streams samples and
+  events in strict global time order. It does not recalculate or interpolate the stored orbit.
+

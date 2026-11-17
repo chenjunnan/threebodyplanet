@@ -299,6 +299,24 @@ def test_contract_or_initial_hash_mismatch_is_rejected(tmp_path, checkpoint_case
         )
 
 
+def test_execution_policy_hash_change_does_not_change_checkpoint_physics(
+    tmp_path, checkpoint_case
+):
+    directory = tmp_path / "checkpoint-000001"
+    _save(checkpoint_case, directory)
+    changed = checkpoint_case["hashes"].model_copy(
+        update={"execution_policy_sha256": "f" * 64}
+    )
+    restored = load_checkpoint(
+        directory,
+        settings=checkpoint_case["settings"],
+        expected_hashes=changed,
+        initial_state=checkpoint_case["initial"],
+        initial_state_sha256=checkpoint_case["initial_hash"],
+    )
+    assert restored.manifest.simulation_time_s == 10.0
+
+
 def test_terminal_collision_checkpoint_cannot_resume(tmp_path, checkpoint_case):
     checkpoint_case["collision_capture"].particle_indices = (0, 1)
     checkpoint_case["collision_capture"].t_s = 10.0

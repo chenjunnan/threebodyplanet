@@ -29,7 +29,7 @@ from threebody.physics.longrun.models import (
 )
 from threebody.physics.nbody.diagnostics import DiagnosticTracker
 from threebody.physics.nbody.events import EventObserver
-from threebody.physics.nbody.models import IntegrationSettings
+from threebody.physics.nbody.models import IntegrationSettings, TrajectorySample
 from threebody.physics.nbody.rebound_ias15 import CollisionCapture
 from threebody.world.models import WorldInitialState
 
@@ -43,6 +43,8 @@ class RestoredCheckpoint:
     diagnostics: DiagnosticTracker
     collision_capture: CollisionCapture
     manifest: CheckpointManifest
+    pending_samples: tuple[TrajectorySample, ...]
+    segment_event_start_index: int
 
 
 def _sha256_file(path: Path) -> str:
@@ -75,7 +77,7 @@ def _fsync_directory(path: Path) -> None:
         raise ConfigError(f"cannot fsync checkpoint directory {path}: {exc}") from exc
 
 
-def _integration_settings(settings: LongRunSettings) -> IntegrationSettings:
+def long_run_integration_settings(settings: LongRunSettings) -> IntegrationSettings:
     return IntegrationSettings(
         start_time_s=settings.time.start_time_s,
         duration_s=settings.time.output_interval_s,
@@ -86,7 +88,10 @@ def _integration_settings(settings: LongRunSettings) -> IntegrationSettings:
         escape=settings.escape,
         require_positive_radius=settings.require_positive_radius,
         max_samples=2,
-        max_wall_seconds=settings.resources.max_wall_seconds_per_invocation,
+        # Long-run wall quotas are checked only after deterministic output targets.
+        # Stopping from an IAS15 heartbeat would create a wall-clock-dependent
+        # physical target and break schedule reproducibility.
+        max_wall_seconds=None,
         softening_m=settings.softening_m,
     )
 
@@ -95,6 +100,9 @@ def capture_runtime_state(
     observer: EventObserver,
     diagnostics: DiagnosticTracker,
     collision_capture: CollisionCapture,
+    *,
+    pending_samples: tuple[TrajectorySample, ...] = (),
+    segment_event_start_index: int = 0,
 ) -> RuntimeCheckpointState:
     if observer.timed_out or observer.numerical_error is not None:
         raise ConfigError("cannot checkpoint an observer in a stopped/error state")
@@ -129,7 +137,12 @@ def capture_runtime_state(
             diagnostics.maximum_barycenter_velocity_drift_mps
         ),
     )
-    return RuntimeCheckpointState(observer=observer_state, diagnostics=diagnostic_state)
+    return RuntimeCheckpointState(
+        observer=observer_state,
+        diagnostics=diagnostic_state,
+        pending_samples=pending_samples,
+        segment_event_start_index=segment_event_start_index,
+    )
 
 
 def _restore_runtime_state(
@@ -137,7 +150,7 @@ def _restore_runtime_state(
     settings: LongRunSettings,
     initial_state: WorldInitialState,
 ) -> tuple[EventObserver, DiagnosticTracker, CollisionCapture]:
-    integration_settings = _integration_settings(settings)
+    integration_settings = long_run_integration_settings(settings)
     observer = EventObserver(
         body_ids=tuple(body.id for body in initial_state.bodies),
         radii_m=tuple(body.radius_m for body in initial_state.bodies),
@@ -219,12 +232,20 @@ def save_checkpoint(
     checkpoint_index: int,
     segment_index: int,
     next_output_index: int,
+    pending_samples: tuple[TrajectorySample, ...] = (),
+    segment_event_start_index: int = 0,
 ) -> CheckpointManifest:
     target = Path(destination)
     if target.exists():
         raise ConfigError(f"checkpoint destination already exists: {target}")
-    if not PhysicalClock(settings).is_safe_boundary(float(simulation.t)):
-        raise ConfigError("checkpoint time is not a deterministic output/segment boundary")
+    is_terminal_collision = collision_capture.particle_indices is not None
+    if not PhysicalClock(settings).is_safe_boundary(
+        float(simulation.t)
+    ) and not is_terminal_collision:
+        raise ConfigError(
+            "checkpoint time is not a deterministic output/segment boundary or "
+            "a captured terminal collision"
+        )
     if sha256_json(initial_state) != initial_state_sha256:
         raise ConfigError("provided initial-state hash does not match initial state")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -242,9 +263,21 @@ def save_checkpoint(
             raise ConfigError(
                 f"checkpoint size {binary_bytes} exceeds configured byte limit"
             )
-        runtime_state = capture_runtime_state(observer, diagnostics, collision_capture)
+        runtime_state = capture_runtime_state(
+            observer,
+            diagnostics,
+            collision_capture,
+            pending_samples=pending_samples,
+            segment_event_start_index=segment_event_start_index,
+        )
         write_json_atomic(state_path, runtime_state)
         _fsync_file(state_path)
+        total_checkpoint_bytes = binary_bytes + state_path.stat().st_size
+        if total_checkpoint_bytes > settings.resources.max_checkpoint_bytes:
+            raise ConfigError(
+                f"checkpoint artifacts total {total_checkpoint_bytes} bytes exceeds "
+                "configured byte limit"
+            )
         try:
             import rebound
         except ImportError as exc:
@@ -302,8 +335,11 @@ def load_checkpoint(
         raise ConfigError(f"cannot read checkpoint {directory}: {exc}") from exc
     except ValidationError as exc:
         raise ConfigError(f"invalid checkpoint metadata in {directory}: {exc}") from exc
-    if manifest.hashes != expected_hashes:
-        raise ConfigError("checkpoint contract hashes do not match requested run")
+    if (
+        manifest.hashes.physics_sha256 != expected_hashes.physics_sha256
+        or manifest.hashes.schedule_sha256 != expected_hashes.schedule_sha256
+    ):
+        raise ConfigError("checkpoint immutable contract hashes do not match requested run")
     if sha256_json(initial_state) != initial_state_sha256:
         raise ConfigError("provided initial-state hash does not match initial state")
     if manifest.initial_state_sha256 != initial_state_sha256:
@@ -357,4 +393,33 @@ def load_checkpoint(
         diagnostics=diagnostics,
         collision_capture=collision_capture,
         manifest=manifest,
+        pending_samples=runtime_state.pending_samples,
+        segment_event_start_index=runtime_state.segment_event_start_index,
     )
+
+
+def inspect_checkpoint(source: str | Path) -> CheckpointManifest:
+    """Verify checkpoint artifact hashes without activating a simulation."""
+
+    directory = Path(source)
+    try:
+        manifest = CheckpointManifest.model_validate_json(
+            (directory / "checkpoint_manifest.json").read_text(encoding="utf-8"),
+            strict=True,
+        )
+        runtime_state = RuntimeCheckpointState.model_validate_json(
+            (directory / "observer_state.json").read_text(encoding="utf-8"),
+            strict=True,
+        )
+        binary_bytes = (directory / "rebound.bin").stat().st_size
+    except OSError as exc:
+        raise ConfigError(f"cannot inspect checkpoint {directory}: {exc}") from exc
+    except ValidationError as exc:
+        raise ConfigError(f"invalid checkpoint metadata in {directory}: {exc}") from exc
+    if binary_bytes != manifest.rebound_binary_bytes:
+        raise ConfigError("checkpoint binary size does not match manifest")
+    if _sha256_file(directory / "rebound.bin") != manifest.rebound_binary_sha256:
+        raise ConfigError("checkpoint binary SHA-256 does not match manifest")
+    if sha256_json(runtime_state) != manifest.observer_state_sha256:
+        raise ConfigError("checkpoint observer-state SHA-256 does not match manifest")
+    return manifest

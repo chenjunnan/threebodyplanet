@@ -12,6 +12,7 @@ from threebody.physics.nbody.models import (
     EncounterSettings,
     EscapeSettings,
     SimulationEvent,
+    TrajectorySample,
 )
 
 RunStatus = Literal[
@@ -171,6 +172,9 @@ class RunTaskState(StrictModel):
     simulation_time_s: float = Field(allow_inf_nan=False)
     segment_index: int = Field(default=0, ge=0)
     next_output_index: int = Field(default=0, ge=0)
+    active_checkpoint_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     reason_code: str | None = Field(default=None, max_length=128)
 
 
@@ -249,6 +253,8 @@ class RuntimeCheckpointState(StrictModel):
     schema_version: Literal["0.6.0"] = "0.6.0"
     observer: ObserverCheckpointState
     diagnostics: DiagnosticTrackerCheckpointState
+    pending_samples: tuple[TrajectorySample, ...] = ()
+    segment_event_start_index: int = Field(default=0, ge=0)
 
 
 class SegmentManifest(StrictModel):
@@ -322,4 +328,9 @@ class LongRunManifest(StrictModel):
         for first, second in zip(self.segments, self.segments[1:], strict=False):
             if not math.isclose(first.t_end_s, second.t_start_s, abs_tol=0.0):
                 raise ValueError("segment physical coverage must be contiguous")
+        if (
+            self.task.active_checkpoint_sha256 is not None
+            and self.task.status != "RUNNING"
+        ):
+            raise ValueError("only a RUNNING task may reference an active checkpoint")
         return self

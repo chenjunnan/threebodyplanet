@@ -124,6 +124,21 @@ def _build_simulation(initial_state: WorldInitialState, settings: IntegrationSet
     return rebound, simulation, collision_capture
 
 
+def build_simulation(initial_state: WorldInitialState, settings: IntegrationSettings):
+    """Build the guarded IAS15 state used by resumable long-run execution."""
+
+    ReboundInputGuard().validate(initial_state, settings)
+    return _build_simulation(initial_state, settings)
+
+
+def sample_simulation(
+    simulation, body_ids: tuple[str, ...]
+) -> TrajectorySample:
+    """Capture one finite SI trajectory sample from an existing simulation."""
+
+    return _sample(simulation, body_ids)
+
+
 def integrate_stream(
     initial_state: WorldInitialState,
     settings: IntegrationSettings,

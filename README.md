@@ -241,8 +241,22 @@ threebody world assess \
 M5A 新增严格的 `0.6.0` 长期运行契约和示例配置 `configs/m5a_long_run.yaml`，定义统一物理
 时钟、不可变分段索引、检查点/运行 manifest、三类兼容哈希以及任务状态机。M5A-02 提供
 程序化 REBOUND 二进制检查点保存/验证/加载和 observer/诊断状态恢复；M5A-03/04 基础层
-提供原子分段提交、哈希链、显式单写锁、孤儿发现和幂等索引修复。尚未提供
-`simulate-long` 或 `resume` CLI，不能宣称用户级暂停恢复已经完成。
+提供原子分段提交、哈希链、显式单写锁、孤儿发现和幂等索引修复。M5A-05/06 提供真实
+分段 IAS15 runner、段中物理时间检查点、保留策略、流式 reader 以及启动/恢复/验证 CLI。
+
+```bash
+threebody world simulate-long \
+  --initial runs/sample/candidates/000000.initial.json \
+  --config configs/m5a_long_run.yaml \
+  --out-dir runs/sample/long/000000
+threebody world resume --run runs/sample/long/000000 --max-wall-seconds 3600
+threebody world verify-long-run --run runs/sample/long/000000
+threebody world checkpoint inspect --run runs/sample/long/000000
+```
+
+`resume` 只接受安全暂停或进程中断后仍为 `RUNNING` 的归档；碰撞、完成、失败和取消终态
+不能恢复。墙钟限额只在确定性分段边界形成 `PAUSED`，不会从 heartbeat 制造依赖机器速度的
+物理停止时刻。当前没有异步 worker，因此不提供会误导用户的运行中 `pause` 命令或 Web 按钮。
 
 长期归档不会自动抢占或删除已有写锁，也不会自动删除临时孤儿目录。恢复过程只登记已经
 原子改名并通过完整哈希链验证的分段；未知目录、计划外分段、缺失文件、非有限 JSON 和
