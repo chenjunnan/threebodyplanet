@@ -51,3 +51,19 @@ def test_generated_main_sequence_spins_and_luminosities_are_provenance_bound():
             assert body.properties["mass_luminosity_model"] == (
                 "piecewise_main_sequence_0p3_8_v1"
             )
+
+
+def test_legacy_bounded_version_keeps_previous_luminosity_and_no_spin():
+    config, digest = load_and_resolve("configs/g21_bounded_worlds.yaml")
+    generator = config.world_generation.generator.model_copy(
+        update={"version": "0.4.1"}
+    )
+    state = generate_initial_state(generator, config.experiment.seed, 0, digest)
+    assert state.generator_version == "0.4.1"
+    for body in state.bodies[:3]:
+        solar_mass = body.mass_kg/M_SUN_KG
+        assert body.properties["mass_luminosity_model"] == "power_3.5_v1"
+        assert body.properties["luminosity_w"] == pytest.approx(
+            3.828e26 * solar_mass**3.5
+        )
+        assert "rotation_model" not in body.properties
