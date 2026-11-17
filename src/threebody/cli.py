@@ -9,6 +9,10 @@ from threebody.common.json import write_json_atomic
 from threebody.config.loader import load_and_resolve
 from threebody.errors import ThreeBodyError
 from threebody.experiments.assessment import run_world_assessment
+from threebody.experiments.longrun import (
+    resume_long_simulation_archive,
+    run_long_simulation_archive,
+)
 from threebody.experiments.runner import run_experiment
 from threebody.experiments.simulation import run_simulation_archive
 from threebody.experiments.thermal import run_thermal_archive
@@ -47,6 +51,31 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_argument("--initial", type=Path, required=True)
     simulate.add_argument("--config", type=Path, required=True)
     simulate.add_argument("--out-dir", type=Path, required=True)
+    simulate_long = world_commands.add_parser(
+        "simulate-long", help="Start a segmented, recoverable REBOUND IAS15 run"
+    )
+    simulate_long.add_argument("--initial", type=Path, required=True)
+    simulate_long.add_argument("--config", type=Path, required=True)
+    simulate_long.add_argument("--out-dir", type=Path, required=True)
+    simulate_long.add_argument("--run-id")
+    resume = world_commands.add_parser(
+        "resume", help="Resume a safely paused segmented IAS15 run"
+    )
+    resume.add_argument("--run", type=Path, required=True)
+    resume.add_argument("--max-wall-seconds", type=float)
+    checkpoint = world_commands.add_parser(
+        "checkpoint", help="Inspect verified M5A binary checkpoint metadata"
+    )
+    checkpoint_commands = checkpoint.add_subparsers(dest="checkpoint_command", required=True)
+    checkpoint_inspect = checkpoint_commands.add_parser(
+        "inspect", help="Verify and print checkpoint metadata without resuming"
+    )
+    checkpoint_inspect.add_argument("--run", type=Path, required=True)
+    checkpoint_inspect.add_argument("--id", type=int)
+    verify_long = world_commands.add_parser(
+        "verify-long-run", help="Verify an M5A archive and its immutable segment chain"
+    )
+    verify_long.add_argument("--run", type=Path, required=True)
     thermal = world_commands.add_parser(
         "thermal", help="Run M3 radiation and C0/C1 thermal reference models"
     )
@@ -116,6 +145,47 @@ def execute(args: argparse.Namespace) -> int:
             result = run_simulation_archive(args.initial, args.config, args.out_dir)
             print(result.model_dump_json())
             return 1 if result.status in {"FAILED", "STOPPED"} else 0
+        if args.command == "simulate-long":
+            result = run_long_simulation_archive(
+                args.initial,
+                args.config,
+                args.out_dir,
+                run_id=args.run_id,
+            )
+            print(result.manifest.model_dump_json())
+            return 1 if result.manifest.task.status == "FAILED" else 0
+        if args.command == "resume":
+            result = resume_long_simulation_archive(
+                args.run, max_wall_seconds=args.max_wall_seconds
+            )
+            print(result.manifest.model_dump_json())
+            return 1 if result.manifest.task.status == "FAILED" else 0
+        if args.command == "checkpoint" and args.checkpoint_command == "inspect":
+            from threebody.physics.longrun.checkpoint import inspect_checkpoint
+
+            checkpoints = args.run / "checkpoints"
+            if args.id is None:
+                available = sorted(
+                    path
+                    for path in checkpoints.iterdir()
+                    if path.is_dir() and len(path.name) >= 8 and path.name.isdecimal()
+                )
+                if not available:
+                    raise ValueError("run has no retained checkpoints")
+                source = available[-1]
+            else:
+                if args.id < 0:
+                    raise ValueError("checkpoint id must be non-negative")
+                source = checkpoints / f"{args.id:08d}"
+            result = inspect_checkpoint(source)
+            print(result.model_dump_json())
+            return 0
+        if args.command == "verify-long-run":
+            from threebody.physics.longrun.archive import verify_run_archive
+
+            result = verify_run_archive(args.run)
+            print(result.model_dump_json())
+            return 0
         if args.command == "thermal":
             result = run_thermal_archive(args.config, args.out_dir)
             print(json.dumps(result, ensure_ascii=False, sort_keys=True))

@@ -162,6 +162,56 @@
   while also confirming Python callbacks are not serialized and must be reattached with external observer
   state. M5A-01 defines that state contract but does not yet claim a working production resume command.
 
+## P0-M5A-02 — 2026-11-17
+
+- Checkpoints use REBOUND's binary Simulationarchive representation, never rounded trajectory JSON.
+  Binary byte length/SHA-256, external runtime-state SHA-256, source hashes, versions, platform, SI G,
+  epsilon and canonical particle order are verified before callbacks are restored.
+- Python collision and heartbeat callbacks are deliberately reattached after binary load. Close-encounter
+  deduplication, escape start/recorded sets, emitted events, minimum distances and global diagnostic
+  baseline/extrema are serialized separately with strict finite models.
+- Checkpoints are accepted only at deterministic output or segment boundaries. They are written into a
+  temporary directory, fsynced and atomically renamed; existing destinations are never overwritten.
+- Same-version/platform continuation is bitwise equal in the covered short benchmark. This is not a
+  cross-version portability promise or a universal long-chaos coordinate-identity claim.
+- A checkpoint containing a terminal collision cannot resume. Corrupt binary/state hashes, incompatible
+  versions/platforms, changed contract hashes and mismatched initial state are hard errors.
+
+## P0-M5A-03/04 archive foundation — 2026-11-17
+
+- Every segment is first written and fsynced in a sibling temporary directory, then atomically renamed.
+  Only after that durable rename is the global manifest atomically advanced. A crash between those two
+  steps is repaired by verifying and registering the durable segment; replay never appends to it.
+- Segment zero owns the global start output, and each later segment owns only outputs after its left
+  boundary. Commit validates every sample against the integer-index physical clock, so recovery cannot
+  duplicate a boundary sample.
+- Segment manifests hash all artifacts and chain to the previous segment manifest. Verification rejects
+  missing, reordered, modified, unexpected or out-of-plan durable directories and non-finite JSON.
+- The writer lock is created with exclusive filesystem semantics and an unguessable ownership token.
+  It is never auto-stolen or deleted based on PID or wall time. Ownership changes prevent automatic
+  release; stale-lock handling remains an explicit future audited command.
+- Temporary orphan directories are reported but retained for inspection. Automatic deletion would lose
+  crash evidence and could race an operator's recovery decision.
+
+## P0-M5A-05/06 runner and validation — 2026-11-17
+
+- The runner advances IAS15 only to integer-indexed outputs, configured simulated-time checkpoints and
+  immutable segment boundaries. Wall time is evaluated only after a durable segment commit; it never
+  becomes an integration target or changes the physics/schedule hashes.
+- Checkpoints inside an uncommitted segment include its already-owned trajectory samples and the event
+  stream offset, in addition to REBOUND and observer/diagnostic state. The global task atomically points
+  to the latest active checkpoint, so a crash can resume inside a segment without dropping or duplicating
+  samples and events.
+- A segment-boundary checkpoint is referenced by the segment manifest. After commit, deterministic
+  retention keeps the configured number of newest verified checkpoint directories; immutable segment
+  manifests retain the historical checkpoint hashes.
+- A collision may create a terminal checkpoint at the causal callback halt time even though it is not a
+  scheduled output. That checkpoint is inspectable but cannot resume; no post-collision gravity is run.
+- Execution-policy hash differences such as a wall quota do not invalidate the same physics/schedule
+  checkpoint. Physics or deterministic target changes remain hard resume errors.
+- The read-only `SegmentedTrajectoryReader` verifies the entire immutable chain, then streams samples and
+  events in strict global time order. It does not recalculate or interpolate the stored orbit.
+
 ## P0-M5B-01/02 read-only prototype — 2026-11-17
 
 - The first Web slice is local, loopback-only and read-only. It may inspect committed manifests and call
@@ -173,4 +223,3 @@
 - Artifact discovery accepts only direct non-symlink directories with allowlisted run IDs. The server
   binds only to loopback and emits a restrictive CSP; authentication is deferred because non-loopback or
   multi-user deployment is explicitly outside this prototype.
-

@@ -226,6 +226,7 @@ def test_checkpoint_contract_requires_canonical_body_order(settings):
         "hashes": hashes,
         "initial_state_sha256": "a" * 64,
         "rebound_binary_sha256": "b" * 64,
+        "observer_state_sha256": "c" * 64,
         "rebound_binary_bytes": 8684,
         "rebound_version": "4.6.0",
         "project_version": "0.6.0",

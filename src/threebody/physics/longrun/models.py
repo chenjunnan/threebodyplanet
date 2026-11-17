@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import math
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from threebody.physics.nbody.models import (
     CollisionSettings,
+    DiagnosticSnapshot,
     EncounterSettings,
     EscapeSettings,
+    SimulationEvent,
+    TrajectorySample,
 )
 
 RunStatus = Literal[
@@ -109,6 +113,16 @@ class LongRunSettings(StrictModel):
             raise ValueError(
                 "checkpoint.simulation_interval_s must not exceed segment duration"
             )
+        checkpoint_interval = Decimal(str(self.checkpoint.simulation_interval_s))
+        output_interval = Decimal(str(self.time.output_interval_s))
+        segment_interval = Decimal(str(self.segmentation.simulated_duration_s))
+        if (
+            checkpoint_interval % output_interval != 0
+            and checkpoint_interval != segment_interval
+        ):
+            raise ValueError(
+                "checkpoint simulation interval must land on output targets or segment boundaries"
+            )
         return self
 
 
@@ -158,6 +172,9 @@ class RunTaskState(StrictModel):
     simulation_time_s: float = Field(allow_inf_nan=False)
     segment_index: int = Field(default=0, ge=0)
     next_output_index: int = Field(default=0, ge=0)
+    active_checkpoint_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     reason_code: str | None = Field(default=None, max_length=128)
 
 
@@ -171,6 +188,7 @@ class CheckpointManifest(StrictModel):
     hashes: ContractHashes
     initial_state_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     rebound_binary_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    observer_state_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     rebound_binary_bytes: int = Field(gt=0)
     rebound_version: str = Field(min_length=1)
     project_version: str = Field(min_length=1)
@@ -186,6 +204,108 @@ class CheckpointManifest(StrictModel):
         if self.body_ids != ("star-1", "star-2", "star-3", "planet-1"):
             raise ValueError("checkpoint body IDs must use canonical four-body order")
         return self
+
+
+class EscapeTimerState(StrictModel):
+    body_index: int = Field(ge=0, le=3)
+    started_s: float = Field(allow_inf_nan=False)
+
+
+class ObserverCheckpointState(StrictModel):
+    events: tuple[SimulationEvent, ...]
+    minimum_observed_pair_distances_m: dict[str, float]
+    encounter_recorded: tuple[tuple[int, int], ...]
+    escape_recorded: tuple[int, ...]
+    escape_timers: tuple[EscapeTimerState, ...]
+    collision_particle_indices: tuple[int, int] | None = None
+    collision_time_s: float | None = Field(default=None, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def valid_runtime_indices(self) -> ObserverCheckpointState:
+        if any(not (0 <= first < second <= 3) for first, second in self.encounter_recorded):
+            raise ValueError("encounter pairs must be canonical four-body indices")
+        if any(not 0 <= index <= 3 for index in self.escape_recorded):
+            raise ValueError("escape-recorded body index is invalid")
+        if (self.collision_particle_indices is None) != (self.collision_time_s is None):
+            raise ValueError("collision indices and time must be present together")
+        return self
+
+
+class DiagnosticTrackerCheckpointState(StrictModel):
+    initial: DiagnosticSnapshot
+    latest: DiagnosticSnapshot
+    maximum_scaled_energy_error: float = Field(ge=0.0, allow_inf_nan=False)
+    maximum_traditional_relative_energy_error: float | None = Field(
+        default=None, ge=0.0, allow_inf_nan=False
+    )
+    maximum_angular_momentum_relative_error: float = Field(
+        ge=0.0, allow_inf_nan=False
+    )
+    maximum_barycenter_position_drift_m: float = Field(
+        ge=0.0, allow_inf_nan=False
+    )
+    maximum_barycenter_velocity_drift_mps: float = Field(
+        ge=0.0, allow_inf_nan=False
+    )
+
+
+class RuntimeCheckpointState(StrictModel):
+    schema_version: Literal["0.6.0"] = "0.6.0"
+    observer: ObserverCheckpointState
+    diagnostics: DiagnosticTrackerCheckpointState
+    pending_samples: tuple[TrajectorySample, ...] = ()
+    segment_event_start_index: int = Field(default=0, ge=0)
+
+
+class SegmentManifest(StrictModel):
+    schema_version: Literal["0.6.0"] = "0.6.0"
+    run_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    segment_index: int = Field(ge=0)
+    t_start_s: float = Field(allow_inf_nan=False)
+    t_end_s: float = Field(allow_inf_nan=False)
+    owns_start_sample: bool
+    first_output_index: int | None = Field(default=None, ge=0)
+    last_output_index: int | None = Field(default=None, ge=0)
+    sample_count: int = Field(ge=0)
+    event_count: int = Field(ge=0)
+    status: Literal["COMMITTED", "TERMINAL"]
+    terminal_reason: Literal["COLLISION", "FAILED"] | None = None
+    previous_segment_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    input_checkpoint_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    output_checkpoint_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    artifact_sha256: dict[str, str]
+
+    @model_validator(mode="after")
+    def consistent_segment(self) -> SegmentManifest:
+        if self.t_end_s <= self.t_start_s:
+            raise ValueError("committed segment end must be after start")
+        if self.status == "TERMINAL" and self.terminal_reason is None:
+            raise ValueError("terminal segment requires terminal_reason")
+        if self.status == "COMMITTED" and self.terminal_reason is not None:
+            raise ValueError("nonterminal segment cannot have terminal_reason")
+        if set(self.artifact_sha256) != {"trajectory", "events", "diagnostics"}:
+            raise ValueError("segment artifact hashes are incomplete")
+        if any(
+            len(value) != 64 or any(character not in "0123456789abcdef" for character in value)
+            for value in self.artifact_sha256.values()
+        ):
+            raise ValueError("segment artifact SHA-256 is invalid")
+        return self
+
+
+class WriterLockRecord(StrictModel):
+    schema_version: Literal["0.6.0"] = "0.6.0"
+    run_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    token: str = Field(min_length=32, max_length=128, pattern=r"^[0-9a-f]+$")
+    hostname: str = Field(min_length=1)
+    pid: int = Field(gt=0)
+    acquired_at_utc: str = Field(min_length=1)
 
 
 class LongRunManifest(StrictModel):
@@ -208,4 +328,9 @@ class LongRunManifest(StrictModel):
         for first, second in zip(self.segments, self.segments[1:], strict=False):
             if not math.isclose(first.t_end_s, second.t_start_s, abs_tol=0.0):
                 raise ValueError("segment physical coverage must be contiguous")
+        if (
+            self.task.active_checkpoint_sha256 is not None
+            and self.task.status != "RUNNING"
+        ):
+            raise ValueError("only a RUNNING task may reference an active checkpoint")
         return self
