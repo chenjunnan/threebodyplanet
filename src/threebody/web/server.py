@@ -219,8 +219,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 run_id = raw["run_id"]
                 if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
                     raise ValueError("invalid run_id")
-                initial = WorldInitialState.model_validate(raw["initial_state"], strict=True)
-                settings = LongRunSettings.model_validate(raw["settings"], strict=True)
+                initial = WorldInitialState.model_validate_json(\n                    json.dumps(raw["initial_state"], allow_nan=False), strict=True\n                )
+                settings = LongRunSettings.model_validate_json(\n                    json.dumps(raw["settings"], allow_nan=False), strict=True\n                )
                 self._json(HTTPStatus.ACCEPTED, self.jobs.start(run_id, initial, settings))
                 return
             assert control is not None
