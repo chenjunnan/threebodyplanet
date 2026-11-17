@@ -62,7 +62,7 @@ def read_long_environment(
     }
     series = {}
     count = manifest["sample_count"]
-    if not isinstance(count, int) or not 2 <= count <= 5000:
+    if not isinstance(count, int) or not 2 <= count <= 50000:
         raise ConfigError("derived thermal sample count out of range")
     for key, model in models.items():
         info = artifacts[key]
