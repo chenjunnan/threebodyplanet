@@ -10,7 +10,11 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 
 from threebody.config.loader import resolve_mapping
-from threebody.errors import ThreeBodyError
+from threebody.errors import ThreeBodyError, ConfigError
+from threebody.physics.longrun.models import LongRunSettings
+from threebody.web.jobs import LocalRunController
+from threebody.world.models import WorldInitialState
+from pydantic import ValidationError
 
 MAX_REQUEST_BYTES = 1_048_576
 RUN_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
@@ -81,11 +85,31 @@ def _run_directory(root: Path, run_id: str) -> Path:
 
 
 class ConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "ThreeBodyReadOnly/0.1"
+    server_version = "ThreeBodyConsole/0.2"
 
     @property
     def artifact_root(self) -> Path:
         return self.server.artifact_root  # type: ignore[attr-defined,no-any-return]
+
+    @property
+    def jobs(self) -> LocalRunController:
+        return self.server.jobs  # type: ignore[attr-defined,no-any-return]
+
+    def _body(self) -> dict[str, Any]:
+        length = int(self.headers.get('Content-Length', '0'))
+        if not 0 < length <= MAX_REQUEST_BYTES:
+            raise ValueError('request body size is invalid')
+        if self.headers.get_content_type() != 'application/json':
+            raise ValueError('Content-Type must be application/json')
+        origin = self.headers.get('Origin')
+        if origin is not None:
+            expected = f'http://{self.headers.get("Host", "")}'
+            if origin != expected:
+                raise ValueError('cross-origin task mutation is forbidden')
+        raw = json.loads(self.rfile.read(length), parse_constant=_reject_nonfinite)
+        if not isinstance(raw, dict):
+            raise ValueError('request must be a JSON object')
+        return raw
 
     def _headers(self, status: HTTPStatus, content_type: str, length: int) -> None:
         self.send_response(status)
@@ -117,10 +141,14 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         try:
             if path == "/api/v1/health":
-                self._json(HTTPStatus.OK, {"status": "ok", "mode": "read_only"})
+                self._json(HTTPStatus.OK, {"status": "ok", "mode": "local_task_control"})
                 return
             if path == "/api/v1/runs":
                 self._json(HTTPStatus.OK, {"runs": list_runs(self.artifact_root)})
+                return
+            job_match = re.fullmatch(r"/api/v1/jobs/([^/]+)", path)
+            if job_match:
+                self._json(HTTPStatus.OK, self.jobs.status(unquote(job_match.group(1))))
                 return
             if path == "/api/v1/openapi.json":
                 self._static("openapi.json", "application/json; charset=utf-8")
@@ -151,7 +179,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 self._static("styles.css", "text/css; charset=utf-8")
                 return
             self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
-        except FileNotFoundError:
+        except (FileNotFoundError, KeyError):
             self._json(HTTPStatus.NOT_FOUND, {"error": "run_not_found"})
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             self._json(
@@ -160,36 +188,49 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             )
 
     def do_POST(self) -> None:  # noqa: N802
-        if urlsplit(self.path).path != "/api/v1/experiments/validate":
-            self._json(
-                HTTPStatus.METHOD_NOT_ALLOWED,
-                {"error": "read_only", "message": "task controls are not available"},
-            )
+        path = urlsplit(self.path).path
+        control = re.fullmatch(r"/api/v1/runs/([^/]+)/(pause|resume|cancel)", path)
+        if path not in {"/api/v1/experiments/validate", "/api/v1/runs"} and not control:
+            self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "unsupported_operation"})
             return
         try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-            if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
-                raise ValueError("request body size is invalid")
-            if self.headers.get_content_type() != "application/json":
-                raise ValueError("Content-Type must be application/json")
-            raw = json.loads(
-                self.rfile.read(content_length), parse_constant=_reject_nonfinite
-            )
-            if not isinstance(raw, dict) or not isinstance(raw.get("config"), dict):
-                raise ValueError("request must contain a config object")
-            resolved, digest = resolve_mapping(raw["config"])
-            self._json(
-                HTTPStatus.OK,
-                {
-                    "valid": True,
-                    "sha256": digest,
+            raw = self._body()
+            if path == "/api/v1/experiments/validate":
+                if not isinstance(raw.get("config"), dict):
+                    raise ValueError("request must contain a config object")
+                resolved, digest = resolve_mapping(raw["config"])
+                self._json(HTTPStatus.OK, {
+                    "valid": True, "sha256": digest,
                     "resolved": resolved.model_dump(mode="json"),
-                },
-            )
-        except (ThreeBodyError, ValueError, json.JSONDecodeError) as exc:
+                })
+                return
+            if path == "/api/v1/runs":
+                if set(raw) != {"run_id", "initial_state", "settings"}:
+                    raise ValueError("required fields: run_id, initial_state, settings")
+                run_id = raw["run_id"]
+                if not isinstance(run_id, str) or not RUN_ID.fullmatch(run_id):
+                    raise ValueError("invalid run_id")
+                initial = WorldInitialState.model_validate(raw["initial_state"], strict=True)
+                settings = LongRunSettings.model_validate(raw["settings"], strict=True)
+                self._json(HTTPStatus.ACCEPTED, self.jobs.start(run_id, initial, settings))
+                return
+            assert control is not None
+            run_id, action = unquote(control.group(1)), control.group(2)
+            if not RUN_ID.fullmatch(run_id):
+                raise ValueError("invalid run_id")
+            if raw:
+                raise ValueError("control request must contain an empty JSON object")
+            if action == "resume":
+                result = self.jobs.resume(run_id)
+            else:
+                result = self.jobs.request(run_id, action)
+            self._json(HTTPStatus.ACCEPTED, result)
+        except (FileNotFoundError, KeyError):
+            self._json(HTTPStatus.NOT_FOUND, {"error": "run_not_found"})
+        except (ConfigError, ValidationError, ValueError, TypeError) as exc:
             self._json(
                 HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"valid": False, "errors": [{"message": str(exc)}]},
+                {"error": "invalid_request", "message": str(exc)},
             )
 
     def log_message(self, format: str, *args: Any) -> None:
@@ -206,9 +247,10 @@ def create_console_server(
     if not root.is_dir():
         raise ValueError(f"artifact root is not a directory: {root}")
     if host not in {"127.0.0.1", "localhost", "::1"}:
-        raise ValueError("read-only prototype may bind only to a loopback address")
+        raise ValueError("local task control may bind only to a loopback address")
     if not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535")
     server = ThreadingHTTPServer((host, port), ConsoleHandler)
     server.artifact_root = root  # type: ignore[attr-defined]
+    server.jobs = LocalRunController(root)  # type: ignore[attr-defined]
     return server
