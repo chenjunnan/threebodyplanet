@@ -80,6 +80,15 @@ def test_native_m5a_thermal_derivation_real_c0_c1_and_hashes(
         assert row["c0_absorbed_w_m2"] >= 0
         assert row["c0_emitted_w_m2"] > 0
         assert row["c0_equilibrium_temperature_k"] > 0
+        k=row["c0_temperature_k"]
+        coefficient=row["c0_emitted_w_m2"]/k**4
+        assert coefficient * row["c0_equilibrium_temperature_k"]**4 == (
+            pytest.approx(
+                row["c0_absorbed_w_m2"]+
+                row["c0_internal_heat_flux_w_m2"],
+                rel=1e-12,
+            )
+        )
         assert row["c0_net_heating_w_m2"] == pytest.approx(
             row["c0_absorbed_w_m2"] +
             row["c0_internal_heat_flux_w_m2"] - row["c0_emitted_w_m2"]
