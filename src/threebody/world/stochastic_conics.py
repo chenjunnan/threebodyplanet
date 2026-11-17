@@ -112,9 +112,9 @@ class ConstraintAttemptRecord(_MetadataModel):
 
 
 class GenerationMetadataV041(_MetadataModel):
-    schema_version: Literal["0.4.1"] = "0.4.1"
+    schema_version: Literal["0.4.1", "0.4.2"] = "0.4.1"
     generator_id: Literal["stochastic_conics"] = "stochastic_conics"
-    generator_version: Literal["0.4.1"] = "0.4.1"
+    generator_version: Literal["0.4.1", "0.4.2"] = "0.4.1"
     world_id: str
     seed: int
     candidate_index: int
@@ -122,7 +122,7 @@ class GenerationMetadataV041(_MetadataModel):
     substream_scheme: Literal[
         "SeedSequence([seed,candidate_index,attempt,stream_id])"
     ] = "SeedSequence([seed,candidate_index,attempt,stream_id])"
-    distribution_schema_version: Literal["0.4.1"] = "0.4.1"
+    distribution_schema_version: Literal["0.4.1", "0.4.2"] = "0.4.1"
     constraint_mode: Literal["unrestricted", "bounded"]
     constraints: dict[str, Any]
     selected_attempt: int
@@ -416,6 +416,7 @@ def generate_stochastic_state(
     candidate_index: int,
     config_sha256: str,
     attempt: int | None = None,
+    physics_version: Literal["0.4.0", "0.4.2"] = "0.4.0",
 ) -> GeneratedStochasticState:
     rng = lambda stream_id: _rng(seed, candidate_index, stream_id, attempt)  # noqa: E731
     star_solar = np.asarray(
@@ -427,7 +428,7 @@ def generate_stochastic_state(
         masses = np.concatenate((star_solar * M_SUN_KG, [planet_earth * M_EARTH_KG]))
         star_radii = (
             np.asarray([main_sequence_properties(float(m))[0] for m in star_solar])
-            if config.version == "0.4.2"
+            if physics_version == "0.4.2"
             else R_SUN_M * np.power(star_solar, 0.8)
         )
         planet_radius = (3.0 * masses[3] / (4.0 * math.pi * density)) ** (1.0 / 3.0)
@@ -512,7 +513,7 @@ def generate_stochastic_state(
     if not np.all(np.isfinite(positions)) or not np.all(np.isfinite(velocities)):
         raise GenerationError("NONFINITE_FINAL_STATE", "final barycentric state is non-finite")
 
-    if config.version == "0.4.2":
+    if physics_version == "0.4.2":
         luminosities = np.asarray(
             [main_sequence_properties(float(m))[1] for m in star_solar], dtype=np.float64
         )
@@ -528,12 +529,12 @@ def generate_stochastic_state(
             "luminosity_w": float(luminosity),
             "mass_luminosity_model": (
                 "piecewise_main_sequence_0p3_8_v1"
-                if config.version == "0.4.2" else "power_3.5_v1"
+                if physics_version == "0.4.2" else "power_3.5_v1"
             ),
         }
         for luminosity in luminosities
     ]
-    if config.version == "0.4.2":
+    if physics_version == "0.4.2":
         # New random streams do not perturb the historical orbit draws.
         orbital_normal = np.cross(
             planet_relative.position_m, planet_relative.velocity_mps
@@ -705,9 +706,10 @@ def generate_bounded_stochastic_state(
     attempts: list[ConstraintAttemptRecord] = []
     for attempt in range(max_attempts):
         generated = generate_stochastic_state(
-            core_config, seed, candidate_index, config_sha256, attempt=attempt
+            core_config, seed, candidate_index, config_sha256, attempt=attempt,
+            physics_version="0.4.2" if config.version == "0.4.2" else "0.4.0",
         )
-        state = generated.state.model_copy(update={"generator_version": "0.4.1"})
+        state = generated.state.model_copy(update={"generator_version": config.version})
         metrics = _constraint_metrics(
             state, generated.metadata.selected_planet_host, len(generated.initial_contacts)
         )
@@ -727,6 +729,9 @@ def generate_bounded_stochastic_state(
         )
         if accepted:
             metadata = GenerationMetadataV041(
+                schema_version=config.version,
+                generator_version=config.version,
+                distribution_schema_version=config.version,
                 world_id=state.world_id,
                 seed=seed,
                 candidate_index=candidate_index,
@@ -743,9 +748,9 @@ def generate_bounded_stochastic_state(
 
     raise ConstraintExhausted(
         {
-            "schema_version": "0.4.1",
+            "schema_version": config.version,
             "generator_id": "stochastic_conics",
-            "generator_version": "0.4.1",
+            "generator_version": config.version,
             "world_id": f"candidate-{candidate_index:06d}",
             "seed": seed,
             "candidate_index": candidate_index,
