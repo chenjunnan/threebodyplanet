@@ -94,3 +94,53 @@ def test_duplicate_jobs_and_unknown_controls_fail(monkeypatch, tmp_path):
     finally:
         release.set()
         controller.close()
+
+
+def test_cancel_persists_only_after_segment_boundary(monkeypatch, tmp_path):
+    started = threading.Event()
+    release = threading.Event()
+    recorded = []
+    def start(*args, **kwargs):
+        started.set()
+        assert release.wait(timeout=3)
+        return _result("PAUSED")
+    monkeypatch.setattr(jobs_module, "start_long_run", start)
+    monkeypatch.setattr(
+        LocalRunController, "_persist_cancelled",
+        lambda self, run_id: recorded.append(run_id),
+    )
+    controller = LocalRunController(tmp_path)
+    try:
+        controller.start("cancel-me", object(), object())
+        assert started.wait(timeout=3)
+        controller.request("cancel-me", "cancel")
+        assert not recorded
+        release.set()
+        _await_phase(controller, "cancel-me", "CANCELLED")
+        assert recorded == ["cancel-me"]
+    finally:
+        release.set()
+        controller.close()
+
+
+def test_explicit_resume_requires_durable_paused_run(monkeypatch, tmp_path):
+    directory = tmp_path / "existing"
+    directory.mkdir()
+    calls = []
+    monkeypatch.setattr(
+        jobs_module, "load_run_manifest",
+        lambda _directory: _result("PAUSED").manifest,
+    )
+    monkeypatch.setattr(
+        jobs_module, "resume_long_run",
+        lambda source, *, segment_limit: (
+            calls.append((source, segment_limit)) or _result("COMPLETED")
+        ),
+    )
+    controller = LocalRunController(tmp_path)
+    try:
+        controller.resume("existing")
+        _await_phase(controller, "existing", "COMPLETED")
+        assert calls == [(directory, 1)]
+    finally:
+        controller.close()
