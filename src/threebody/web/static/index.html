@@ -104,6 +104,24 @@
       <p id="webgl-status" role="status">默认Canvas观察器；WebGL仅用于渲染真实已归档轨道。</p>
       <canvas id="orbit-canvas" width="940" height="500" aria-label="四天体三维轨迹可旋转投影"></canvas>
       <canvas id="orbit-webgl" width="940" height="500" hidden aria-label="WebGL2四天体历史三维轨道，无任何后续物理外推"></canvas>
+      <div class="observer-select-controls">
+        <label for="orbit-body-select">天体选择（WebGL球点可点击）</label>
+        <select id="orbit-body-select" aria-label="选择观察天体">
+          <option value="">未选择天体</option>
+          <option value="star-1">恒星一</option>
+          <option value="star-2">恒星二</option>
+          <option value="star-3">恒星三</option>
+          <option value="planet-1">行星</option>
+        </select>
+        <button id="orbit-focus-body">聚焦所选天体</button>
+        <button id="orbit-reset-view">重置视角 / 系统中心</button>
+      </div>
+      <p id="orbit-body-detail" role="status" aria-live="polite">
+        请选择天体查看归档质量、半径及当前已积分的位置。
+      </p>
+      <p id="orbit-event-sync" role="status" aria-live="polite">
+        选择事件后跳转到最近的已归档物理样本，不在采样之间预测轨迹。
+      </p>
       <div class="actions">
         <button id="orbit-left">视角向左</button>
         <button id="orbit-right">视角向右</button>
