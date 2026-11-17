@@ -124,6 +124,7 @@ const orbitText = document.querySelector('#orbit-time-text');
 const orbitStatus = document.querySelector('#observe-status');
 const orbitEvents = document.querySelector('#orbit-events');
 let orbitSamples = [], orbitEventItems = [], orbitIndex = 0, orbitAzimuth = .6, orbitAltitude = .35;
+let linkedThermal = null;
 let orbitTimer = null;
 const orbitIds = ['star-1','star-2','star-3','planet-1'];
 const orbitColors = ['#f3a44a','#e27459','#8bb7ff','#d7e9dc'];
@@ -169,6 +170,7 @@ function orbitSetIndex(i) {
   orbitSlider.value=orbitIndex;
   orbitText.textContent=orbitSamples[orbitIndex].t_s.toPrecision(9)+' SI s';
   orbitDraw();
+  renderThermal();
 }
 function orbitStop(){if(orbitTimer!==null)clearInterval(orbitTimer);orbitTimer=null;}
 async function loadOrbit() {
@@ -189,6 +191,30 @@ async function loadOrbit() {
     const e=await fetch(base+'/events?'+suffix.replace(/&?max_points=[^&]*/,''));
     const events=await e.json();
     if(!e.ok)throw Error(events.message||events.error);
+    linkedThermal=null;
+    try {
+      const environmentResponse=await fetch(base+'/environment?'+suffix);
+      if(environmentResponse.ok) {
+        const environment=await environmentResponse.json();
+        if(environment.world_id!==trajectory.world_id || environment.run_id!==id) {
+          throw Error('派生环境数据的世界/运行ID与轨道不符');
+        }
+        linkedThermal=environment;
+        document.querySelector('#environment-status').textContent=
+          'M5A已验证派生数据 · '+environment.thermal_mode+
+          ' · '+environment.sample_count+'物理点 · 显示'+environment.display_count+'点';
+      } else if(environmentResponse.status===404) {
+        document.querySelector('#environment-status').textContent=
+          '未生成M5A热派生归档；辐射和C0/C1均不可用。';
+      } else {
+        const detail=await environmentResponse.json();
+        throw Error(detail.message||detail.error||'派生环境归档验证失败');
+      }
+    } catch(thermalError) {
+      document.querySelector('#environment-status').textContent=
+        '温度/辐射无法载入：'+thermalError.message;
+      linkedThermal=null;
+    }
     orbitSamples=trajectory.samples;
     orbitEventItems=events.events;
     orbitIndex=0;orbitSlider.min=0;
@@ -245,3 +271,101 @@ document.querySelector('#runs').addEventListener('click',event=>{
   document.querySelector('#run-id').value=button.dataset.run;
 });
 orbitDraw();
+
+/* Derived environment shares authoritative M5A physical time, not display frame rate. */
+function thermalNearestIndex(rows,t) {
+  if(!rows.length)return -1;
+  let lo=0,hi=rows.length;
+  while(lo<hi){const mid=(lo+hi)>>1;if(rows[mid].t_s<t)lo=mid+1;else hi=mid;}
+  if(lo===0)return 0;if(lo===rows.length)return lo-1;
+  return t-rows[lo-1].t_s<=rows[lo].t_s-t?lo-1:lo;
+}
+function blankThermal(canvas,text) {
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#080c0d';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#9baab0';ctx.font='14px monospace';ctx.fillText(text,20,30);
+}
+function drawTimeSeries(canvas,rows,extract,colors,title,selectedTime) {
+  const ctx=canvas.getContext('2d'), w=canvas.width,h=canvas.height;
+  ctx.fillStyle='#080c0d';ctx.fillRect(0,0,w,h);
+  const tracks=colors.map((_,track)=>rows.map(point=>extract(point,track)));
+  const values=tracks.flat().filter(v=>v!==null&&Number.isFinite(v));
+  if(values.length===0){blankThermal(canvas,title+' — 数据未计算');return;}
+  const t0=rows[0].t_s,t1=rows[rows.length-1].t_s;
+  let low=Math.min(...values),high=Math.max(...values);
+  if(high===low){const padding=Math.max(1,Math.abs(high)*.02);low-=padding;high+=padding;}
+  const plot=(time,value)=>[48+((time-t0)/Math.max(t1-t0,1))*(w-70),
+    26+(1-(value-low)/(high-low))*(h-64)];
+  ctx.font='13px monospace';ctx.fillStyle='#d0e0e5';
+  ctx.fillText(title+'  '+low.toPrecision(4)+' .. '+high.toPrecision(4),18,17);
+  tracks.forEach((values,j)=>{
+    ctx.strokeStyle=colors[j];ctx.lineWidth=j===tracks.length-1?2.5:1.4;
+    let drawing=false;ctx.beginPath();
+    values.forEach((v,i)=>{
+      if(v===null||!Number.isFinite(v)){drawing=false;return;}
+      const [x,y]=plot(rows[i].t_s,v);
+      if(!drawing){ctx.moveTo(x,y);drawing=true;}else ctx.lineTo(x,y);
+    });ctx.stroke();
+  });
+  const cursor=Math.max(48,Math.min(w-22,plot(selectedTime,low)[0]));
+  ctx.strokeStyle='#e9f1f2';ctx.setLineDash([4,5]);ctx.beginPath();
+  ctx.moveTo(cursor,24);ctx.lineTo(cursor,h-24);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#a1aeb3';ctx.fillText('t='+selectedTime.toPrecision(7)+' SI秒',w-240,h-8);
+}
+function drawC1(rows,selectedTime) {
+  const canvas=document.querySelector('#c1-canvas');
+  const ctx=canvas.getContext('2d'),w=canvas.width,h=canvas.height;
+  ctx.fillStyle='#080c0d';ctx.fillRect(0,0,w,h);
+  const columns=rows.filter(r=>Array.isArray(r.c1_temperature_k));
+  if(!columns.length){blankThermal(canvas,'C1纬度温度未计算');return;}
+  const bands=columns[0].c1_temperature_k.length;
+  const values=columns.flatMap(r=>r.c1_temperature_k);
+  const min=Math.min(...values),max=Math.max(...values);
+  ctx.fillStyle='#cfe0e3';ctx.font='13px monospace';
+  ctx.fillText('C1 纬度温度 (K) · '+min.toPrecision(4)+' .. '+max.toPrecision(4),16,17);
+  const left=48,top=30,right=w-20,bottom=h-33;
+  columns.forEach((col,i)=>{
+    const x=left+i*(right-left)/columns.length;
+    col.c1_temperature_k.forEach((temp,b)=>{
+      const fraction=(temp-min)/Math.max(max-min,1e-12);
+      const hue=240-240*fraction;
+      ctx.fillStyle='hsl('+hue.toFixed(1)+',85%,54%)';
+      const y=top+(bands-b-1)*(bottom-top)/bands;
+      ctx.fillRect(x,y,Math.ceil((right-left)/columns.length)+1,
+        Math.ceil((bottom-top)/bands)+1);
+    });
+  });
+  const t0=columns[0].t_s,t1=columns[columns.length-1].t_s;
+  const cursor=left+(selectedTime-t0)/Math.max(t1-t0,1)*(right-left);
+  ctx.strokeStyle='#fff';ctx.setLineDash([3,5]);ctx.beginPath();
+  ctx.moveTo(Math.max(left,Math.min(right,cursor)),top);
+  ctx.lineTo(Math.max(left,Math.min(right,cursor)),bottom);ctx.stroke();
+  ctx.setLineDash([]);ctx.fillStyle='#aab8bd';
+  ctx.fillText('−90°',5,bottom);ctx.fillText('+90°',5,top+10);
+}
+function renderThermal(){
+  const flux=document.querySelector('#flux-canvas');
+  const c0=document.querySelector('#c0-canvas');
+  const cursor=document.querySelector('#thermal-cursor');
+  const c1=document.querySelector('#c1-canvas');
+  if(!linkedThermal||!linkedThermal.rows.length||!orbitSamples.length){
+    blankThermal(flux,'恒星辐照度：无可信数据');
+    blankThermal(c0,'C0：无可信数据');
+    blankThermal(c1,'C1：无可信数据');
+    cursor.textContent='轨道时间轴与热模型数据尚未建立有效关联。';
+    return;
+  }
+  const t=orbitSamples[orbitIndex].t_s,rows=linkedThermal.rows;
+  const index=thermalNearestIndex(rows,t),nearest=rows[index];
+  drawTimeSeries(flux,rows,(p,i)=>p.flux_w_m2[
+    ['star-1','star-2','star-3','total'][i]],
+    ['#f3a44a','#e27459','#8bb7ff','#fff'],
+    '恒星辐照度 W/m²（星1/星2/星3/总计）',t);
+  drawTimeSeries(c0,rows,p=>p.c0_temperature_k,
+    ['#edb86c'],'C0 全球温度 K',t);
+  drawC1(rows,t);
+  cursor.textContent='轨道t='+t.toPrecision(9)+'s · 环境最近真实采样t='+
+    nearest.t_s.toPrecision(9)+'s · 时间差='+
+    Math.abs(t-nearest.t_s).toPrecision(4)+'s · 未推算缺失时间';
+}
+renderThermal();
