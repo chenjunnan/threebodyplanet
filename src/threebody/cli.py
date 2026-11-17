@@ -65,6 +65,14 @@ def build_parser() -> argparse.ArgumentParser:
     thermal_long.add_argument("--run", type=Path, required=True)
     thermal_long.add_argument("--config", type=Path, required=True)
     thermal_long.add_argument("--out-dir", type=Path, required=True)
+    assess_long = world_commands.add_parser(
+        "assess-long",
+        help="Classify genuine M5A segments and source-verified derived M3 temperatures",
+    )
+    assess_long.add_argument("--run", type=Path, required=True)
+    assess_long.add_argument("--environment", type=Path)
+    assess_long.add_argument("--config", type=Path, required=True)
+    assess_long.add_argument("--out-dir", type=Path, required=True)
     resume = world_commands.add_parser(
         "resume", help="Resume a safely paused segmented IAS15 run"
     )
@@ -168,6 +176,15 @@ def execute(args: argparse.Namespace) -> int:
 
             result = derive_long_run_environment(
                 args.run, args.config, args.out_dir
+            )
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 0
+        if args.command == "assess-long":
+            from threebody.experiments.longrun_assessment import assess_long_run
+
+            result = assess_long_run(
+                args.run, args.config, args.out_dir,
+                environment_dir=args.environment,
             )
             print(json.dumps(result, ensure_ascii=False, sort_keys=True))
             return 0
