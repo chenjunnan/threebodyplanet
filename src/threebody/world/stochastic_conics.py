@@ -197,6 +197,27 @@ def _unit_vector(rng: np.random.Generator) -> FloatArray:
     raise GenerationError("ISOTROPIC_DIRECTION_FAILED", "could not sample a finite direction")
 
 
+def _spin_properties(
+    rng: np.random.Generator, orbital_normal: FloatArray, period_s: float
+) -> dict[str, Any]:
+    """Kinematic spin metadata; no oblateness, gravity multipole or stellar beaming."""
+    axis = _unit_vector(rng)
+    prime = np.cross(axis, np.asarray([0.0, 0.0, 1.0]))
+    if float(np.linalg.norm(prime)) < 1.0e-8:
+        prime = np.cross(axis, np.asarray([1.0, 0.0, 0.0]))
+    prime /= np.linalg.norm(prime)
+    tilt = math.acos(float(np.clip(np.dot(axis, orbital_normal), -1.0, 1.0)))
+    return {
+        "rotation_axis_inertial_unit": [float(v) for v in axis],
+        "prime_meridian_inertial_unit": [float(v) for v in prime],
+        "obliquity_to_planet_reference_orbit_rad": tilt,
+        "rotation_epoch_s": 0.0,
+        "rotation_rate_rad_s": math.tau / period_s,
+        "rotation_period_s": period_s,
+        "rotation_model": "kinematic_fixed_axis_v1",
+    }
+
+
 def build_conic_cartesian(
     *,
     relation: Literal["inner", "outer", "planet"],
@@ -501,9 +522,19 @@ def generate_stochastic_state(
         }
         for luminosity in luminosities
     ]
-    properties.append(
-        {"mean_density_kg_m3": density, "composition_profile_id": "rocky_mean_v1"}
-    )
+    # Spin axes are sampled on distinct deterministic random streams, independent of
+    # the orbital random draws. Define obliquity against the generated planet orbit.
+    orbital_normal = np.cross(planet_relative.position_m, planet_relative.velocity_mps)
+    orbital_normal /= np.linalg.norm(orbital_normal)
+    for index, star_properties in enumerate(properties):
+        period = float(rng(700 + index).uniform(1.0, 30.0)) * 86400.0
+        star_properties.update(_spin_properties(rng(710 + index), orbital_normal, period))
+    planet_properties: dict[str, Any] = {
+        "mean_density_kg_m3": density,
+        "composition_profile_id": "rocky_mean_v1",
+    }
+    planet_properties.update(_spin_properties(rng(720), orbital_normal, 86400.0))
+    properties.append(planet_properties)
     bodies = tuple(
         CelestialBody(
             id=f"star-{index + 1}" if index < 3 else "planet-1",
