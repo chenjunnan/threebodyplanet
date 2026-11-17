@@ -203,7 +203,7 @@ class InitialConstraintsConfig(StrictModel):
 
 class BoundedStochasticConicsGeneratorConfig(StrictModel):
     type: Literal["stochastic_conics"]
-    version: Literal["0.4.1"]
+    version: Literal["0.4.1", "0.4.2"]
     stars: StellarDistributionConfig
     planet: PlanetDistributionConfig
     geometry: StochasticGeometryConfig
@@ -260,7 +260,7 @@ class OutputConfig(StrictModel):
 
 
 class ResolvedExperimentConfig(StrictModel):
-    schema_version: Literal["0.1.0", "0.4.0", "0.4.1"]
+    schema_version: Literal["0.1.0", "0.4.0", "0.4.1", "0.4.2"]
     experiment: ExperimentConfig
     world_generation: WorldGenerationConfig
     screening: ScreeningConfig
@@ -271,7 +271,7 @@ class ResolvedExperimentConfig(StrictModel):
     def cross_constraints(self) -> ResolvedExperimentConfig:
         generator = self.world_generation.generator
         if isinstance(generator, BoundedStochasticConicsGeneratorConfig):
-            expected_schema = "0.4.1"
+            expected_schema = generator.version
         elif isinstance(generator, StochasticConicsGeneratorConfig):
             expected_schema = "0.4.0"
         else:
