@@ -282,6 +282,27 @@ class EventObserver:
                         "instantaneous point-mass merger proxy only; "
                         "no subsequent dynamics integrated"
                     )
+            if (
+                0.3 <= m1/M_SUN_KG <= 8.0
+                and 0.3 <= m2/M_SUN_KG <= 8.0
+                and "hypothetical_relaxed_main_sequence_luminosity_w" in scenario
+                and min(d1, d2, dm) > 0.0
+            ):
+                lum1 = main_sequence_properties(m1/M_SUN_KG)[1]
+                lum2 = main_sequence_properties(m2/M_SUN_KG)[1]
+                before = lum1/(4.0*np.pi*d1**2) + lum2/(4.0*np.pi*d2**2)
+                after = (
+                    scenario["hypothetical_relaxed_main_sequence_luminosity_w"]
+                    / (4.0*np.pi*dm**2)
+                )
+                if np.isfinite(before) and np.isfinite(after):
+                    scenario["planet_bolometric_flux_proxy_before_w_m2"] = before
+                    scenario["planet_bolometric_flux_proxy_after_relaxation_w_m2"] = after
+                    scenario["planet_bolometric_flux_proxy_change_w_m2"] = after - before
+                    scenario["radiation_semantics"] = (
+                        "not a collision flash; hypothetical relaxed remnant versus "
+                        "two independent main-sequence point sources at contact geometry"
+                    )
             observed["stellar_merger_scenario"] = scenario
         event = SimulationEvent(
             event_type="COLLISION",
