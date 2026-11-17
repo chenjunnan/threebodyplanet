@@ -26,11 +26,11 @@ from threebody.physics.nbody.models import BodyTrajectoryState
 from threebody.physics.rotation.geometry import PlanetRotation
 from threebody.physics.stellar.radiation import (
     StellarRadiation,
-    latitude_band_mean_top_of_atmosphere_flux,
+    latitude_band_means_vectorized,
     local_top_of_atmosphere_flux,
 )
 from threebody.physics.thermal.c0 import solve_c0
-from threebody.physics.thermal.c1 import equal_area_grid, solve_c1
+from threebody.physics.thermal.c1 import solve_c1
 from threebody.physics.thermal.config import load_thermal_settings
 from threebody.physics.thermal.models import ThermalSettings
 from threebody.world.models import WorldInitialState
@@ -182,15 +182,12 @@ def derive_long_run_environment(
             integrator=physics.integrator,
         )
     if physics.mode in {"c1", "both"}:
-        xs, _, dx = equal_area_grid(physics.c1.latitude_bands)
         def zonal(time: float, _latitude) -> np.ndarray:
-            snapshot = flux_at(time)
-            return np.asarray([
-                latitude_band_mean_top_of_atmosphere_flux(
-                    snapshot, float(center-0.5*dx), float(center+0.5*dx),
-                    settings.planet.rotation.axis_inertial_unit,
-                ) for center in xs
-            ])
+            return latitude_band_means_vectorized(
+                flux_at(time),
+                physics.c1.latitude_bands,
+                settings.planet.rotation.axis_inertial_unit,
+            )
         c1 = solve_c1(
             times_s=times, initial_temperature_k=physics.initial_temperature_k,
             zonal_incoming=zonal, latitude_bands=physics.c1.latitude_bands,
