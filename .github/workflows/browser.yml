@@ -1,0 +1,47 @@
+name: P0 Browser E2E
+
+on:
+  pull_request:
+    paths:
+      - 'src/threebody/web/**'
+      - 'tests/test_m5b_browser.py'
+      - 'pyproject.toml'
+      - '.github/workflows/browser.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install scientific stack and browser QA
+        run: |
+          python -m pip install -e '.[dev,physics,viz]'
+          python -m pip install 'playwright>=1.55,<2'
+          python -m playwright install --with-deps chromium
+      - name: Verify installed-wheel science presets
+        run: |
+          python -m pip wheel --no-deps -w /tmp/threebody-release-wheel .
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          candidates = list(Path("/tmp/threebody-release-wheel").glob("*.whl"))
+          assert len(candidates) == 1, candidates
+          with ZipFile(candidates[0]) as bundle:
+              names = set(bundle.namelist())
+              for path in (
+                  "threebody/web/static/m3_default.yaml",
+                  "threebody/web/static/m4_default.yaml",
+              ):
+                  assert path in names, f"packaged wheel misses {path}"
+          PY
+      - name: Real browser science workflow
+        run: pytest -q tests/test_m5b_browser.py -m browser

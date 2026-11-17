@@ -599,3 +599,20 @@ document.querySelector('#download-report').addEventListener('click',async()=>{
     status.textContent='科学报告已由浏览器发起保存；仅含已验证归档与显式缺失字段。';
   }catch(error){status.textContent='报告生成失败：'+error.message;}
 });
+
+/* Explicit, authoritative recovery after a Web service restart. */
+document.querySelector('#restore-run').addEventListener('click',()=>{
+  const id=document.querySelector('#run-id').value.trim();
+  if(!id){jobState.textContent='请填写持久运行ID';return;}
+  beginPoll(id);
+});
+document.querySelector('#analyze-run').addEventListener('click',async()=>{
+  const id=document.querySelector('#run-id').value.trim();
+  try {
+    const result=await apiPost(
+      '/api/v1/runs/'+encodeURIComponent(id)+'/analyze',{}
+    );
+    jobState.textContent='科学分析请求已接受；实际结果需等服务器核验完来源链。';
+    beginPoll(result.run_id);
+  }catch(error){jobState.textContent='科学重试失败：'+error.message;}
+});
