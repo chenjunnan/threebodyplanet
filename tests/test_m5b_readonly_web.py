@@ -234,3 +234,43 @@ def test_real_web_task_runs_two_ias15_segments_to_completion(tmp_path, resolved)
             run["run_id"] == "web-real" and run["status"] == "COMPLETED"
             for run in listing["runs"]
         )
+
+
+def test_verified_body_metadata_uses_initial_state_hash_and_never_guesses(tmp_path,
+                                                                          long_thermal_fixture):
+    from threebody.web.science import query_body_metadata
+
+    run, _ = long_thermal_fixture
+    with _server(tmp_path) as base:
+        status, _, metadata = _request(
+            f"{base}/api/v1/runs/{run.name}/bodies"
+        )
+        assert status == 200, metadata
+        assert metadata["schema_version"] == "m6-3c-body-metadata-v1"
+        assert metadata["run_id"] == run.name
+        assert metadata["data_semantics"] == "VERIFIED_INITIAL_STATE_NOT_EVOLVED_PROPERTIES"
+        assert [b["id"] for b in metadata["bodies"]] == [
+            "star-1", "star-2", "star-3", "planet-1"
+        ]
+        assert all(b["mass_kg"] > 0 and b["radius_m"] > 0
+                   for b in metadata["bodies"])
+        status, _, bad = _request(f"{base}/api/v1/runs/{run.name}/bodies?hack=1")
+        assert status == 422
+        assert bad["error"] == "invalid_artifact"
+    assert query_body_metadata(run)["initial_state_sha256"] == metadata[
+        "initial_state_sha256"
+    ]
+    # Corrupting initial data must not silently produce noncanonical properties.
+    original = (run / "initial_state.json").read_bytes()
+    try:
+        payload = json.loads(original)
+        payload["bodies"][0]["mass_kg"] *= 1.0001
+        (run / "initial_state.json").write_text(json.dumps(payload), encoding="utf-8")
+        with _server(tmp_path) as base:
+            status, _, error = _request(
+                f"{base}/api/v1/runs/{run.name}/bodies"
+            )
+            assert status == 422
+            assert error["error"] == "invalid_artifact"
+    finally:
+        (run / "initial_state.json").write_bytes(original)
