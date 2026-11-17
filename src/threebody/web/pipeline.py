@@ -60,6 +60,14 @@ def derive_run_science(root: Path, run_id: str) -> dict[str, str]:
         validated_env = env_dir if result["thermal"] in {
             "VERIFIED_EXISTING", "COMPLETED"
         } else None
+        if validated_env is not None:
+            # Coarse temperature estimates can be displayed with their uncertainty,
+            # but must not silently drive M4 climate/habitability classifications.
+            environment = read_long_environment(run, validated_env)
+            if environment["sampling_quality"] == (
+                "COARSE_UNVERIFIED_TEMPORAL_VARIABILITY"
+            ):
+                validated_env = None
         if outcome_dir.exists():
             read_long_outcome(run, outcome_dir, validated_env)
             result["outcome"] = "VERIFIED_EXISTING"
