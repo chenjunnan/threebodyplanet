@@ -86,7 +86,9 @@ class LocalRunController:
             raise ConfigError("this run already has an active or queued worker")
         self._jobs[run_id] = _Job(run_id)
 
-    def start(self, run_id: str, state: WorldInitialState, settings: LongRunSettings) -> dict[str, Any]:
+    def start(
+        self, run_id: str, state: WorldInitialState, settings: LongRunSettings
+    ) -> dict[str, Any]:
         with self._mutex:
             if (self.root / run_id).exists():
                 raise ConfigError("run_id already exists; never overwrite an archive")
