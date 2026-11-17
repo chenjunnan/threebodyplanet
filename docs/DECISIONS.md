@@ -177,3 +177,19 @@
 - A checkpoint containing a terminal collision cannot resume. Corrupt binary/state hashes, incompatible
   versions/platforms, changed contract hashes and mismatched initial state are hard errors.
 
+## P0-M5A-03/04 archive foundation — 2026-11-17
+
+- Every segment is first written and fsynced in a sibling temporary directory, then atomically renamed.
+  Only after that durable rename is the global manifest atomically advanced. A crash between those two
+  steps is repaired by verifying and registering the durable segment; replay never appends to it.
+- Segment zero owns the global start output, and each later segment owns only outputs after its left
+  boundary. Commit validates every sample against the integer-index physical clock, so recovery cannot
+  duplicate a boundary sample.
+- Segment manifests hash all artifacts and chain to the previous segment manifest. Verification rejects
+  missing, reordered, modified, unexpected or out-of-plan durable directories and non-finite JSON.
+- The writer lock is created with exclusive filesystem semantics and an unguessable ownership token.
+  It is never auto-stolen or deleted based on PID or wall time. Ownership changes prevent automatic
+  release; stale-lock handling remains an explicit future audited command.
+- Temporary orphan directories are reported but retained for inspection. Automatic deletion would lose
+  crash evidence and could race an operator's recovery decision.
+

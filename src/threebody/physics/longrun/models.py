@@ -251,6 +251,57 @@ class RuntimeCheckpointState(StrictModel):
     diagnostics: DiagnosticTrackerCheckpointState
 
 
+class SegmentManifest(StrictModel):
+    schema_version: Literal["0.6.0"] = "0.6.0"
+    run_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    segment_index: int = Field(ge=0)
+    t_start_s: float = Field(allow_inf_nan=False)
+    t_end_s: float = Field(allow_inf_nan=False)
+    owns_start_sample: bool
+    first_output_index: int | None = Field(default=None, ge=0)
+    last_output_index: int | None = Field(default=None, ge=0)
+    sample_count: int = Field(ge=0)
+    event_count: int = Field(ge=0)
+    status: Literal["COMMITTED", "TERMINAL"]
+    terminal_reason: Literal["COLLISION", "FAILED"] | None = None
+    previous_segment_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    input_checkpoint_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    output_checkpoint_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    artifact_sha256: dict[str, str]
+
+    @model_validator(mode="after")
+    def consistent_segment(self) -> SegmentManifest:
+        if self.t_end_s <= self.t_start_s:
+            raise ValueError("committed segment end must be after start")
+        if self.status == "TERMINAL" and self.terminal_reason is None:
+            raise ValueError("terminal segment requires terminal_reason")
+        if self.status == "COMMITTED" and self.terminal_reason is not None:
+            raise ValueError("nonterminal segment cannot have terminal_reason")
+        if set(self.artifact_sha256) != {"trajectory", "events", "diagnostics"}:
+            raise ValueError("segment artifact hashes are incomplete")
+        if any(
+            len(value) != 64 or any(character not in "0123456789abcdef" for character in value)
+            for value in self.artifact_sha256.values()
+        ):
+            raise ValueError("segment artifact SHA-256 is invalid")
+        return self
+
+
+class WriterLockRecord(StrictModel):
+    schema_version: Literal["0.6.0"] = "0.6.0"
+    run_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    token: str = Field(min_length=32, max_length=128, pattern=r"^[0-9a-f]+$")
+    hostname: str = Field(min_length=1)
+    pid: int = Field(gt=0)
+    acquired_at_utc: str = Field(min_length=1)
+
+
 class LongRunManifest(StrictModel):
     schema_version: Literal["0.6.0"] = "0.6.0"
     run_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")

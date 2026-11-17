@@ -1,8 +1,9 @@
 # P0-M5A development report
 
 Date: 2026-11-17
-Branch: `feature/p0-m5a-contracts`
-Current scope: M5A-01 contracts and M5A-02 binary checkpoint foundation
+Branch stack: `feature/p0-m5a-contracts` → `feature/p0-m5a-checkpoints` →
+`feature/p0-m5a-segments-recovery`
+Current scope: M5A-01 contracts, M5A-02 binary checkpoints and M5A-03/04 archive/recovery foundation
 
 ## Implemented
 
@@ -21,7 +22,8 @@ Current scope: M5A-01 contracts and M5A-02 binary checkpoint foundation
 
 The M5A-01 PR intentionally contains no checkpoint files or resume controls. Its dependent M5A-02 PR adds
 the programmatic binary checkpoint foundation described below, but still does not expose long-run CLI,
-segmented archives, locks, Web controls or background workers. No UI may advertise pause/resume yet.
+Web controls or background workers. The next stacked PR adds the segmented archive foundation, but still
+does not expose a user-level pause/resume command. No UI may advertise pause/resume yet.
 
 ## M5A-02 checkpoint foundation
 
@@ -35,6 +37,23 @@ segmented archives, locks, Web controls or background workers. No UI may adverti
   Existing checkpoint directories cannot be overwritten.
 - Corrupt binary and observer state, altered versions/platform, changed contract hashes, unsafe physical
   times and observer error states have explicit rejection tests.
+
+## M5A-03/04 immutable archive and recovery foundation
+
+- New run archives are created without overwrite through a sibling temporary directory and contain the
+  exact initial state, resolved long-run configuration, global manifest, segment/checkpoint stores and
+  lock namespace.
+- A single-writer lock uses exclusive creation plus a run-scoped random token. An existing lock is never
+  inferred stale from PID or wall time and never removed automatically.
+- Completed segment artifacts are fsynced, atomically renamed and then registered in the global manifest.
+  Each manifest hashes trajectory, events and diagnostics and chains to its predecessor.
+- Every trajectory sample is checked against the authoritative integer-index output schedule. Segment zero
+  includes the global start; later segments exclude their left boundary, preventing replay duplicates.
+- Recovery registers a durable segment left behind by a crash after rename but before global-manifest
+  update. Repeated recovery is idempotent. Temporary orphan directories are reported and preserved.
+- Verification rejects corrupt hashes, broken chains, missing or unexpected files, plan-external segment
+  directories and non-finite structured JSON. Existing committed segments cannot be overwritten.
+- Failure hooks exercise artifact-write, pre/post-rename and pre/post-global-manifest interruption points.
 
 ## REBOUND IAS15 binary recovery experiment
 
@@ -77,7 +96,7 @@ pytest -q
 ........................................................................ [ 42%]
 ........................................................................ [ 84%]
 ...........................                                              [100%]
-171 tests collected; exit code 0
+185 tests collected; exit code 0
 
 ruff check .
 All checks passed!
@@ -93,8 +112,13 @@ manifest order, task transitions, cancellation semantics and machine-readable JS
 M5A-02 adds thirteen real-checkpoint tests covering atomicity, exact same-environment continuation,
 callback restoration, cross-checkpoint escape persistence, corruption and compatibility rejection.
 
+M5A-03/04 adds fourteen archive tests covering no-overwrite initialization, lock exclusivity/token
+ownership, ordered hash chaining, exact boundary ownership, failures around both atomic commits,
+checkpoint-chain continuity, idempotent recovery, artifact corruption, plan-external directories, orphan
+reporting and lock tampering.
+
 ## Known limits and next PR
 
-The next dependent PR must implement immutable trajectory segments, checkpoint retention/indexing,
-single-writer locking, idempotent crash recovery and failure injection. The checkpoint API alone is not a
-complete pause/resume product.
+The next dependent PR must connect these foundations to a real segmented IAS15 runner, checkpoint
+retention/indexing, safe pause/quota handling, logical trajectory reader and CLI. The present APIs are not
+a complete pause/resume product; no automatic stale-lock deletion or collision continuation exists.
