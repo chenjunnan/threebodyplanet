@@ -216,7 +216,7 @@ def generate_initial_state(
 
         generate = (
             generate_bounded_stochastic_state
-            if config.version == "0.4.1"
+            if config.version in {"0.4.1", "0.4.2"}
             else generate_stochastic_state
         )
         return generate(config, seed, candidate_index, config_sha256).state
