@@ -74,7 +74,8 @@ def test_real_browser_world_3d_drag_science_and_report():
         page.goto(url, wait_until="domcontentloaded")
         page.locator("#world-advanced-config").wait_for(state="attached")
         page.wait_for_function(
-            "() => document.querySelector('#world-advanced-config').value.includes('stochastic_conics')"
+            "() => document.querySelector('#world-advanced-config')"
+            ".value.includes('stochastic_conics')"
         )
         page.locator("#world-seed").fill("20261116")
         page.locator("#world-count").fill("4")
@@ -101,6 +102,7 @@ def test_real_browser_world_3d_drag_science_and_report():
             timeout=20000,
         )
         canvas = page.locator("#orbit-canvas")
+        canvas.scroll_into_view_if_needed()
         before = canvas.evaluate("(node) => node.toDataURL()")
         rect = canvas.bounding_box()
         assert rect is not None
