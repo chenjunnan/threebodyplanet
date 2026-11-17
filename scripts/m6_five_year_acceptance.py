@@ -12,10 +12,9 @@ import json
 import math
 import resource
 import time
-from dataclasses import asdict
 from pathlib import Path
 
-from threebody.common.constants import G, M_EARTH_KG, M_SUN_KG, R_SUN_M
+from threebody.common.constants import M_EARTH_KG, M_SUN_KG, G
 from threebody.common.json import sha256_json, write_json_atomic
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.physics.longrun.reader import SegmentedTrajectoryReader
@@ -47,18 +46,18 @@ def initial_world() -> WorldInitialState:
     total = sum(masses)
     com_x = sum(m*x for m,x in zip(masses,xs,strict=True))/total
     com_v = sum(m*v for m,v in zip(masses,velocities,strict=True))/total
-    r,l = main_sequence_properties(1.0)
+    radius, luminosity = main_sequence_properties(1.0)
     bodies=[]
     for i, name in enumerate(("star-1","star-2","star-3","planet-1")):
         star=i<3
         bodies.append(CelestialBody(
             id=name,kind=BodyKind.STAR if star else BodyKind.PLANET,
-            mass_kg=float(masses[i]),radius_m=float(r if star else 6.371e6),
+            mass_kg=float(masses[i]),radius_m=float(radius if star else 6.371e6),
             position_m=(float(xs[i]-com_x),0.0,0.0),
             velocity_mps=(0.0,float(velocities[i]-com_v),0.0),
             physical_profile_id="approx_main_sequence_v1" if star else "rocky_density_v1",
             properties=(
-                {"luminosity_w":l,
+                {"luminosity_w":luminosity,
                  "mass_luminosity_model":"piecewise_main_sequence_0p3_8_v1"}
                 if star else {"composition_profile_id":"rocky_mean_v1",
                               "mean_density_kg_m3":5514.0}
@@ -134,8 +133,9 @@ def accept(root: Path, *, duration_s: float=FIVE_YEARS_S,
     assert outcome["run_id"]==RUN_ID
 
     if repeat_science:
-        from threebody.experiments.longrun_environment import derive_long_run_environment
         from importlib.resources import files
+
+        from threebody.experiments.longrun_environment import derive_long_run_environment
 
         temp_cfg=root/"m6_thermal_settings.yaml"
         temp_cfg.write_text(
