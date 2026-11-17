@@ -100,7 +100,10 @@
         <button id="observe-load" class="primary">读取真实轨迹</button>
       </div>
       <p id="observe-status" role="status">请选择已提交的M5A运行。</p>
+      <label class="webgl-experiment-label"><input type="checkbox" id="enable-webgl"> 实验性WebGL2三维观察（可随时返回Canvas）</label>
+      <p id="webgl-status" role="status">默认Canvas观察器；WebGL仅用于渲染真实已归档轨道。</p>
       <canvas id="orbit-canvas" width="940" height="500" aria-label="四天体三维轨迹可旋转投影"></canvas>
+      <canvas id="orbit-webgl" width="940" height="500" hidden aria-label="WebGL2四天体历史三维轨道，无任何后续物理外推"></canvas>
       <div class="actions">
         <button id="orbit-left">视角向左</button>
         <button id="orbit-right">视角向右</button>
@@ -139,6 +142,8 @@
     </section>
   </main>
   <footer><span>LOCAL · SINGLE USER</span><span>REBOUND t<sub>s</sub> ≠ DISPLAY TIME</span></footer>
+  <script src="/science-adapter.js" defer></script>
+  <script src="/webgl-observer.js" defer></script>
   <script src="/app.js" defer></script>
 </body>
 </html>
