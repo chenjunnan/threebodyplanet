@@ -16,8 +16,15 @@ from threebody.config.loader import resolve_mapping
 from threebody.errors import ConfigError
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.jobs import LocalRunController
+from threebody.web.outcome_science import read_long_outcome
 from threebody.web.science import query_events, query_trajectory
 from threebody.web.thermal_science import read_long_environment
+from threebody.web.worldsets import (
+    create_worldset,
+    list_worldsets,
+    load_candidate,
+    simulation_settings,
+)
 from threebody.world.models import WorldInitialState
 
 MAX_REQUEST_BYTES = 1_048_576
@@ -156,6 +163,12 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/health":
                 self._json(HTTPStatus.OK, {"status": "ok", "mode": "local_task_control"})
                 return
+            if path == "/api/v1/worlds/preset":
+                self._static("world_preset.json", "application/json; charset=utf-8")
+                return
+            if path == "/api/v1/worldsets":
+                self._json(HTTPStatus.OK, {"worldsets": list_worldsets(self.artifact_root)})
+                return
             if path == "/api/v1/runs":
                 self._json(HTTPStatus.OK, {"runs": list_runs(self.artifact_root)})
                 return
@@ -165,6 +178,25 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/v1/openapi.json":
                 self._static("openapi.json", "application/json; charset=utf-8")
+                return
+            outcome_match = re.fullmatch(r"/api/v1/runs/([^/]+)/outcome", path)
+            if outcome_match:
+                run_id = unquote(outcome_match.group(1))
+                directory = _run_directory(self.artifact_root, run_id)
+                outcome_root = self.artifact_root / "outcomes"
+                if outcome_root.is_symlink() or not outcome_root.is_dir():
+                    raise FileNotFoundError(run_id)
+                outcome_dir = _run_directory(outcome_root, run_id)
+                env_root = self.artifact_root / "environments"
+                environment = None
+                if env_root.is_dir() and not env_root.is_symlink():
+                    try:
+                        environment = _run_directory(env_root, run_id)
+                    except FileNotFoundError:
+                        pass
+                self._json(HTTPStatus.OK, read_long_outcome(
+                    directory, outcome_dir, environment,
+                ))
                 return
             thermal_match = re.fullmatch(r"/api/v1/runs/([^/]+)/environment", path)
             if thermal_match:
@@ -262,7 +294,13 @@ class ConsoleHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
         control = re.fullmatch(r"/api/v1/runs/([^/]+)/(pause|resume|cancel)", path)
-        if path not in {"/api/v1/experiments/validate", "/api/v1/runs"} and not control:
+        if (
+            path not in {
+                "/api/v1/experiments/validate", "/api/v1/runs",
+                "/api/v1/worldsets", "/api/v1/worlds/run",
+            }
+            and not control
+        ):
             self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "unsupported_operation"})
             return
         try:
@@ -275,6 +313,40 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     "valid": True, "sha256": digest,
                     "resolved": resolved.model_dump(mode="json"),
                 })
+                return
+            if path == "/api/v1/worldsets":
+                if set(raw) != {"config", "count"}:
+                    raise ValueError("required fields: config, count")
+                result = create_worldset(
+                    self.artifact_root, raw["config"], raw["count"]
+                )
+                self._json(HTTPStatus.CREATED, result)
+                return
+            if path == "/api/v1/worlds/run":
+                if set(raw) != {
+                    "batch_id", "candidate_index", "run_id",
+                    "duration_s", "output_interval_s",
+                }:
+                    raise ValueError(
+                        "required fields: batch_id, candidate_index, run_id, "
+                        "duration_s, output_interval_s"
+                    )
+                run_id = raw["run_id"]
+                if (
+                    not isinstance(run_id, str)
+                    or run_id in {".", ".."}
+                    or not RUN_ID.fullmatch(run_id)
+                ):
+                    raise ValueError("invalid run_id")
+                initial = load_candidate(
+                    self.artifact_root, raw["batch_id"], raw["candidate_index"]
+                )
+                settings = simulation_settings(
+                    raw["duration_s"], raw["output_interval_s"]
+                )
+                self._json(HTTPStatus.ACCEPTED, self.jobs.start(
+                    run_id, initial, settings,
+                ))
                 return
             if path == "/api/v1/runs":
                 if set(raw) != {"run_id", "initial_state", "settings"}:
