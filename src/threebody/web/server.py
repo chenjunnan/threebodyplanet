@@ -19,6 +19,7 @@ from threebody.web.jobs import LocalRunController
 from threebody.web.science import query_events, query_trajectory
 from threebody.web.thermal_science import read_long_environment
 from threebody.world.models import WorldInitialState
+from threebody.web.worldsets import (\n    create_worldset, list_worldsets, load_candidate, simulation_settings,\n)
 
 MAX_REQUEST_BYTES = 1_048_576
 RUN_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
@@ -156,6 +157,12 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/health":
                 self._json(HTTPStatus.OK, {"status": "ok", "mode": "local_task_control"})
                 return
+            if path == "/api/v1/worlds/preset":
+                self._static("world_preset.json", "application/json; charset=utf-8")
+                return
+            if path == "/api/v1/worldsets":
+                self._json(HTTPStatus.OK, {"worldsets": list_worldsets(self.artifact_root)})
+                return
             if path == "/api/v1/runs":
                 self._json(HTTPStatus.OK, {"runs": list_runs(self.artifact_root)})
                 return
@@ -262,7 +269,13 @@ class ConsoleHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
         control = re.fullmatch(r"/api/v1/runs/([^/]+)/(pause|resume|cancel)", path)
-        if path not in {"/api/v1/experiments/validate", "/api/v1/runs"} and not control:
+        if (
+            path not in {
+                "/api/v1/experiments/validate", "/api/v1/runs",
+                "/api/v1/worldsets", "/api/v1/worlds/run",
+            }
+            and not control
+        ):
             self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "unsupported_operation"})
             return
         try:
@@ -275,6 +288,40 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     "valid": True, "sha256": digest,
                     "resolved": resolved.model_dump(mode="json"),
                 })
+                return
+            if path == "/api/v1/worldsets":
+                if set(raw) != {"config", "count"}:
+                    raise ValueError("required fields: config, count")
+                result = create_worldset(
+                    self.artifact_root, raw["config"], raw["count"]
+                )
+                self._json(HTTPStatus.CREATED, result)
+                return
+            if path == "/api/v1/worlds/run":
+                if set(raw) != {
+                    "batch_id", "candidate_index", "run_id",
+                    "duration_s", "output_interval_s",
+                }:
+                    raise ValueError(
+                        "required fields: batch_id, candidate_index, run_id, "
+                        "duration_s, output_interval_s"
+                    )
+                run_id = raw["run_id"]
+                if (
+                    not isinstance(run_id, str)
+                    or run_id in {".", ".."}
+                    or not RUN_ID.fullmatch(run_id)
+                ):
+                    raise ValueError("invalid run_id")
+                initial = load_candidate(
+                    self.artifact_root, raw["batch_id"], raw["candidate_index"]
+                )
+                settings = simulation_settings(
+                    raw["duration_s"], raw["output_interval_s"]
+                )
+                self._json(HTTPStatus.ACCEPTED, self.jobs.start(
+                    run_id, initial, settings,
+                ))
                 return
             if path == "/api/v1/runs":
                 if set(raw) != {"run_id", "initial_state", "settings"}:
