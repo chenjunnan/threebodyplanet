@@ -40,8 +40,14 @@ class LocalRunController:
         self._jobs: dict[str, _Job] = {}
 
     def close(self) -> None:
-        # Server shutdown waits for the in-flight safe physical segment to finish.
-        self._executor.shutdown(wait=True, cancel_futures=True)
+        # Request a safe boundary stop before waiting for any in-flight segment.
+        # Never kill IAS15 while writing a checkpoint or a segment.
+        with self._mutex:
+            for job in self._jobs.values():
+                if job.phase in {"QUEUED", "RUNNING", "PAUSE_REQUESTED"}:
+                    job.requested = "PAUSE_REQUESTED"
+                    job.phase = "PAUSE_REQUESTED"
+        self._executor.shutdown(wait=True, cancel_futures=False)
 
     def _summary(self, job: _Job) -> dict[str, Any]:
         directory = self.root / job.run_id
