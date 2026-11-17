@@ -17,6 +17,7 @@ from threebody.physics.longrun.config import load_long_run_settings
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.physics.longrun.runner import start_long_run
 from threebody.web.thermal_science import read_long_environment
+from threebody.web.pipeline import derive_run_science
 from threebody.world.generators import generate_initial_state
 
 
@@ -81,3 +82,43 @@ def test_legacy_five_or_thirty_day_output_can_derive_c0_with_quality_warning(
         derive_long_run_environment(
             run, disallowed, tmp_path / f"must-not-exist-{output_days}"
         )
+
+
+def test_coarse_environment_not_used_for_m4_climate_classification(
+    tmp_path, resolved
+):
+    config, digest = resolved
+    initial = generate_initial_state(
+        config.world_generation.generator, config.experiment.seed, 0, digest
+    )
+    settings, _ = load_long_run_settings("configs/m5a_long_run.yaml")
+    raw = settings.model_dump(mode="json")
+    raw["time"] = {
+        "start_time_s": 0.0, "end_time_s": 2*86400.0,
+        "output_interval_s": 2*86400.0,
+    }
+    raw["segmentation"] = {"simulated_duration_s": 2*86400.0}
+    raw["checkpoint"] = {
+        "simulation_interval_s": 2*86400.0, "wall_interval_s": None,
+        "retain_count": 3,
+    }
+    raw["resources"]["max_segments"] = 2
+    raw["resources"]["max_samples"] = 3
+    run = tmp_path / "coarse-outcome-world"
+    result = start_long_run(
+        initial, LongRunSettings.model_validate(raw, strict=True),
+        run, run_id=run.name,
+    )
+    assert result.manifest.task.status == "COMPLETED"
+    science = derive_run_science(tmp_path, run.name)
+    assert science["thermal"] == "COMPLETED"
+    assert science["outcome"] == "COMPLETED"
+    derived = tmp_path / "environments" / run.name
+    assert read_long_environment(run, derived)["sampling_quality"] == (
+        "COARSE_UNVERIFIED_TEMPORAL_VARIABILITY"
+    )
+    outcome = json.loads(
+        (tmp_path / "outcomes" / run.name / "long_outcome_manifest.json")
+        .read_text()
+    )
+    assert outcome["environment_manifest_sha256"] is None
