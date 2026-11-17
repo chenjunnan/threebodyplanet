@@ -78,8 +78,11 @@ def read_long_environment(
     times = [point.t_s for point in flux]
     if times[0] != manifest["t_start_s"] or times[-1] != manifest["t_final_s"]:
         raise ConfigError("derived thermal physical coverage differs")
-    if any(a >= b for a, b in zip(times, times[1:])):
+    if any(a >= b for a, b in zip(times, times[1:], strict=False)):
         raise ConfigError("derived thermal times must be increasing")
+    source_times = [sample.t_s for sample in reader.iter_samples()]
+    if times != source_times:
+        raise ConfigError("derived thermal time grid differs from verified M5A samples")
     for key in ("c0", "c1"):
         points = series[key]
         if points and [p.t_s for p in points] != times:
