@@ -6,11 +6,10 @@ from typing import Any
 
 import numpy as np
 
-from threebody.common.constants import G
+from threebody.common.constants import M_SUN_KG, G
 from threebody.physics.nbody.diagnostics import NumericalSafetyError
-from threebody.common.constants import M_SUN_KG
-from threebody.physics.stellar.main_sequence import main_sequence_properties
 from threebody.physics.nbody.models import IntegrationSettings, SimulationEvent
+from threebody.physics.stellar.main_sequence import main_sequence_properties
 
 
 def _simulation(value: Any) -> Any:
