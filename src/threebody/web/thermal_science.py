@@ -135,5 +135,8 @@ def read_long_environment(
         "time_grid": manifest["time_grid"],
         "temperature_missing_is_null": True,
         "interpolation": manifest["interpolation"],
+        "source_max_orbit_gap_s": manifest.get("source_max_orbit_gap_s"),
+        "sampling_quality": manifest.get("sampling_quality", "LEGACY_UNSPECIFIED"),
+        "sampling_warning": manifest.get("sampling_warning"),
         "rows": rows,
     }
