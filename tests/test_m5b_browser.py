@@ -116,11 +116,17 @@ def test_real_browser_world_3d_drag_science_and_report():
         assert page.locator("#c0-current-celsius").inner_text().endswith(" °C")
         sample = page.locator("#c0-current-k").inner_text()
         sample_c = page.locator("#c0-current-celsius").inner_text()
-        assert abs(float(sample.removesuffix(" K")) - 273.15 -
-                   float(sample_c.removesuffix(" °C"))) <= 0.011
-        page.locator("#orbit-time").fill("0")
+        assert abs(
+            float(sample.removesuffix(" K")) - 273.15
+            - float(sample_c.removesuffix(" °C"))
+        ) <= 0.011
+        page.locator("#orbit-time").evaluate(
+            "(node) => { node.value = '0'; node.dispatchEvent(new Event('input', {bubbles: true})); }"
+        )
         assert "t=0.00000000" in page.locator("#c0-current-time").inner_text()
-        page.locator("#orbit-time").fill("6")
+        page.locator("#orbit-time").evaluate(
+            "(node) => { node.value = node.max; node.dispatchEvent(new Event('input', {bubbles: true})); }"
+        )
         assert "t=60.0000000" in page.locator("#c0-current-time").inner_text()
 
         canvas = page.locator("#orbit-canvas")
