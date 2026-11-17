@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Three Body Planet linked M5A orbit and thermal science console",
-    "version": "0.4.0"
+    "title": "Three Body Planet P0 local world science console",
+    "version": "0.5.0"
   },
   "servers": [
     {
@@ -399,6 +399,140 @@
           },
           "422": {
             "description": "Invalid query, source provenance or artifact integrity"
+          }
+        }
+      }
+    },
+    "/api/v1/worlds/preset": {
+      "get": {
+        "operationId": "getG21WebPreset",
+        "responses": {
+          "200": {
+            "description": "Editable strict G2.1 preset JSON"
+          }
+        }
+      }
+    },
+    "/api/v1/worldsets": {
+      "get": {
+        "operationId": "listWorldsets",
+        "responses": {
+          "200": {
+            "description": "Immutable local generated worldset manifests"
+          }
+        }
+      },
+      "post": {
+        "operationId": "generateWorldset",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "config",
+                  "count"
+                ],
+                "properties": {
+                  "config": {
+                    "type": "object"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 20
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Generated immutable deterministic candidates, including failed/terminal states"
+          },
+          "422": {
+            "description": "Invalid generator configuration"
+          }
+        }
+      }
+    },
+    "/api/v1/worlds/run": {
+      "post": {
+        "operationId": "startSelectedWorld",
+        "description": "Pick existing verified G2.1 candidate and start real M5A IAS15 job for bounded SI duration",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "batch_id",
+                  "candidate_index",
+                  "run_id",
+                  "duration_s",
+                  "output_interval_s"
+                ],
+                "properties": {
+                  "batch_id": {
+                    "type": "string"
+                  },
+                  "candidate_index": {
+                    "type": "integer"
+                  },
+                  "run_id": {
+                    "type": "string"
+                  },
+                  "duration_s": {
+                    "type": "number",
+                    "minimum": 60,
+                    "maximum": 315576000
+                  },
+                  "output_interval_s": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Job accepted; physical completion not implied"
+          },
+          "422": {
+            "description": "Missing/unsafe candidate or invalid time plan"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/outcome": {
+      "get": {
+        "operationId": "getM5ADerivedM4Outcome",
+        "description": "Verified M5A-derived M4 classification and time-aligned events. No old M2 fake hashes.",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified M4 classification, statistics, event timeline"
+          },
+          "404": {
+            "description": "Derived outcome unavailable"
+          },
+          "422": {
+            "description": "Provenance or integrity check failed"
           }
         }
       }
