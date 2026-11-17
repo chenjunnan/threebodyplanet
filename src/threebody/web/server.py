@@ -310,7 +310,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
-        control = re.fullmatch(r"/api/v1/runs/([^/]+)/(pause|resume|cancel)", path)
+        control = re.fullmatch(r"/api/v1/runs/([^/]+)/(pause|resume|cancel|analyze)", path)
         if (
             path not in {
                 "/api/v1/experiments/validate", "/api/v1/runs",
@@ -391,6 +391,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 raise ValueError("control request must contain an empty JSON object")
             if action == "resume":
                 result = self.jobs.resume(run_id)
+            elif action == "analyze":
+                result = self.jobs.analyze(run_id)
             else:
                 result = self.jobs.request(run_id, action)
             self._json(HTTPStatus.ACCEPTED, result)
