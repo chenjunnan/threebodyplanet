@@ -43,3 +43,8 @@ textarea { width:100%; min-height:285px; resize:vertical; background:#080c0d; bo
 .observe-bottom { display:flex; flex-wrap:wrap; gap:24px; align-items:start; margin-top:20px; }
 .observe-bottom select { display:block; max-width:100%; margin-top:8px; padding:8px; background:var(--panel);color:var(--ink);border:1px solid var(--line); }
 @media(max-width:780px) { .observer {margin:0 0 24px;} }
+
+.thermal-panels { margin:24px 0; padding:20px 0; border-top:1px solid var(--line); }
+.thermal-panels > p { margin:8px 0 16px; color:var(--muted); }
+.thermal-panels canvas { display:block; width:100%; height:auto; border:1px solid var(--line); margin:10px 0; }
+.thermal-panels h3 { margin-bottom:12px; }
