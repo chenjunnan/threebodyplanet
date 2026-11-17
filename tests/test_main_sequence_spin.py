@@ -67,3 +67,14 @@ def test_legacy_bounded_version_keeps_previous_luminosity_and_no_spin():
             3.828e26 * solar_mass**3.5
         )
         assert "rotation_model" not in body.properties
+
+
+def test_five_year_six_hour_and_hourly_science_plans_fit_verification_cap():
+    from threebody.web.worldsets import simulation_settings
+
+    six_hour = simulation_settings(157788000.0, 21600.0)
+    hourly = simulation_settings(157788000.0, 3600.0)
+    assert six_hour.resources.max_samples == 50000
+    assert hourly.resources.max_samples == 50000
+    assert six_hour.time.output_interval_s == 21600.0
+    assert hourly.time.output_interval_s == 3600.0
