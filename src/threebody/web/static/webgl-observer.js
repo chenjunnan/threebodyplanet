@@ -155,6 +155,16 @@
       // Hit radius is in backing pixels and compensates for high-DPI CSS scale.
       return dist<=20?closest:null;
     }
+    function screenPosition(id){
+      if(!IDs.includes(id)||!normalized)return null;
+      const p=projectedPoint(IDs.indexOf(id),normalized.selectedIndex);
+      if(!p)return null;
+      const bounds=canvas.getBoundingClientRect();
+      return [
+        bounds.left+p[0]*bounds.width/canvas.width,
+        bounds.top+p[1]*bounds.height/canvas.height,
+      ];
+    }
     function draw(index){
       if(disposed)return;
       gl.viewport(0,0,canvas.width,canvas.height);
@@ -201,7 +211,7 @@
       if(normalized)draw(normalized.selectedIndex);
     }
     return Object.freeze({
-      load,draw,focus,select,rotate,resetView,pickAt,
+      load,draw,focus,select,rotate,resetView,pickAt,screenPosition,
       supported:true,
       dispose(){disposed=true;gl.deleteBuffer(buffer);gl.deleteProgram(program);},
     });
