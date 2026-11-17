@@ -35,7 +35,7 @@ from threebody.physics.thermal.config import load_thermal_settings
 from threebody.physics.thermal.models import ThermalSettings
 from threebody.world.models import WorldInitialState
 
-MAX_NATIVE_SAMPLES = 5000
+MAX_NATIVE_SAMPLES = 50000
 
 
 def _sha_file(path: Path) -> str:
@@ -151,7 +151,7 @@ def derive_long_run_environment(
     for sample in reader.iter_samples():
         if len(samples) == MAX_NATIVE_SAMPLES:
             raise ConfigError(
-                "M5A environment pass exceeds 5000 verified samples; "
+                "M5A environment pass exceeds 50000 verified samples; "
                 "process a shorter run or implement incremental thermal checkpoints"
             )
         samples.append(sample)
