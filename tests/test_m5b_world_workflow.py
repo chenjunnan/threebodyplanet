@@ -12,7 +12,10 @@ import pytest
 
 from threebody.web.server import create_console_server
 from threebody.web.worldsets import (
-    create_worldset, list_worldsets, load_candidate, simulation_settings,
+    create_worldset,
+    list_worldsets,
+    load_candidate,
+    simulation_settings,
 )
 
 
