@@ -6,6 +6,7 @@ Run with: pip install playwright && python -m playwright install chromium
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -64,7 +65,9 @@ def _live_server():
 @pytest.mark.browser
 def test_real_browser_world_3d_drag_science_and_report():
     with _live_server() as url, sync_playwright() as api:
-        browser = api.chromium.launch(headless=True)
+        browser = api.chromium.launch(
+            executable_path=os.environ.get("THREEBODY_TEST_CHROMIUM"), headless=True,
+        )
         context = browser.new_context(accept_downloads=True, viewport={
             "width": 1300, "height": 1000,
         })
@@ -130,6 +133,8 @@ def test_real_browser_world_3d_drag_science_and_report():
         assert "纬度带中心" in c1_hover
         assert " K / " in c1_hover and " °C" in c1_hover
         assert "无插值" in c1_hover
+        assert "真实M3采样" in page.locator("#c1-sphere-status").inner_text()
+        assert "K" in page.locator("#c1-sphere-legend").inner_text()
         # C0 readout follows the selected actual physical time, not browser play speed.
         assert page.locator("#c0-current-k").inner_text().endswith(" K")
         assert page.locator("#c0-current-celsius").inner_text().endswith(" °C")
@@ -209,6 +214,7 @@ def test_real_browser_world_3d_drag_science_and_report():
             assert glcanvas.evaluate(
                 "(node) => node.getContext('webgl2') !== null"
             )
+            glcanvas.scroll_into_view_if_needed()
             glbefore=glcanvas.evaluate("(node) => node.toDataURL()")
             glbox=glcanvas.bounding_box()
             assert glbox is not None
@@ -254,7 +260,7 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
     """
     with _live_server() as url, sync_playwright() as api:
         browser=api.chromium.launch(
-            headless=True,
+            executable_path=os.environ.get("THREEBODY_TEST_CHROMIUM"), headless=True,
             args=["--enable-unsafe-swiftshader","--use-angle=swiftshader"],
         )
         page=browser.new_page(viewport={"width":1300,"height":900})
@@ -288,7 +294,16 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
           webglRenderer.load(verified.samples);
           webglRenderer.draw(1);
         }""")
+        canvas.scroll_into_view_if_needed()
         before=canvas.evaluate("(node) => node.toDataURL()")
+        pixels=canvas.evaluate("node => node.toDataURL()")
+        page.locator("#surface-materials").uncheck()
+        page.evaluate("() => webglRenderer.draw(1)")
+        assert canvas.evaluate("node => node.toDataURL()") != pixels
+        page.locator("#surface-materials").check()
+        page.evaluate("() => webglRenderer.draw(1)")
+        assert canvas.evaluate("node => node.getContext('webgl2').getError()") == 0
+        canvas.scroll_into_view_if_needed()
         # The GPU screen projection is available for deterministic click picking.
         hit=page.evaluate("() => webglRenderer.screenPosition('planet-1')")
         assert hit is not None
@@ -308,4 +323,68 @@ def test_webgl2_shader_and_3d_rotation_with_local_software_renderer():
         after=canvas.evaluate("(node) => node.toDataURL()")
         assert before!=after,"3D WebGL perspective shader must respond to drag"
         assert not errors,errors
+        browser.close()
+
+
+@pytest.mark.browser
+def test_surface_materials_equal_area_temperature_and_missing_data():
+    """Graphics fixtures check mapping and missing data, not a scientific simulation."""
+    with _live_server() as url, sync_playwright() as api:
+        browser = api.chromium.launch(
+            executable_path=os.environ.get("THREEBODY_TEST_CHROMIUM"), headless=True,
+            args=["--enable-unsafe-swiftshader", "--use-angle=swiftshader"],
+        )
+        page = browser.new_page(viewport={"width": 1300, "height": 1000})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(url, wait_until="domcontentloaded")
+        assert "无可信数据" in page.locator("#c1-sphere-status").inner_text()
+        result = page.evaluate("""() => {
+          const m=window.ThreeBodySurfaces;
+          const row={t_s:10,c1_temperature_k:[200,400],
+            c1_latitude_rad:[Math.asin(-.5),Math.asin(.5)]};
+          const thermal={rows:[row,{...row,t_s:20}],sampling_quality:'TEST_ONLY',
+            sampling_warning:'fixture warning'};
+          const copy=JSON.stringify(thermal);
+          const frame=m.thermalFrame(thermal,15);
+          const sphere=m.disk(3,256,frame).getContext('2d');
+          const pixel=(x,y)=>Array.from(sphere.getImageData(x,y,1,1).data);
+          window.surfaceFixture=thermal;
+          renderSurfaceThermal(thermal,15);
+          return {
+            north:pixel(128,64),south:pixel(128,192),corner:pixel(0,0),
+            hot:m.temperatureColor(400,200,400),cold:m.temperatureColor(200,200,400),
+            before:m.thermalFrame(thermal,0),after:m.thermalFrame(thermal,21),
+            bad:m.thermalFrame({rows:[{...row,c1_temperature_k:[NaN,400]}]},10),
+            wrongGrid:m.thermalFrame({rows:[{...row,c1_latitude_rad:[-.2,.2]}]},10),
+            missing:m.thermalFrame({rows:[{...row,c1_temperature_k:null}]},10),
+            unchanged:copy===JSON.stringify(thermal),
+          };
+        }""")
+        assert result["north"] == [*result["hot"], 255]
+        assert result["south"] == [*result["cold"], 255]
+        assert result["corner"][3] == 0
+        for key in ("before", "after", "bad", "wrongGrid", "missing"):
+            assert result[key] is None
+        assert result["unchanged"]
+        assert "相差 5 s" in page.locator("#c1-sphere-status").inner_text()
+        assert "fixture warning" in page.locator("#c1-sphere-status").inner_text()
+        canvas = page.locator("#c1-sphere")
+        canvas.scroll_into_view_if_needed()
+        bounds = canvas.bounding_box()
+        page.mouse.move(bounds["x"]+bounds["width"]*.5,
+                        bounds["y"]+bounds["height"]*.25)
+        assert "400" in page.locator("#c1-sphere-reading").inner_text()
+        page.evaluate("() => renderSurfaceThermal(null,15)")
+        assert "无可信数据" in page.locator("#c1-sphere-status").inner_text()
+        assert page.locator("#c1-sphere-legend").is_hidden()
+        assert canvas.evaluate("node => node.getContext('2d')"
+                               ".getImageData(128,64,1,1).data[3]") == 0
+        # All local material previews are actual nonuniform sphere images.
+        for name in ("surface-star-1", "surface-star-2", "surface-star-3", "surface-rock"):
+            assert page.locator("#"+name).evaluate("node => {"
+                "const c=node.getContext('2d');"
+                "return c.getImageData(80,80,1,1).data[3]===255 && "
+                "c.getImageData(0,0,1,1).data[3]===0; }")
+        assert not errors, errors
         browser.close()

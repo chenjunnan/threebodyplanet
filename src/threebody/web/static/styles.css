@@ -123,3 +123,9 @@ textarea { width:100%; min-height:285px; resize:vertical; background:#080c0d; bo
 #orbit-body-detail{padding:10px 12px;border:1px solid var(--line);
   border-radius:8px;color:var(--ink)}
 #orbit-event-sync{color:var(--muted)}
+
+.surface-gallery {display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-around;}
+.surface-gallery figure {margin:.5rem;text-align:center;}
+.surface-gallery canvas {width:140px;height:140px;}
+#c1-sphere {width:256px;max-width:100%;height:auto;display:block;margin:1rem auto;}
+#c1-sphere-legend {border-top:12px solid transparent;border-image:linear-gradient(to right,hsl(240,85%,54%),hsl(180,85%,54%),hsl(120,85%,54%),hsl(60,85%,54%),hsl(0,85%,54%)) 1;text-align:center;}

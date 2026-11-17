@@ -293,6 +293,7 @@ webglToggle.addEventListener('change',()=>{
     webglRenderer.load(orbitSamples);
     webglRenderer.select(orbitSelectedId);
     webglRenderer.focus(orbitFocusId);
+    webglRenderer.materials(materialToggle.checked);
     webglRenderer.draw(orbitIndex);
     webglStatus.textContent='WebGL2已启用 · 仅使用已验证轨道点，无外推；拖动旋转、滚轮缩放。';
   } catch(error) {
@@ -319,8 +320,17 @@ function projectOrbit(position, scale, center) {
   const ce=Math.cos(orbitAltitude), se=Math.sin(orbitAltitude);
   return [x*ca-y*sa, (x*sa+y*ca)*se-z*ce];
 }
+const materialToggle=document.querySelector('#surface-materials');
+materialToggle.addEventListener('change',()=>{
+  if(webglRenderer)webglRenderer.materials(materialToggle.checked);
+  orbitDraw();
+});
+for(const [i,id] of ['surface-star-1','surface-star-2','surface-star-3','surface-rock'].entries()){
+  document.getElementById(id).getContext('2d').drawImage(window.ThreeBodySurfaces.disk(i,160),0,0);
+}
 function orbitDraw() {
   if(webglRenderer){
+    webglRenderer.materials(materialToggle.checked);
     webglRenderer.draw(orbitIndex);
     return;
   }
@@ -346,7 +356,10 @@ function orbitDraw() {
     }); ctx.stroke();
     const [px,py]=projectOrbit(end.positions_m[id],scale,center);
     ctx.beginPath();ctx.fillStyle=orbitColors[bi];
-    ctx.arc(w/2+px,h/2+py,id==='planet-1'?4:7,0,Math.PI*2);ctx.fill();
+    if(materialToggle.checked){
+      const size=id==='planet-1'?20:30;
+      ctx.drawImage(window.ThreeBodySurfaces.disk(bi),w/2+px-size/2,h/2+py-size/2,size,size);
+    }else{ctx.arc(w/2+px,h/2+py,id==='planet-1'?4:7,0,Math.PI*2);ctx.fill();}
     ctx.font='12px system-ui';ctx.fillText(id,w/2+px+9,h/2+py-7);
   });
   ctx.fillStyle='#b7c5ca';ctx.font='13px monospace';
@@ -494,9 +507,10 @@ async function loadOrbit() {
       orbitEvents.add(new Option(displayType+' @ '+event.t_s+' s',String(i)));
     });
     orbitSetIndex(orbitSamples.length-1);
-    if(!orbitSamples.length)orbitDraw();
+    if(!orbitSamples.length){orbitDraw();renderThermal();}
   } catch(error) {
-    orbitSamples=[];orbitEventItems=[];linkedBodyMetadata=null;
+    orbitSamples=[];orbitEventItems=[];linkedBodyMetadata=null;linkedThermal=null;
+    renderThermal();
     orbitSelectedId=null;orbitFocusId=null;orbitBodySelect.value='';
     orbitBodyDetail.textContent='当前运行没有有效的天体属性。';
     if(webglRenderer)webglRenderer.load(orbitSamples);
@@ -767,11 +781,51 @@ function updateCurrentC0Reading(row, selectedTime) {
     + Math.abs(selectedTime - sourceTime).toPrecision(4)
     + ' 秒（使用最近采样，不插值）';
 }
+let sphereFrame=null;
+const sphereCanvas=document.querySelector('#c1-sphere');
+function renderSurfaceThermal(thermal,time){
+  const ctx=sphereCanvas.getContext('2d');ctx.clearRect(0,0,256,256);
+  sphereFrame=window.ThreeBodySurfaces.thermalFrame(thermal,time);
+  const status=document.querySelector('#c1-sphere-status');
+  const legend=document.querySelector('#c1-sphere-legend');
+  document.querySelector('#c1-sphere-reading').textContent='将鼠标移到球面查看真实纬带温度。';
+  if(!sphereFrame){
+    status.textContent='C1球面：无可信数据（缺失、无效或在归档时间范围外）';
+    legend.textContent='无数据';legend.hidden=true;return;
+  }
+  ctx.drawImage(window.ThreeBodySurfaces.disk(3,256,sphereFrame),0,0);
+  status.textContent='真实M3采样 t='+sphereFrame.row.t_s+' SI s · 与轨道相差 '+
+    sphereFrame.delta_s+' s · '+sphereFrame.row.c1_temperature_k.length+
+    '个等面积纬带 · 无插值 · '+(thermal.sampling_quality||'质量未指定')+
+    (thermal.sampling_warning?' · '+thermal.sampling_warning:'');
+  legend.hidden=false;
+  legend.style.borderImage=sphereFrame.max===sphereFrame.min?
+    'linear-gradient(to right,hsl(240,85%,54%),hsl(240,85%,54%)) 1':'';
+  legend.textContent=sphereFrame.min.toFixed(6)+' K（蓝） → '+
+    sphereFrame.max.toFixed(6)+(sphereFrame.max===sphereFrame.min?' K（等温，统一蓝色）':' K（红）')+' · 当前窗口固定色标'+
+    (sphereFrame.max-sphereFrame.min<.01?' · 温差不足0.01 K，颜色仅显示微小相对变化':'');
+}
+sphereCanvas.addEventListener('pointermove',event=>{
+  if(!sphereFrame)return;
+  const rect=sphereCanvas.getBoundingClientRect();
+  const x=2*(event.clientX-rect.left)/rect.width-1;
+  const y=2*(event.clientY-rect.top)/rect.height-1;
+  const target=document.querySelector('#c1-sphere-reading');
+  if(x*x+y*y>1){target.textContent='球面外无温度数据。';return;}
+  const row=sphereFrame.row;
+  const band=window.ThreeBodySurfaces.bandAt(y,row.c1_temperature_k.length);
+  target.textContent='纬带中心 '+(row.c1_latitude_rad[band]*180/Math.PI).toFixed(2)+
+    '° · '+c1TemperatureText(row.c1_temperature_k[band])+' · t='+row.t_s+' SI s';
+});
+sphereCanvas.addEventListener('pointerleave',()=>{
+  document.querySelector('#c1-sphere-reading').textContent='将鼠标移到球面查看真实纬带温度。';
+});
 function renderThermal(){
   const flux=document.querySelector('#flux-canvas');
   const c0=document.querySelector('#c0-canvas');
   const cursor=document.querySelector('#thermal-cursor');
   const c1=document.querySelector('#c1-canvas');
+  renderSurfaceThermal(linkedThermal,orbitSamples[orbitIndex]?.t_s);
   if(!linkedThermal||!linkedThermal.rows.length||!orbitSamples.length){
     blankThermal(flux,'恒星辐照度：无可信数据');
     blankThermal(c0,'C0：无可信数据');
