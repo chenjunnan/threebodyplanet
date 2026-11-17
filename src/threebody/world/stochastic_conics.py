@@ -8,7 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict
 
-from threebody.common.constants import G, M_EARTH_KG, M_SUN_KG
+from threebody.common.constants import M_EARTH_KG, M_SUN_KG, G
 from threebody.config.models import (
     BoundedStochasticConicsGeneratorConfig,
     ScalarDistributionConfig,
