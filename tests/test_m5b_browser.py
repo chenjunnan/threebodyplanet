@@ -107,6 +107,12 @@ def test_real_browser_world_3d_drag_science_and_report():
             timeout=20000,
         )
         assert page.locator("#analysis-phase").inner_text() == "COMPLETED"
+        energy=page.locator("#m6-energy-diagnostics")
+        energy.wait_for()
+        assert "净热通量" in energy.inner_text()
+        assert "瞬时平衡温度" in energy.inner_text()
+        assert "归一化能量残差" in energy.inner_text()
+        assert "C1最大纬度温差" in energy.inner_text()
         assert "已保存归档：温度有，M4有" in (
             page.locator("#analysis-progress-text").inner_text()
         )
