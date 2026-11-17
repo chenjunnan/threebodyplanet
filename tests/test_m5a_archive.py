@@ -12,6 +12,7 @@ from threebody.physics.longrun.archive import (
     commit_segment,
     initialize_run_archive,
     load_run_manifest,
+    load_run_settings,
     recover_run_archive,
     set_task_status,
     verify_run_archive,
@@ -182,7 +183,7 @@ def test_segment_out_of_order_and_duplicate_boundary_are_rejected(archive_case):
                 output_checkpoint_sha256="b" * 64,
             )
         _commit_zero(directory, lock.token)
-        with pytest.raises(ConfigError, match="does not match owned time"):
+        with pytest.raises(ConfigError, match="do not match owned times"):
             commit_segment(
                 directory,
                 1,
@@ -211,6 +212,29 @@ def test_segment_checkpoint_chain_must_continue_predecessor(archive_case):
                 input_checkpoint_sha256="c" * 64,
                 output_checkpoint_sha256="b" * 64,
             )
+
+
+def test_terminal_collision_segment_stops_archive_at_actual_time(archive_case):
+    directory, manifest = archive_case
+    with SingleWriterLock(directory, manifest.run_id) as lock:
+        set_task_status(directory, "RUNNING", lock_token=lock.token)
+        terminal = commit_segment(
+            directory,
+            0,
+            (_sample(0.0), _sample(10.0), _sample(15.0)),
+            (),
+            {"summary": {}},
+            lock_token=lock.token,
+            output_checkpoint_sha256="a" * 64,
+            terminal_reason="COLLISION",
+            terminal_time_s=15.0,
+        )
+    verified = verify_run_archive(directory)
+    assert terminal.status == "TERMINAL"
+    assert terminal.t_end_s == 15.0
+    assert verified.task.status == "COLLISION"
+    assert verified.task.simulation_time_s == 15.0
+    assert verified.segments[1].status == "PLANNED"
 
 
 def test_failure_before_rename_never_commits_segment(archive_case):
@@ -275,6 +299,20 @@ def test_corrupt_committed_artifact_breaks_verification(archive_case):
     trajectory.write_bytes(trajectory.read_bytes() + b"\n")
     with pytest.raises(ConfigError, match="trajectory SHA-256"):
         verify_run_archive(directory)
+
+
+def test_changed_resolved_contract_is_rejected_before_recovery(archive_case):
+    directory, manifest = archive_case
+    settings = load_run_settings(directory)
+    write_json_atomic(
+        directory / "resolved_long_run_config.json",
+        settings.model_copy(update={"epsilon": settings.epsilon * 10.0}),
+    )
+    with pytest.raises(ConfigError, match="contract hashes"):
+        verify_run_archive(directory)
+    with SingleWriterLock(directory, manifest.run_id) as lock:
+        with pytest.raises(ConfigError, match="contract hashes"):
+            recover_run_archive(directory, lock_token=lock.token)
 
 
 def test_durable_segment_outside_plan_is_rejected(archive_case):

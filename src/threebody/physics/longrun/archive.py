@@ -77,6 +77,24 @@ def load_run_settings(run_dir: str | Path) -> LongRunSettings:
     return _read_model(Path(run_dir) / "resolved_long_run_config.json", LongRunSettings)
 
 
+def _verify_contract_files(
+    directory: Path, manifest: LongRunManifest
+) -> tuple[WorldInitialState, LongRunSettings]:
+    initial_state = _read_model(directory / "initial_state.json", WorldInitialState)
+    settings = load_run_settings(directory)
+    initial_hash = sha256_json(initial_state)
+    if initial_hash != manifest.initial_state_sha256:
+        raise ConfigError("long-run initial-state hash does not match manifest")
+    observed_hashes = compute_contract_hashes(
+        settings,
+        initial_state_sha256=initial_hash,
+        body_ids=tuple(body.id for body in initial_state.bodies),
+    )
+    if observed_hashes != manifest.hashes:
+        raise ConfigError("resolved long-run contract hashes do not match manifest")
+    return initial_state, settings
+
+
 def initialize_run_archive(
     destination: str | Path,
     *,
@@ -215,25 +233,65 @@ def set_task_status(
     return updated
 
 
+def set_active_checkpoint(
+    run_dir: str | Path,
+    *,
+    checkpoint_sha256: str,
+    simulation_time_s: float,
+    segment_index: int,
+    next_output_index: int,
+    lock_token: str,
+) -> LongRunManifest:
+    directory = Path(run_dir)
+    manifest = load_run_manifest(directory)
+    _require_lock(directory, manifest.run_id, lock_token)
+    if manifest.task.status != "RUNNING":
+        raise ConfigError("active checkpoints may be registered only while RUNNING")
+    if segment_index >= len(manifest.segments):
+        raise ConfigError("active checkpoint segment is outside the run plan")
+    entry = manifest.segments[segment_index]
+    if entry.status != "PLANNED" or not (
+        entry.t_start_s < simulation_time_s < entry.t_end_s
+    ):
+        raise ConfigError("active checkpoint is not inside its planned segment")
+    task = manifest.task.model_copy(
+        update={
+            "simulation_time_s": simulation_time_s,
+            "segment_index": segment_index,
+            "next_output_index": next_output_index,
+            "active_checkpoint_sha256": checkpoint_sha256,
+            "revision": manifest.task.revision + 1,
+        }
+    )
+    updated = manifest.model_copy(update={"task": task})
+    write_json_atomic(directory / "long_run_manifest.json", updated)
+    _fsync_directory(directory)
+    return updated
+
+
 def _write_trajectory(
     path: Path,
     samples: Iterable[TrajectorySample],
     expected_times: Iterable[float],
+    *,
+    terminal_time_s: float | None = None,
 ) -> int:
-    expected = iter(expected_times)
-    count = 0
+    sample_values = tuple(samples)
+    owned_times = tuple(expected_times)
+    if terminal_time_s is None:
+        required_times = owned_times
+    else:
+        required_times = tuple(time for time in owned_times if time <= terminal_time_s)
+        if not required_times or required_times[-1] != terminal_time_s:
+            required_times += (terminal_time_s,)
+    observed_times = tuple(sample.t_s for sample in sample_values)
+    if observed_times != required_times:
+        raise ConfigError(
+            f"segment sample times {observed_times} do not match owned times {required_times}"
+        )
     try:
         with path.open("w", encoding="utf-8") as handle:
-            for sample in samples:
-                try:
-                    expected_time = next(expected)
-                except StopIteration as exc:
-                    raise ConfigError("segment contains more samples than its index owns") from exc
-                if sample.t_s != expected_time:
-                    raise ConfigError(
-                        f"segment sample time {sample.t_s} does not match owned time "
-                        f"{expected_time}"
-                    )
+            for sample in sample_values:
                 handle.write(
                     json.dumps(
                         sample.model_dump(mode="json"),
@@ -244,18 +302,11 @@ def _write_trajectory(
                     )
                     + "\n"
                 )
-                count += 1
-            try:
-                missing = next(expected)
-            except StopIteration:
-                missing = None
-            if missing is not None:
-                raise ConfigError(f"segment is missing owned sample at t={missing}")
             handle.flush()
             os.fsync(handle.fileno())
     except OSError as exc:
         raise ConfigError(f"cannot write segment trajectory {path}: {exc}") from exc
-    return count
+    return len(sample_values)
 
 
 def _expected_times(clock: PhysicalClock, entry: SegmentIndexEntry) -> Iterable[float]:
@@ -277,6 +328,8 @@ def commit_segment(
     lock_token: str,
     input_checkpoint_sha256: str | None = None,
     output_checkpoint_sha256: str | None = None,
+    terminal_reason: str | None = None,
+    terminal_time_s: float | None = None,
     failure_hook: FailureHook | None = None,
 ) -> SegmentManifest:
     directory = Path(run_dir)
@@ -294,6 +347,14 @@ def commit_segment(
         raise ConfigError("segments must be committed in physical order")
     if output_checkpoint_sha256 is None:
         raise ConfigError("a committed segment requires an output checkpoint")
+    if (terminal_reason is None) != (terminal_time_s is None):
+        raise ConfigError("terminal reason and terminal time must be supplied together")
+    if terminal_reason not in {None, "COLLISION", "FAILED"}:
+        raise ConfigError("unsupported terminal segment reason")
+    if terminal_time_s is not None and not (
+        entry.t_start_s <= terminal_time_s <= entry.t_end_s
+    ):
+        raise ConfigError("terminal time is outside the planned segment")
     if segment_index == 0:
         if input_checkpoint_sha256 is not None:
             raise ConfigError("segment zero cannot reference an input checkpoint")
@@ -322,6 +383,7 @@ def commit_segment(
             temporary / "trajectory.jsonl",
             samples,
             _expected_times(clock, entry),
+            terminal_time_s=terminal_time_s,
         )
         event_values = tuple(events)
         write_json_atomic(
@@ -343,13 +405,14 @@ def commit_segment(
             run_id=manifest.run_id,
             segment_index=segment_index,
             t_start_s=entry.t_start_s,
-            t_end_s=entry.t_end_s,
+            t_end_s=entry.t_end_s if terminal_time_s is None else terminal_time_s,
             owns_start_sample=entry.owns_start_sample,
             first_output_index=entry.first_output_index,
             last_output_index=entry.last_output_index,
             sample_count=sample_count,
             event_count=len(event_values),
-            status="COMMITTED",
+            status="COMMITTED" if terminal_reason is None else "TERMINAL",
+            terminal_reason=terminal_reason,
             previous_segment_sha256=previous_hash,
             input_checkpoint_sha256=input_checkpoint_sha256,
             output_checkpoint_sha256=output_checkpoint_sha256,
@@ -371,7 +434,7 @@ def commit_segment(
         segments = list(manifest.segments)
         segments[segment_index] = entry.model_copy(
             update={
-                "status": "COMMITTED",
+                "status": "COMMITTED" if terminal_reason is None else "TERMINAL",
                 "previous_segment_sha256": previous_hash,
                 "segment_manifest_sha256": segment_hash,
             }
@@ -383,12 +446,17 @@ def commit_segment(
         )
         task = manifest.task.model_copy(
             update={
-                "simulation_time_s": entry.t_end_s,
+                "simulation_time_s": (
+                    entry.t_end_s if terminal_time_s is None else terminal_time_s
+                ),
                 "segment_index": segment_index + 1,
                 "next_output_index": next_output,
+                "active_checkpoint_sha256": None,
                 "revision": manifest.task.revision + 1,
             }
         )
+        if terminal_reason is not None:
+            task = transition_task(task, terminal_reason)
         updated = manifest.model_copy(update={"segments": tuple(segments), "task": task})
         if failure_hook:
             failure_hook("before_global_manifest")
@@ -439,7 +507,9 @@ def _verify_segment_directory(
         if not isinstance(events_raw, list):
             raise ConfigError("segment events root must be an array")
         for event in events_raw:
-            SimulationEvent.model_validate(event, strict=True)
+            SimulationEvent.model_validate_json(
+                json.dumps(event, allow_nan=False), strict=True
+            )
         diagnostics_raw = json.loads(
             artifact_paths["diagnostics"].read_text(encoding="utf-8"),
             parse_constant=_reject_nonfinite_json,
@@ -471,6 +541,7 @@ def _validate_durable_segment_names(directory: Path, planned_count: int) -> None
 def verify_run_archive(run_dir: str | Path) -> LongRunManifest:
     directory = Path(run_dir)
     manifest = load_run_manifest(directory)
+    _verify_contract_files(directory, manifest)
     _validate_durable_segment_names(directory, len(manifest.segments))
     previous_hash = None
     previous_checkpoint_hash = None
@@ -494,14 +565,28 @@ def verify_run_archive(run_dir: str | Path) -> LongRunManifest:
         )
         if entry.segment_manifest_sha256 != observed_hash:
             raise ConfigError("global segment manifest SHA-256 mismatch")
-        if segment.t_start_s != entry.t_start_s or segment.t_end_s != entry.t_end_s:
+        if entry.status != segment.status:
+            raise ConfigError("global and local segment status differ")
+        if segment.t_start_s != entry.t_start_s:
             raise ConfigError("segment coverage differs from global index")
+        if (
+            segment.owns_start_sample != entry.owns_start_sample
+            or segment.first_output_index != entry.first_output_index
+            or segment.last_output_index != entry.last_output_index
+        ):
+            raise ConfigError("segment output ownership differs from global index")
+        if segment.status == "COMMITTED" and segment.t_end_s != entry.t_end_s:
+            raise ConfigError("committed segment does not cover its planned interval")
+        if segment.status == "TERMINAL" and segment.t_end_s > entry.t_end_s:
+            raise ConfigError("terminal segment exceeds its planned interval")
         if segment.input_checkpoint_sha256 != previous_checkpoint_hash:
             raise ConfigError("segment checkpoint chain is broken")
         if segment.output_checkpoint_sha256 is None:
             raise ConfigError("committed segment has no output checkpoint")
         previous_hash = observed_hash
         previous_checkpoint_hash = segment.output_checkpoint_sha256
+        if segment.status == "TERMINAL":
+            seen_uncommitted = True
     return manifest
 
 
@@ -513,6 +598,7 @@ def recover_run_archive(
     directory = Path(run_dir)
     manifest = load_run_manifest(directory)
     _require_lock(directory, manifest.run_id, lock_token)
+    _verify_contract_files(directory, manifest)
     _validate_durable_segment_names(directory, len(manifest.segments))
     segments = list(manifest.segments)
     previous_hash = None
@@ -547,6 +633,8 @@ def recover_run_archive(
             raise ConfigError("global segment hash differs from durable segment")
         previous_hash = observed_hash
         previous_checkpoint_hash = segment.output_checkpoint_sha256
+        if segment.status == "TERMINAL":
+            break
     if changed:
         committed = [entry for entry in segments if entry.status != "PLANNED"]
         latest = committed[-1]
@@ -560,9 +648,22 @@ def recover_run_archive(
                 "simulation_time_s": latest.t_end_s,
                 "segment_index": latest.segment_index + 1,
                 "next_output_index": next_output,
+                "active_checkpoint_sha256": None,
                 "revision": manifest.task.revision + 1,
             }
         )
+        terminal = next(
+            (entry for entry in committed if entry.status == "TERMINAL"), None
+        )
+        if terminal is not None:
+            terminal_manifest = _read_model(
+                directory
+                / "segments"
+                / f"{terminal.segment_index:08d}"
+                / "segment_manifest.json",
+                SegmentManifest,
+            )
+            task = transition_task(task, terminal_manifest.terminal_reason)
         manifest = manifest.model_copy(update={"segments": tuple(segments), "task": task})
         write_json_atomic(directory / "long_run_manifest.json", manifest)
         _fsync_directory(directory)
