@@ -114,7 +114,7 @@ def create_worldset(root: Path, config_mapping: dict, count: int) -> dict:
                     } for body in state.bodies],
                 }
                 if metadata is not None:
-                    candidate["generator_metadata"] = metadata.model_dump(mode="json")
+                    candidate["generator_metadata"] = (\n                        metadata.model_dump(mode="json")\n                        if hasattr(metadata, "model_dump")\n                        else __import__("dataclasses").asdict(metadata)\n                    )
             except (ValueError, ArithmeticError, ConfigError) as exc:
                 candidate = {
                     "index": index, "world_id": f"candidate-{index:06d}",
