@@ -97,15 +97,15 @@ def test_backend_validates_config_and_rejects_unknown_fields(tmp_path, example_p
         assert "unexpected" in invalid["errors"][0]["message"]
 
 
-def test_console_exposes_no_fake_task_controls_or_non_loopback_bind(tmp_path):
+def test_console_rejects_unregistered_task_controls_or_non_loopback_bind(tmp_path):
     with pytest.raises(ValueError, match="loopback"):
         create_console_server(tmp_path, host="0.0.0.0")
     with _server(tmp_path) as base:
         status, _, payload = _request(
             f"{base}/api/v1/runs/run-001/pause", method="POST", payload={}
         )
-        assert status == 405
-        assert payload["error"] == "read_only"
+        assert status == 404
+        assert payload["error"] == "run_not_found"
         status, headers, _ = _request(f"{base}/api/v1/health")
         assert status == 200
         assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
