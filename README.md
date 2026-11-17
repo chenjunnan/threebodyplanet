@@ -238,9 +238,10 @@ threebody world assess \
 
 ## M5A 长期模拟契约
 
-M5A-01 新增严格的 `0.6.0` 长期运行契约和示例配置 `configs/m5a_long_run.yaml`。当前分支只
-定义统一物理时钟、不可变分段索引、检查点/运行 manifest、三类兼容哈希以及任务状态机；
-尚未提供 `simulate-long` 或 `resume` 命令，不能把这些契约描述成已经实现暂停恢复。
+M5A 新增严格的 `0.6.0` 长期运行契约和示例配置 `configs/m5a_long_run.yaml`，定义统一物理
+时钟、不可变分段索引、检查点/运行 manifest、三类兼容哈希以及任务状态机。M5A-02 提供
+程序化 REBOUND 二进制检查点保存/验证/加载和 observer/诊断状态恢复；尚未提供
+`simulate-long` 或 `resume` CLI、分段归档或单写锁，不能宣称用户级暂停恢复已经完成。
 
 权威物理时间始终是 REBOUND 的绝对 SI 秒 `simulation.t`。输出目标由全局整数索引计算，
 分段后不归零；墙钟配额、浏览器回放速度和行星自转周期均不是积分时间。首段拥有全局起点

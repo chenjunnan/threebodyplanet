@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import math
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from threebody.physics.nbody.models import (
     CollisionSettings,
+    DiagnosticSnapshot,
     EncounterSettings,
     EscapeSettings,
+    SimulationEvent,
 )
 
 RunStatus = Literal[
@@ -109,6 +112,16 @@ class LongRunSettings(StrictModel):
             raise ValueError(
                 "checkpoint.simulation_interval_s must not exceed segment duration"
             )
+        checkpoint_interval = Decimal(str(self.checkpoint.simulation_interval_s))
+        output_interval = Decimal(str(self.time.output_interval_s))
+        segment_interval = Decimal(str(self.segmentation.simulated_duration_s))
+        if (
+            checkpoint_interval % output_interval != 0
+            and checkpoint_interval != segment_interval
+        ):
+            raise ValueError(
+                "checkpoint simulation interval must land on output targets or segment boundaries"
+            )
         return self
 
 
@@ -171,6 +184,7 @@ class CheckpointManifest(StrictModel):
     hashes: ContractHashes
     initial_state_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     rebound_binary_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    observer_state_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     rebound_binary_bytes: int = Field(gt=0)
     rebound_version: str = Field(min_length=1)
     project_version: str = Field(min_length=1)
@@ -186,6 +200,55 @@ class CheckpointManifest(StrictModel):
         if self.body_ids != ("star-1", "star-2", "star-3", "planet-1"):
             raise ValueError("checkpoint body IDs must use canonical four-body order")
         return self
+
+
+class EscapeTimerState(StrictModel):
+    body_index: int = Field(ge=0, le=3)
+    started_s: float = Field(allow_inf_nan=False)
+
+
+class ObserverCheckpointState(StrictModel):
+    events: tuple[SimulationEvent, ...]
+    minimum_observed_pair_distances_m: dict[str, float]
+    encounter_recorded: tuple[tuple[int, int], ...]
+    escape_recorded: tuple[int, ...]
+    escape_timers: tuple[EscapeTimerState, ...]
+    collision_particle_indices: tuple[int, int] | None = None
+    collision_time_s: float | None = Field(default=None, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def valid_runtime_indices(self) -> ObserverCheckpointState:
+        if any(not (0 <= first < second <= 3) for first, second in self.encounter_recorded):
+            raise ValueError("encounter pairs must be canonical four-body indices")
+        if any(not 0 <= index <= 3 for index in self.escape_recorded):
+            raise ValueError("escape-recorded body index is invalid")
+        if (self.collision_particle_indices is None) != (self.collision_time_s is None):
+            raise ValueError("collision indices and time must be present together")
+        return self
+
+
+class DiagnosticTrackerCheckpointState(StrictModel):
+    initial: DiagnosticSnapshot
+    latest: DiagnosticSnapshot
+    maximum_scaled_energy_error: float = Field(ge=0.0, allow_inf_nan=False)
+    maximum_traditional_relative_energy_error: float | None = Field(
+        default=None, ge=0.0, allow_inf_nan=False
+    )
+    maximum_angular_momentum_relative_error: float = Field(
+        ge=0.0, allow_inf_nan=False
+    )
+    maximum_barycenter_position_drift_m: float = Field(
+        ge=0.0, allow_inf_nan=False
+    )
+    maximum_barycenter_velocity_drift_mps: float = Field(
+        ge=0.0, allow_inf_nan=False
+    )
+
+
+class RuntimeCheckpointState(StrictModel):
+    schema_version: Literal["0.6.0"] = "0.6.0"
+    observer: ObserverCheckpointState
+    diagnostics: DiagnosticTrackerCheckpointState
 
 
 class LongRunManifest(StrictModel):

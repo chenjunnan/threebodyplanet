@@ -162,3 +162,18 @@
   while also confirming Python callbacks are not serialized and must be reattached with external observer
   state. M5A-01 defines that state contract but does not yet claim a working production resume command.
 
+## P0-M5A-02 — 2026-11-17
+
+- Checkpoints use REBOUND's binary Simulationarchive representation, never rounded trajectory JSON.
+  Binary byte length/SHA-256, external runtime-state SHA-256, source hashes, versions, platform, SI G,
+  epsilon and canonical particle order are verified before callbacks are restored.
+- Python collision and heartbeat callbacks are deliberately reattached after binary load. Close-encounter
+  deduplication, escape start/recorded sets, emitted events, minimum distances and global diagnostic
+  baseline/extrema are serialized separately with strict finite models.
+- Checkpoints are accepted only at deterministic output or segment boundaries. They are written into a
+  temporary directory, fsynced and atomically renamed; existing destinations are never overwritten.
+- Same-version/platform continuation is bitwise equal in the covered short benchmark. This is not a
+  cross-version portability promise or a universal long-chaos coordinate-identity claim.
+- A checkpoint containing a terminal collision cannot resume. Corrupt binary/state hashes, incompatible
+  versions/platforms, changed contract hashes and mismatched initial state are hard errors.
+

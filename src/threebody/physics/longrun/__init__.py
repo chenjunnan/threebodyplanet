@@ -1,5 +1,6 @@
 """Contracts for resumable, segmented long-horizon integrations."""
 
+from threebody.physics.longrun.checkpoint import load_checkpoint, save_checkpoint
 from threebody.physics.longrun.clock import PhysicalClock, build_segment_index
 from threebody.physics.longrun.config import load_long_run_settings
 from threebody.physics.longrun.models import (
@@ -21,6 +22,8 @@ __all__ = [
     "RunTaskState",
     "SegmentIndexEntry",
     "build_segment_index",
+    "load_checkpoint",
     "load_long_run_settings",
+    "save_checkpoint",
     "transition_task",
 ]
