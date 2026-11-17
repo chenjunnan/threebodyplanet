@@ -16,6 +16,28 @@
       <div><p class="kicker">SERVER-AUTHORITATIVE SCIENCE</p><h2>观察已提交的世界，<br>控制真实的分段计算。</h2></div>
       <p>物理时间来自服务端归档中的 SI 秒。暂停与取消是请求，在当前安全分段完成后才生效；碰撞终态绝不续算。</p>
     </section>
+    <section class="panel world-builder" aria-labelledby="builder-heading">
+      <div class="panel-head"><div><span class="index">00</span><h3 id="builder-heading">创建随机三恒星世界</h3></div><span>G2.1可复现初态 · 选择后真实演化</span></div>
+      <p>选择随机参数并生成一批三颗恒星加一颗行星的候选。全部初态真实保存；初始接触及无法积分的世界仍展示，但禁止启动IAS15。</p>
+      <div class="world-controls">
+        <label>随机种子<input id="world-seed" type="number" min="0" max="4294967295" value="20261117"></label>
+        <label>候选数量<input id="world-count" type="number" min="1" max="20" value="6"></label>
+        <label>初态约束<select id="world-mode"><option value="bounded">受限：减少初始高速飞离</option><option value="unrestricted">无限制：保留全部混沌分布</option></select></label>
+        <label>最大初始速度 (km/s)<input id="world-max-speed" type="number" min="1" max="1000" step="5" value="80"></label>
+        <label>距离最近恒星的最大距离 (AU)<input id="world-max-distance" type="number" min="0.01" max="1000" step=".5" value="10"></label>
+        <label>逃逸速度比例上限<input id="world-escape-ratio" type="number" min=".01" max="5" step=".05" value=".90"></label>
+        <label>行星偏心率最大值<input id="world-eccentricity" type="number" min="0" max="5" step=".1" value="2.2"></label>
+      </div>
+      <details><summary>科学参数：完整G2.1 JSON，可编辑</summary><textarea id="world-advanced-config" spellcheck="false" aria-label="完整世界生成配置JSON"></textarea><p class="muted">展开后可直接修改恒星质量、轨道分布等参数；生成时使用本JSON的全部字段。上方快捷字段会同步覆盖对应字段。</p></details>
+      <div class="actions"><button id="world-generate" class="primary">随机生成候选</button><span id="world-generator-status" role="status">正在读取默认科学配置…</span></div>
+      <div id="world-candidates" class="world-candidates" aria-label="可选随机世界列表"></div>
+      <div class="world-controls world-duration">
+        <label>模拟时长<select id="world-duration"><option value="86400">1个标准24小时</option><option value="604800">7天</option><option value="31557600" selected>1个儒略年</option><option value="157788000">5年</option><option value="315576000">10年</option></select></label>
+        <label>输出采样间隔<select id="world-sampling"><option value="3600">1小时</option><option value="86400" selected>1个标准24小时</option><option value="432000">5天</option><option value="2592000">30天</option></select></label>
+        <label>运行ID<input id="world-run-id" value="my-world-001" maxlength="128"></label>
+      </div>
+      <div class="actions"><button id="world-start" class="primary" disabled>启动选中世界的真实模拟</button><span id="world-start-status" role="status">请选择可积分的候选世界。</span></div>
+    </section>
     <section class="grid">
       <article class="panel runs"><div class="panel-head"><div><span class="index">01</span><h3>运行归档</h3></div><button id="refresh">刷新</button></div><div id="runs" class="run-list"><p class="muted">读取中…</p></div></article>
       <article class="panel validator"><div class="panel-head"><div><span class="index">02</span><h3>配置验证</h3></div><span>JSON / 严格后端校验</span></div><textarea id="config" spellcheck="false" aria-label="实验配置 JSON">{
@@ -39,7 +61,7 @@
     </section>
     <section class="panel observer" aria-labelledby="observe-heading">
       <div class="panel-head"><div><span class="index">04</span><h3 id="observe-heading">长期轨道观察</h3></div><span>真实分段轨迹 · 投影3D</span></div>
-      <p>读取服务器已提交的四体轨迹。可旋转观察视角、选择时间范围、拖动时间轴并跳转到事件；未计算部分不会显示预测线。</p>
+      <p>读取服务器已提交的四体轨迹。鼠标按住拖动旋转、滚轮缩放、选择时间范围、拖动时间轴并跳转到事件；未计算部分不会显示预测线。</p>
       <div class="actions observe-filters">
         <label>运行ID <input id="observe-run-id" value="web-run-001" maxlength="128"></label>
         <label>开始时间(s) <input id="observe-start" type="number" step="any" placeholder="自动"></label>
