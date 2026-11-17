@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from contextlib import contextmanager
 from importlib.resources import files
+from pathlib import Path
 
 import pytest
 
@@ -107,8 +108,6 @@ def test_comparison_refuses_tampered_physics(tmp_path):
     from threebody.physics.longrun.models import LongRunSettings
     from threebody.physics.longrun.runner import start_long_run
     from threebody.world.generators import generate_initial_state
-
-    from pathlib import Path
 
     config, digest = load_and_resolve(Path("configs/g21_bounded_worlds.yaml"))
     initial = generate_initial_state(
