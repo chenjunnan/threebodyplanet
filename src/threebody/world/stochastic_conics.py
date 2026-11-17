@@ -14,6 +14,7 @@ from threebody.config.models import (
     ScalarDistributionConfig,
     StochasticConicsGeneratorConfig,
 )
+from threebody.physics.stellar.main_sequence import main_sequence_properties
 from threebody.world.models import BodyKind, CelestialBody, WorldInitialState
 
 FloatArray = NDArray[np.float64]
@@ -403,7 +404,7 @@ def generate_stochastic_state(
     density = _sample(config.planet.density_kg_m3, rng(111))
     with np.errstate(over="ignore", invalid="ignore"):
         masses = np.concatenate((star_solar * M_SUN_KG, [planet_earth * M_EARTH_KG]))
-        star_radii = R_SUN_M * np.power(star_solar, 0.8)
+        star_radii = np.asarray([main_sequence_properties(float(m))[0] for m in star_solar])
         planet_radius = (3.0 * masses[3] / (4.0 * math.pi * density)) ** (1.0 / 3.0)
     radii = np.concatenate((star_radii, [planet_radius]))
     if not np.all(np.isfinite(masses)) or not np.all(np.isfinite(radii)):
@@ -486,8 +487,9 @@ def generate_stochastic_state(
     if not np.all(np.isfinite(positions)) or not np.all(np.isfinite(velocities)):
         raise GenerationError("NONFINITE_FINAL_STATE", "final barycentric state is non-finite")
 
-    with np.errstate(over="ignore", invalid="ignore"):
-        luminosities = np.power(star_solar, 3.5) * 3.828e26
+    luminosities = np.asarray(
+        [main_sequence_properties(float(m))[1] for m in star_solar], dtype=np.float64
+    )
     if not np.all(np.isfinite(luminosities)):
         raise GenerationError(
             "UNREPRESENTABLE_PHYSICAL_SAMPLE", "sampled luminosity exceeds float64 range"
@@ -495,7 +497,7 @@ def generate_stochastic_state(
     properties: list[dict[str, Any]] = [
         {
             "luminosity_w": float(luminosity),
-            "mass_luminosity_model": "power_3.5_v1",
+            "mass_luminosity_model": "piecewise_main_sequence_0p3_8_v1",
         }
         for luminosity in luminosities
     ]
