@@ -58,6 +58,13 @@ def build_parser() -> argparse.ArgumentParser:
     simulate_long.add_argument("--config", type=Path, required=True)
     simulate_long.add_argument("--out-dir", type=Path, required=True)
     simulate_long.add_argument("--run-id")
+    thermal_long = world_commands.add_parser(
+        "thermal-long",
+        help="Compute M5A-linked stellar flux and C0/C1 into an independent archive",
+    )
+    thermal_long.add_argument("--run", type=Path, required=True)
+    thermal_long.add_argument("--config", type=Path, required=True)
+    thermal_long.add_argument("--out-dir", type=Path, required=True)
     resume = world_commands.add_parser(
         "resume", help="Resume a safely paused segmented IAS15 run"
     )
@@ -154,6 +161,16 @@ def execute(args: argparse.Namespace) -> int:
             )
             print(result.manifest.model_dump_json())
             return 1 if result.manifest.task.status == "FAILED" else 0
+        if args.command == "thermal-long":
+            from threebody.experiments.longrun_environment import (
+                derive_long_run_environment,
+            )
+
+            result = derive_long_run_environment(
+                args.run, args.config, args.out_dir
+            )
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 0
         if args.command == "resume":
             result = resume_long_simulation_archive(
                 args.run, max_wall_seconds=args.max_wall_seconds
