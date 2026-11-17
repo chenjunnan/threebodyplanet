@@ -76,6 +76,19 @@ def test_native_m5a_thermal_derivation_real_c0_c1_and_hashes(
     ]
     assert all(row["flux_w_m2"]["total"] > 0 for row in data["rows"])
     assert all(row["c0_temperature_k"] > 0 for row in data["rows"])
+    for row in data["rows"]:
+        assert row["c0_absorbed_w_m2"] >= 0
+        assert row["c0_emitted_w_m2"] > 0
+        assert row["c0_equilibrium_temperature_k"] > 0
+        assert row["c0_net_heating_w_m2"] == pytest.approx(
+            row["c0_absorbed_w_m2"] +
+            row["c0_internal_heat_flux_w_m2"] - row["c0_emitted_w_m2"]
+        )
+        assert row["c1_latitude_spread_k"] == pytest.approx(
+            max(row["c1_temperature_k"]) - min(row["c1_temperature_k"])
+        )
+    assert data["thermal_energy_residual"]["c0"] < 1e-4
+    assert data["thermal_energy_residual"]["c1"] < 1e-4
     assert len(data["rows"][0]["c1_temperature_k"]) == 36
     # Uniform initial C1 temperature is an explicit model setting, not a UI bug.
     initial_c1 = data["rows"][0]["c1_temperature_k"]
