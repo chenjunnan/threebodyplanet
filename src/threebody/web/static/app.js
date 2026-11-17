@@ -596,6 +596,14 @@ function updateEnergyDiagnostics(row, thermal) {
   const net=row.c0_net_heating_w_m2;
   const tendency=net>1e-9?'净吸热':net< -1e-9?'净散热':'近似平衡';
   const residual=thermal?.thermal_energy_residual;
+  const processing=thermal?.thermal_processing;
+  const processingSummary=processing?.chunk_count?
+    ' · 热计算分段 '+processing.chunk_count+
+    '（本次计算'+processing.computed_chunks+
+    '，已复用'+processing.reused_chunks+'）'+
+    ' · C0方程评估 '+processing.c0_function_evaluations+
+    ' · C1方程评估 '+processing.c1_function_evaluations:
+    '';
   target.textContent=
     '真实采样t='+row.t_s.toPrecision(9)+' s · 吸收 '+
     value(row.c0_absorbed_w_m2,'W/m²')+' · 向外辐射 '+
@@ -611,6 +619,7 @@ function updateEnergyDiagnostics(row, thermal) {
       ' · C0归一化能量残差 '+residual.c0.toExponential(3):'')+
     (Number.isFinite(residual?.c1)?
       ' · C1归一化能量残差 '+residual.c1.toExponential(3):'')+
+    processingSummary+
     ' · 仅表示当前灰体热模型的瞬时能量收支，不含显式温室效应。';
 }
 function updateCurrentC0Reading(row, selectedTime) {
