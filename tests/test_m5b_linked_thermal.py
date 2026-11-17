@@ -155,3 +155,29 @@ def test_http_environment_is_source_bound_and_missing_never_fabricated(
                 f"{url}/api/v1/runs/{run.name}/environment{query}"
             )
             assert code == 422
+
+
+@pytest.mark.parametrize(
+    ("mode", "c0_expected", "c1_expected"),
+    [("c0", True, False), ("c1", False, True)],
+)
+def test_thermal_modes_preserve_missing_data_semantics(
+    tmp_path, long_thermal_fixture, mode, c0_expected, c1_expected
+):
+    run, config = long_thermal_fixture
+    document = yaml.safe_load(config.read_text(encoding="utf-8"))
+    document["thermal"]["mode"] = mode
+    mode_config = tmp_path / f"{mode}.yaml"
+    mode_config.write_text(yaml.safe_dump(document), encoding="utf-8")
+    derived = tmp_path / "derived" / mode
+    derive_long_run_environment(run, mode_config, derived)
+    data = read_long_environment(run, derived)
+    assert data["thermal_mode"] == mode
+    assert all(
+        (row["c0_temperature_k"] is not None) is c0_expected
+        for row in data["rows"]
+    )
+    assert all(
+        (row["c1_temperature_k"] is not None) is c1_expected
+        for row in data["rows"]
+    )
