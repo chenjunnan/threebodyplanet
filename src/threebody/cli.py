@@ -8,6 +8,7 @@ from threebody import __version__
 from threebody.common.json import write_json_atomic
 from threebody.config.loader import load_and_resolve
 from threebody.errors import ThreeBodyError
+from threebody.experiments.assessment import run_world_assessment
 from threebody.experiments.runner import run_experiment
 from threebody.experiments.simulation import run_simulation_archive
 from threebody.experiments.thermal import run_thermal_archive
@@ -50,6 +51,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     thermal.add_argument("--config", type=Path, required=True)
     thermal.add_argument("--out-dir", type=Path, required=True)
+    assess = world_commands.add_parser(
+        "assess", help="Classify archived dynamics and environmental exposures"
+    )
+    assess.add_argument("--initial", type=Path, required=True)
+    assess.add_argument("--m2-archive", type=Path)
+    assess.add_argument("--m3-archive", type=Path)
+    assess.add_argument("--initial-outcome", type=Path)
+    assess.add_argument("--config", type=Path, required=True)
+    assess.add_argument("--out-dir", type=Path, required=True)
 
     viz = groups.add_parser("viz", help="Read-only visualization of scientific archives")
     viz_commands = viz.add_subparsers(dest="command", required=True)
@@ -91,6 +101,17 @@ def execute(args: argparse.Namespace) -> int:
             result = run_thermal_archive(args.config, args.out_dir)
             print(json.dumps(result, ensure_ascii=False, sort_keys=True))
             return 1 if result["status"] == "FAILED" else 0
+        if args.command == "assess":
+            result = run_world_assessment(
+                initial_path=args.initial,
+                m2_dir=args.m2_archive,
+                m3_dir=args.m3_archive,
+                initial_outcome_path=args.initial_outcome,
+                config_path=args.config,
+                out_dir=args.out_dir,
+            )
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 0
     if args.group == "viz" and args.command == "trajectory":
         summary = export_trajectory_html(
             args.run,

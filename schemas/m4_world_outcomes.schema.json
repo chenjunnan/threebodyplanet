@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/threebody/m4_world_outcomes.schema.json",
+  "title": "Three Body Planet P0-M4 world outcome configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "classification", "selection"],
+  "properties": {
+    "schema_version": {"const": "0.4.0"},
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cold_threshold_k", "hot_threshold_k", "persistence_min_s",
+        "high_flux_variation_fraction", "rapid_flux_change_fraction",
+        "require_complete_thermal_window", "interpolation_policy"
+      ],
+      "properties": {
+        "cold_threshold_k": {"type": "number", "exclusiveMinimum": 0},
+        "hot_threshold_k": {"type": "number", "exclusiveMinimum": 0},
+        "persistence_min_s": {"type": "number", "minimum": 0},
+        "high_flux_variation_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "rapid_flux_change_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "require_complete_thermal_window": {"type": "boolean"},
+        "interpolation_policy": {"const": "linear_threshold_crossing"}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "survival_required", "include_collision_terminated",
+        "include_escape_candidates", "include_unstable_worlds", "preference"
+      ],
+      "properties": {
+        "survival_required": {"type": "boolean"},
+        "include_collision_terminated": {"type": "boolean"},
+        "include_escape_candidates": {"type": "boolean"},
+        "include_unstable_worlds": {"type": "boolean"},
+        "preference": {"enum": ["neutral", "gentle", "chaotic", "catastrophic"]}
+      }
+    }
+  }
+}

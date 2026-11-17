@@ -1,0 +1,15 @@
+schema_version: "0.4.0"
+classification:
+  cold_threshold_k: 240.0
+  hot_threshold_k: 330.0
+  persistence_min_s: 86400.0
+  high_flux_variation_fraction: 0.5
+  rapid_flux_change_fraction: 0.5
+  require_complete_thermal_window: false
+  interpolation_policy: linear_threshold_crossing
+selection:
+  survival_required: false
+  include_collision_terminated: true
+  include_escape_candidates: true
+  include_unstable_worlds: true
+  preference: neutral

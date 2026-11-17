@@ -105,6 +105,18 @@
 - No hierarchy ratio, stability, survival, escape rejection, or habitability criterion is implicit in
   generation. Research screening reports unusual initial states without silently filtering them.
 
+## P0-M4 — 2026-11-16
+
+- M4 is a read-only consumer of initial-state, M2, M3 and optional G2 initial-contact artifacts. It
+  requires matching world IDs and source hashes and never recomputes trajectories or temperatures.
+- Scientific input status, dynamical outcome and multiple environmental labels are separate axes.
+  `COMPLETED_OBSERVATION_WINDOW` is not long-term stability, and `ESCAPE_CANDIDATE` remains nonterminal.
+- C0 exposure durations use piecewise-linear threshold crossing within archived intervals. Extrema are
+  explicitly sampled extrema; integrated incoming energy uses trapezoidal integration. Both retain
+  cadence-dependent uncertainty rather than claiming continuous exactness.
+- Planet-involved and star-star collisions are distinct. No collision aftermath is synthesized. Initial
+  contact produces an incomplete terminal report without requiring fabricated M2/M3 data.
+- Scenario preference scores are reporting/ranking outputs only and never remove the raw world report.
 ## 0.4.1 — 2026-11-16
 
 - G2.1 uses a separate strict `stochastic_conics/0.4.1` configuration. Version 0.4.0 accepts no new
