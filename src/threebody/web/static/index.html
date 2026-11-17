@@ -9,18 +9,33 @@
 <body>
   <header>
     <div><span class="eyebrow">THREE BODY PLANET / M5B</span><h1>科学归档台</h1></div>
-    <span class="badge">只读原型</span>
+    <span class="badge">本地任务控制预览</span>
   </header>
   <main>
     <section class="hero">
-      <div><p class="kicker">SERVER-AUTHORITATIVE SCIENCE</p><h2>观察已提交的世界，<br>不伪造控制状态。</h2></div>
-      <p>物理时间始终来自服务端归档中的 SI 秒。播放速度不会改变 IAS15 积分速度；本原型没有暂停、恢复或碰撞后继续按钮。</p>
+      <div><p class="kicker">SERVER-AUTHORITATIVE SCIENCE</p><h2>观察已提交的世界，<br>控制真实的分段计算。</h2></div>
+      <p>物理时间来自服务端归档中的 SI 秒。暂停与取消是请求，在当前安全分段完成后才生效；碰撞终态绝不续算。</p>
     </section>
     <section class="grid">
       <article class="panel runs"><div class="panel-head"><div><span class="index">01</span><h3>运行归档</h3></div><button id="refresh">刷新</button></div><div id="runs" class="run-list"><p class="muted">读取中…</p></div></article>
       <article class="panel validator"><div class="panel-head"><div><span class="index">02</span><h3>配置验证</h3></div><span>JSON / 严格后端校验</span></div><textarea id="config" spellcheck="false" aria-label="实验配置 JSON">{
   "schema_version": "0.1.0"
 }</textarea><div class="actions"><button id="validate" class="primary">提交验证</button><span id="validation-state" class="muted">不会保存或运行</span></div><pre id="validation"></pre></article>
+    </section>
+    <section class="panel task" aria-labelledby="task-heading">
+      <div class="panel-head"><div><span class="index">03</span><h3 id="task-heading">真实长期模拟任务</h3></div><span>单机 · 单用户 · 安全分段</span></div>
+      <p>先使用命令行生成一个四体初始状态，将其 JSON 粘贴在下面，并提供 M5A 的已解析配置 JSON。后台仅执行真正的 IAS15 分段积分。</p>
+      <label for="run-id">运行ID</label><input id="run-id" value="web-run-001" maxlength="128">
+      <label for="initial-state">WorldInitialState JSON</label><textarea id="initial-state" spellcheck="false" placeholder='{"world_id":"candidate-000000", "bodies":[...]}'></textarea>
+      <label for="long-settings">M5A LongRunSettings JSON</label><textarea id="long-settings" spellcheck="false" placeholder='{"schema_version":"0.6.0", "backend":"rebound_ias15", "time":{...}}'></textarea>
+      <div class="actions">
+        <button id="start-run" class="primary">启动真实模拟</button>
+        <button id="pause-run">请求暂停</button>
+        <button id="resume-run">恢复模拟</button>
+        <button id="cancel-run">请求取消</button>
+      </div>
+      <p id="job-state" aria-live="polite">尚未创建任务。暂停/取消请求可能需要等当前模拟分段结束。</p>
+      <pre id="job-details"></pre>
     </section>
   </main>
   <footer><span>LOCAL · SINGLE USER</span><span>REBOUND t<sub>s</sub> ≠ DISPLAY TIME</span></footer>
