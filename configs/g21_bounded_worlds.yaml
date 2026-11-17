@@ -1,4 +1,4 @@
-schema_version: "0.4.1"
+schema_version: "0.4.2"
 experiment:
   id: p0-g21-bounded-worlds
   seed: 20261116
@@ -7,7 +7,7 @@ world_generation:
   body_count: {stars: 3, planets: 1}
   generator:
     type: stochastic_conics
-    version: "0.4.1"
+    version: "0.4.2"
     stars:
       mass_solar: {min: 0.3, max: 8.0, distribution: log_uniform}
     planet:
