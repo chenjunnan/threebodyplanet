@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Three Body Planet local M5A scientific task and range console",
-    "version": "0.3.0"
+    "title": "Three Body Planet linked M5A orbit and thermal science console",
+    "version": "0.4.0"
   },
   "servers": [
     {
@@ -348,6 +348,57 @@
           },
           "422": {
             "description": "Invalid/corrupt archive or range too large"
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/environment": {
+      "get": {
+        "operationId": "getVerifiedDerivedLongEnvironment",
+        "description": "M5A source-verified, independently archived M3 physical radiation/C0/C1 postprocessor data. Source and artifact hashes must match; no extrapolation. Derived separately by CLI world thermal-long.",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "start_s",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "end_s",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "max_points",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 2000,
+              "default": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified time-aligned M5A-derived flux, C0 and C1 rows"
+          },
+          "404": {
+            "description": "Missing source run or derived environment archive"
+          },
+          "422": {
+            "description": "Invalid query, source provenance or artifact integrity"
           }
         }
       }

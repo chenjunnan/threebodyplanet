@@ -59,6 +59,14 @@
       </div>
       <label for="orbit-time">观察时间：<span id="orbit-time-text">—</span></label>
       <input id="orbit-time" type="range" min="0" max="0" value="0" step="1">
+      <section class="thermal-panels" aria-labelledby="thermal-heading">
+        <h3 id="thermal-heading">恒星辐射与行星温度（真实派生归档）</h3>
+        <p id="environment-status">尚未载入热模型。需要先运行 thermal-long 生成来源匹配的派生归档。</p>
+        <canvas id="flux-canvas" width="940" height="220" aria-label="三颗恒星及总辐射时间曲线"></canvas>
+        <canvas id="c0-canvas" width="940" height="180" aria-label="全球C0温度随物理时间变化"></canvas>
+        <canvas id="c1-canvas" width="940" height="240" aria-label="C1纬度温度时空分布"></canvas>
+        <p id="thermal-cursor" aria-live="polite">物理时间与轨道观察时间同步。缺失的C0/C1数据不会被补造。</p>
+      </section>
       <div class="observe-bottom">
         <div><label for="orbit-events">事件跳转</label><select id="orbit-events"><option value="">无已载入事件</option></select></div>
         <p id="orbit-event-detail">此视图显示M5A轨道与动力学事件；尚未接入M3/C0/C1环境时间序列。</p>
