@@ -120,6 +120,15 @@
           'body axis invalid');
         ensure(Math.abs(Math.hypot(...a)-1)<1e-6,'body axis not normalized');
       }
+      if(body.atmosphere_hypothesis!=null){
+        ensure(i===3 && typeof body.atmosphere_hypothesis==='object',
+          'atmosphere hypothesis is only valid for the planet');
+        ensure(body.atmosphere_hypothesis.is_observation===false,
+          'atmosphere prior must not claim observation');
+        ensure(Number.isFinite(body.atmosphere_hypothesis.atmosphere_mass_kg)&&
+          body.atmosphere_hypothesis.atmosphere_mass_kg>=0,
+          'atmosphere prior mass invalid');
+      }
       entries[body.id]=Object.freeze({
         ...body,
         rotation_axis_inertial_unit:body.rotation_axis_inertial_unit==null?

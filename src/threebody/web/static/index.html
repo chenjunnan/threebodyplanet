@@ -176,12 +176,16 @@
       <p>先读取一个真实轨道采样，再显式设置成分、内热与水量假设。新结果是独立探索场景，不替代 M3 温度历史或 M4 科学结论。</p>
       <div class="world-controls" id="planet-parameters">
         <label>地形种子<input data-planet="seed" type="number" value="42"></label>
-        <label>地形起伏上限(m)<input data-planet="relief_m" type="number" value="6000"></label>
+        <label>地形起伏上限(m)<input data-planet="relief_m" type="number" value="18000"></label>
+        <label>地形形状指数<input data-planet="terrain_shape_exponent" type="number" value="0.72" min="0.5" max="1.5" step="0.01"></label>
+        <label>等高线级数<input data-planet="contour_level_count" type="number" value="24" min="20" max="30"></label>
         <label>表面水量(kg)<input data-planet="surface_water_kg" type="number" value="1.4e21"></label>
         <label>大气质量(kg)<input data-planet="atmosphere_mass_kg" type="number" value="5.15e18"></label>
         <label>平均摩尔质量(kg/mol)<input data-planet="molar_mass_kg_mol" type="number" value="0.029" step="any"></label>
         <label>氧气摩尔分数<input data-planet="oxygen_mole_fraction" type="number" value="0" step="any"></label>
         <label>水蒸气摩尔分数<input data-planet="water_vapor_mole_fraction" type="number" value="0" step="any"></label>
+        <label>二氧化碳摩尔分数<input data-planet="carbon_dioxide_mole_fraction" type="number" value="0" step="any"></label>
+        <label>氩气摩尔分数<input data-planet="argon_mole_fraction" type="number" value="0" step="any"></label>
         <label>灰色光学厚度<input data-planet="optical_depth" type="number" value="0" step="any"></label>
         <label>反照率<input data-planet="albedo" type="number" value="0.3" step="any"></label>
         <label>表面发射率<input data-planet="emissivity" type="number" value="1" step="any"></label>
@@ -194,22 +198,31 @@
         <label>经度零点初相位(rad，假设)<input data-planet="longitude_phase_rad" type="number" value="0" step="any"></label>
         <label>观测眼高(m)<input data-planet="observer_height_m" type="number" value="2" min="1"></label>
         <label>灾害时间窗(年)<input data-planet="horizon_years" type="number" value="1"></label>
+        <label>风速范围最小系数<input data-planet="wind_range_fraction_min" type="number" value="0.25" min="0" max="1" step="0.05"></label>
+        <label>风速范围最大系数<input data-planet="wind_range_fraction_max" type="number" value="0.9" min="0.05" max="1.5" step="0.05"></label>
       </div>
+      <div class="actions"><button id="planet-use-generated">使用生成器的大气/自转先验</button><span id="planet-prior-source">当前为表单显式假设。</span></div>
       <label for="planet-axis">假设自转轴（可空以用归档，JSON单位向量）</label><input id="planet-axis" placeholder="如 [0,0,1]；留空使用归档">
       <details><summary>区域地质事件先验（可选）</summary><p>区域为 r0-c0 至 r23-c47；输入对应区域每年的事件发生率 λ。例如 {"r12-c24":0.01}。概率采用 1−exp(−λ·年数)，不是由地形预测；未提供的区域显示未知。你需要确保各区域的事件定义、空间范围和时间单位一致。</p><label for="planet-hazard-definition">事件定义（提供发生率时必填）</label><input id="planet-hazard-definition" placeholder="例如：该区域内，震级≥5的地震">
       <textarea id="planet-hazard-rates" aria-label="区域灾害年发生率JSON">{}</textarea></details>
       <div class="actions"><button id="planet-build" class="primary">计算当前采样的探索场景</button><button id="planet-export" disabled>导出场景与假设</button></div>
       <p id="planet-status" role="status">等待真实轨道采样。表单预置值是可编辑假设，不是该行星实测值。</p>
       <div id="planet-summary"></div>
-      <canvas id="planet-map" width="960" height="480" aria-label="等面积程序地形与假设水盆地图，可点击选择观测地点"></canvas>
+      <canvas id="planet-map" width="960" height="480" aria-label="带24级稀疏等高线的全球程序地形与假设水盆地图，可点击选择观测地点"></canvas>
       <p id="planet-region" aria-live="polite">点击地图选择地区；颜色表示程序生成地形及水相代理。</p>
-      <h4>WebGL 地表观察镜头</h4><p>拖动或方向键改变地平视角，滚轮缩放，Home重置。眼高默认2米。地形是程序网格，采用示意明暗；恒星方向取该场景的真实轨道位置。星点背景为装饰，不是恒星目录；未模拟折射、散射和地形遮挡。</p>
+      <h4>WebGL 地表观察镜头</h4><p>拖动或方向键改变地平视角，滚轮缩放，Home重置。眼高默认2米。地形是程序网格；恒星方向只取真实归档轨道采样。大气颜色和直达光使用三波段消光代理并经HDR色调映射，不是逐线光谱或屏幕SI亮度。</p>
+      <div class="actions ground-controls">
+        <button id="planet-ground-previous">上一采样</button><button id="planet-ground-play">播放归档天空</button><button id="planet-ground-pause">暂停</button><button id="planet-ground-next">下一采样</button>
+        <label>镜头锁定<select id="planet-lock-star"><option value="">自由视角</option><option value="star-1">恒星一</option><option value="star-2">恒星二</option><option value="star-3">恒星三</option></select></label>
+        <label><input id="planet-follow-time" type="checkbox" checked> 跟随统一物理时间重新计算</label>
+      </div>
       <canvas id="planet-ground" width="960" height="540" tabindex="0" aria-label="程序地形地平镜头与真实归档恒星方向"></canvas>
       <p id="planet-sky" aria-live="polite">选择观测地点后计算三颗恒星的方位与高度。</p>
       <p id="planet-limitations"></p>
     </section>
   </main>
   <footer><span>LOCAL · SINGLE USER</span><span>REBOUND t<sub>s</sub> ≠ DISPLAY TIME</span></footer>
+  <script src="/web-core.js" defer></script>
   <script src="/navigation.js" defer></script>
   <script src="/science-adapter.js" defer></script>
   <script src="/surface-materials.js" defer></script>
