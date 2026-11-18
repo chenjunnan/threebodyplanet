@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Three Body Planet P0 local world science console",
-    "version": "0.6.0"
+    "version": "0.7.1"
   },
   "servers": [
     {
@@ -722,6 +722,20 @@
             "title": "Water Vapor Mole Fraction",
             "type": "number"
           },
+          "carbon_dioxide_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Carbon Dioxide Mole Fraction",
+            "type": "number"
+          },
+          "argon_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Argon Mole Fraction",
+            "type": "number"
+          },
           "surface_water_kg": {
             "default": 1.4e+21,
             "maximum": 1e+26,
@@ -730,10 +744,38 @@
             "type": "number"
           },
           "relief_m": {
-            "default": 6000.0,
+            "default": 18000.0,
             "exclusiveMinimum": 0,
             "maximum": 100000.0,
             "title": "Relief M",
+            "type": "number"
+          },
+          "terrain_shape_exponent": {
+            "default": 0.72,
+            "minimum": 0.5,
+            "maximum": 1.5,
+            "title": "Terrain Shape Exponent",
+            "type": "number"
+          },
+          "contour_level_count": {
+            "default": 24,
+            "minimum": 20,
+            "maximum": 30,
+            "title": "Contour Level Count",
+            "type": "integer"
+          },
+          "wind_range_fraction_min": {
+            "default": 0.25,
+            "minimum": 0,
+            "maximum": 1,
+            "title": "Wind Range Fraction Min",
+            "type": "number"
+          },
+          "wind_range_fraction_max": {
+            "default": 0.9,
+            "exclusiveMinimum": 0,
+            "maximum": 1.5,
+            "title": "Wind Range Fraction Max",
             "type": "number"
           },
           "rotation_rate_rad_s": {

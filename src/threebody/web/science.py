@@ -151,6 +151,7 @@ def query_body_metadata(directory: Path) -> dict[str, Any]:
                 "rotation_axis_inertial_unit":
                     body.properties.get("rotation_axis_inertial_unit"),
                 "luminosity_w": body.properties.get("luminosity_w"),
+                "atmosphere_hypothesis": body.properties.get("atmosphere_hypothesis"),
                 "physical_profile_id": body.physical_profile_id,
             }
             for body in initial.bodies
