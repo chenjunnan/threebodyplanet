@@ -453,6 +453,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
                                   'longitude_deg': scenario.longitude_deg},
             'visualization': {
                 'terrain_vertical_exaggeration': scenario.terrain_vertical_exaggeration,
+                'minimum_point_source_psf_px': 5,
                 'background_stars_visible': not (
                     pressure >= 1000.0
                     and optics['sky_scattered_intensity_proxy_w_m2'] >= 1.0

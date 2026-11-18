@@ -1,6 +1,13 @@
 /* Local first-person terrain view. Geometry is a parameter experiment, not an archive. */
 (function(global){
   'use strict';
+  function starSpriteMetrics(angularRadius,canvasHeight,fov,minimumPsf=5){
+    const verticalFov=2*Math.atan(1/fov);
+    const diameterPixels=2*angularRadius/verticalFov*canvasHeight;
+    return {diameterPixels,pointSize:Math.max(minimumPsf,Math.min(96,diameterPixels)),
+      pointSource:diameterPixels<minimumPsf};
+  }
+  global.planetStarSpriteMetrics=starSpriteMetrics;
   function heightAt(scene,lat,lon){
     const n=[Math.cos(lat)*Math.cos(lon),Math.cos(lat)*Math.sin(lon),Math.sin(lat)];
     const raw=scene.terrain_modes.reduce((sum,m)=>sum+
@@ -19,7 +26,7 @@
     };
     const vs=compile(gl.VERTEX_SHADER,`#version 300 es
       in vec3 position;in vec3 color;out vec3 shade;out vec3 worldPos;
-      uniform float yaw;uniform float pitch;uniform float aspect;uniform float fov;uniform float pointSize;uniform bool sky;
+      uniform float yaw;uniform float pitch;uniform float aspect;uniform float fov;uniform float pointSize;uniform bool sky;uniform bool pointSource;
       void main(){
         vec3 p=vec3(cos(yaw)*position.x+sin(yaw)*position.z,position.y,
           -sin(yaw)*position.x+cos(yaw)*position.z);
@@ -29,7 +36,7 @@
         gl_PointSize=pointSize;shade=color;worldPos=position;
       }`);
     const fs=compile(gl.FRAGMENT_SHADER,`#version 300 es
-      precision highp float;in vec3 shade;in vec3 worldPos;out vec4 result;uniform bool sky;
+      precision highp float;in vec3 shade;in vec3 worldPos;out vec4 result;uniform bool sky;uniform bool pointSource;
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
       float noise(vec2 p){
         vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
@@ -37,7 +44,17 @@
           mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
       }
       void main(){
-        if(sky){if(length(gl_PointCoord-.5)>.5)discard;result=vec4(shade,1.0);}
+        if(sky){
+          float radius=length(gl_PointCoord-.5);
+          if(radius>=.5)discard;
+          // Unresolved stars use an anti-aliased point-spread proxy. Resolved
+          // discs keep a sharper limb. Neither changes the physical angle.
+          float alpha=pointSource?1.0-smoothstep(.18,.5,radius):
+            1.0-smoothstep(.44,.5,radius);
+          if(alpha<=.001)discard;
+          float core=pointSource?1.0+.35*exp(-24.0*radius*radius):1.0;
+          result=vec4(min(vec3(1.0),shade*core),alpha);
+        }
         else{
           vec2 uv=worldPos.xz*100000.0;
           float scale=max(0.25,length(fwidth(uv)));
@@ -61,17 +78,20 @@
       gl.useProgram(program);gl.uniform1f(loc('yaw'),yaw);gl.uniform1f(loc('pitch'),pitch);
       gl.uniform1f(loc('aspect'),canvas.width/canvas.height);gl.uniform1f(loc('fov'),fov);
       gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
-      const batches=[[terrain,false,1],[decorativeStars,true,2],
-        ...realStars.map(star=>[star.data,true,star.pointSize])];
-      for(const [data,sky,size] of batches){
+      const batches=[[terrain,false,1,false],[decorativeStars,true,3,true],
+        ...realStars.map(star=>[star.data,true,star.pointSize,star.pointSource])];
+      for(const [data,sky,size,pointSource] of batches){
         if(!data.length)continue;
+        if(sky){gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);}
+        else gl.disable(gl.BLEND);
         gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.DYNAMIC_DRAW);
         for(const [name,offset] of [['position',0],['color',12]]){
           const p=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(p);
           gl.vertexAttribPointer(p,3,gl.FLOAT,false,24,offset);
         }
         gl.uniform1f(loc('pointSize'),size);
-        gl.uniform1i(loc('sky'),sky?1:0);gl.drawArrays(sky?gl.POINTS:gl.TRIANGLES,0,data.length/6);
+        gl.uniform1i(loc('sky'),sky?1:0);gl.uniform1i(loc('pointSource'),pointSource?1:0);
+        gl.drawArrays(sky?gl.POINTS:gl.TRIANGLES,0,data.length/6);
       }
     }
     function orient(scene){
@@ -79,9 +99,12 @@
       if(!star)return;
       const az=star.azimuth_deg*Math.PI/180,alt=star.altitude_deg*Math.PI/180;
       const x=Math.cos(alt)*Math.sin(az),y=Math.sin(alt),z=-Math.cos(alt)*Math.cos(az);
-      yaw=Math.atan2(-x,z);
+      // Select the branch that keeps the target in front of the camera (-Z).
+      // The former atan2 branch rotated it behind the view and left a clipped
+      // point sprite at the upper edge for high-altitude stars.
+      yaw=Math.atan2(x,-z);
       const rotatedZ=-Math.sin(yaw)*x+Math.cos(yaw)*z;
-      pitch=Math.atan2(-y,rotatedZ);
+      pitch=Math.atan2(y,-rotatedZ);
     }
     function load(scene){
       terrain=[];decorativeStars=[];realStars=[];
@@ -144,9 +167,10 @@
         const peak=Math.max(...raw);
         if(peak<=1e-12)continue;
         const color=raw.map(value=>Math.min(1,value/peak*(.25+.75*exposure)));
-        const verticalFov=2*Math.atan(1/fov);
-        const diameterPixels=2*star.angular_radius_rad/verticalFov*canvas.height;
-        realStars.push({pointSize:Math.max(2,Math.min(96,diameterPixels)),data:[
+        const minimumPsf=scene.visualization?.minimum_point_source_psf_px||5;
+        const sprite=starSpriteMetrics(star.angular_radius_rad,canvas.height,fov,minimumPsf);
+        realStars.push({pointSize:sprite.pointSize,
+          pointSource:sprite.pointSource,data:[
           99*Math.cos(alt)*Math.sin(az),99*Math.sin(alt),
           -99*Math.cos(alt)*Math.cos(az),...color]});
       }

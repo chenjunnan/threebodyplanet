@@ -117,6 +117,7 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     assert len(first['contour_levels_m']) == 10
     assert first['observer_location'] == {'latitude_deg': 0.0, 'longitude_deg': 0.0}
     assert first['visualization']['semantics'] == 'DISPLAY_ONLY_NOT_USED_BY_PHYSICS'
+    assert first['visualization']['minimum_point_source_psf_px'] == 5
     assert first['atmospheric_optics']['optical_depth_rgb'][2] > (
         first['atmospheric_optics']['optical_depth_rgb'][0]
     )

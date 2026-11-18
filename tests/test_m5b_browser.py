@@ -286,6 +286,10 @@ def test_real_browser_world_3d_drag_science_and_report():
         ground=page.locator('#planet-ground')
         ground.scroll_into_view_if_needed()
         if ground.evaluate("n => n.getContext('webgl2')!==null"):
+            sprite=page.evaluate("planetStarSpriteMetrics(7.8e-5,600,1.4,5)")
+            assert sprite['pointSource'] is True
+            assert sprite['pointSize'] == 5
+            assert sprite['diameterPixels'] < 1
             before=ground.evaluate('n => n.toDataURL()')
             ground.focus()
             ground.press('ArrowRight')
