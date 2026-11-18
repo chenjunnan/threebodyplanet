@@ -34,6 +34,7 @@
       if(link.dataset.route===id)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');
     }
     document.title=definitions.find(d=>d[0]===id)[1]+' · 三体星';
+    window.ThreeBodyWeb?.route(id);
     window.dispatchEvent(new CustomEvent('threebody-route',{detail:id}));
   }
   window.addEventListener('hashchange',show);show();

@@ -1,6 +1,14 @@
 name: P0 Browser E2E
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/threebody/web/**'
+      - 'tests/test_m5b_browser.py'
+      - 'scripts/m63_observer_benchmark.py'
+      - 'pyproject.toml'
+      - '.github/workflows/browser.yml'
   pull_request:
     paths:
       - 'src/threebody/web/**'
@@ -44,6 +52,7 @@ jobs:
                   "threebody/web/static/science-adapter.js",
                   "threebody/web/static/surface-materials.js",
                   "threebody/web/static/webgl-observer.js",
+                  "threebody/web/static/web-core.js",
                   "threebody/web/static/navigation.js",
                   "threebody/web/static/planet-explorer.js",
                   "threebody/web/static/ground-view.js",

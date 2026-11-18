@@ -4,11 +4,20 @@ from setuptools import find_packages, setup
 
 setup(
     name="three-body-planet",
-    version="0.3.0",
+    version="0.7.1",
     description="Reproducible three-star orbital, radiation, and thermal reference models",
     package_dir={"": "src"},
     packages=find_packages("src"),
-    package_data={"threebody": ["resources/presets/*.yaml"]},
+    package_data={
+        "threebody": [
+            "resources/presets/*.yaml",
+            "web/static/*.html",
+            "web/static/*.js",
+            "web/static/*.css",
+            "web/static/*.json",
+            "web/static/*.yaml",
+        ]
+    },
     include_package_data=True,
     python_requires=">=3.11",
     install_requires=[
