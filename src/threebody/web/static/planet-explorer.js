@@ -45,6 +45,14 @@
       }
     }
     ctx.putImageData(image,0,0);
+    // The marker is the currently calculated observer, not a guessed click point.
+    const marker=scene.observer_location;
+    const markerX=(marker.longitude_deg+180)/360*map.width;
+    const markerY=(1-Math.sin(marker.latitude_deg*Math.PI/180))/2*map.height;
+    ctx.save();ctx.strokeStyle='#ffef5a';ctx.fillStyle='#172033';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(markerX,markerY,6,0,2*Math.PI);ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(markerX-10,markerY);ctx.lineTo(markerX+10,markerY);
+    ctx.moveTo(markerX,markerY-10);ctx.lineTo(markerX,markerY+10);ctx.stroke();ctx.restore();
   }
   function show(result,{redrawMap=true}={}){
     scene=result;const summary=document.querySelector('#planet-summary');summary.replaceChildren();

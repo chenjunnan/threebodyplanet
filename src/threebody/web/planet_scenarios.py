@@ -41,7 +41,8 @@ class PlanetScenario(BaseModel):
     surface_water_kg: Finite = Field(default=1.4e21, ge=0, le=1e26)
     relief_m: Finite = Field(default=18000., gt=0, le=1e5)
     terrain_shape_exponent: Finite = Field(default=.72, ge=.5, le=1.5)
-    contour_level_count: int = Field(default=24, ge=20, le=30)
+    contour_level_count: int = Field(default=10, ge=10, le=10)
+    terrain_vertical_exaggeration: Finite = Field(default=4.0, ge=1.0, le=8.0)
     wind_range_fraction_min: Finite = Field(default=.25, ge=0, le=1)
     wind_range_fraction_max: Finite = Field(default=.9, gt=0, le=1.5)
     rotation_rate_rad_s: Finite | None = Field(default=None, ge=0, le=1)
@@ -299,18 +300,39 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     heights = terrain_height(
         normals, scenario.seed, scenario.relief_m, scenario.terrain_shape_exponent
     )
-    area = 4*math.pi*radius**2/heights.size
+    # Determine sea level on a materially finer equal-area grid.  The former
+    # 24x48 quadrature could make water appear detached from narrow basins.
+    water_latitudes = np.arcsin(-1+(2*np.arange(96)+1)/96)
+    water_longitudes = -math.pi+(2*np.arange(192)+1)*math.pi/192
+    water_lat, water_lon = np.meshgrid(
+        water_latitudes, water_longitudes, indexing='ij'
+    )
+    water_normals = np.stack([
+        np.cos(water_lat)*np.cos(water_lon),
+        np.cos(water_lat)*np.sin(water_lon), np.sin(water_lat)
+    ], -1)
+    water_heights = terrain_height(
+        water_normals, scenario.seed, scenario.relief_m,
+        scenario.terrain_shape_exponent
+    )
+    water_cell_area = 4*math.pi*radius**2/water_heights.size
     water_volume = scenario.surface_water_kg/1000
-    lower, upper = float(heights.min()), float(heights.max())+water_volume/(area*heights.size)
+    lower, upper = (float(water_heights.min()),
+                    float(water_heights.max())+water_volume/(water_cell_area*water_heights.size))
     for _ in range(80):
         level = (lower+upper)/2
-        if float(np.maximum(0., level-heights).sum())*area > water_volume:
+        if float(np.maximum(0., level-water_heights).sum())*water_cell_area > water_volume:
             upper = level
         else:
             lower = level
-    sea_level = (lower+upper)/2 if water_volume > 0 else float(heights.min())-1
-    if water_volume > 0 and sea_level-float(heights.min()) > radius*.05:
+    sea_level = ((lower+upper)/2 if water_volume > 0
+                 else float(water_heights.min())-1)
+    if water_volume > 0 and sea_level-float(water_heights.min()) > radius*.05:
         raise ValueError('water layer exceeds small-surface approximation')
+    represented_water_volume = (
+        float(np.maximum(0., sea_level-water_heights).sum())*water_cell_area
+        if water_volume > 0 else 0.0
+    )
     regions = []
     for r in range(24):
         # Zonal equilibrium values use nearest computed latitude, with explicit provenance.
@@ -352,8 +374,10 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     ))
     local_band = min(bands, key=lambda b: abs(b['latitude_rad']-phi))
     local_temp = local_band['temperature_k']
-    water_visible = water_volume > 0 and water_phase_proxy(local_temp, pressure) in {
+    water_visible = (water_volume > 0 and local_height < sea_level
+                     and water_phase_proxy(local_temp, pressure) in {
         'ice', 'liquid_possible'}
+    )
     ground_level = max(local_height, sea_level) if water_visible else local_height
     observer = xyz['planet-1']+(radius+ground_level+scenario.observer_height_m)*up
     sky = []
@@ -414,17 +438,28 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     runtime = {
         'project': __version__, 'python': platform.python_version(), 'numpy': np.__version__
     }
-    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v2',
+    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v3',
                                  'source': source, 'parameters': parameters})
     contour_levels = np.linspace(
         float(heights.min()), float(heights.max()), scenario.contour_level_count+2
     )[1:-1].tolist()
-    return {'schema_version': 'planet-exploration-v2', 'data_kind': 'PARAMETERIZED_SCENARIO',
+    return {'schema_version': 'planet-exploration-v3', 'data_kind': 'PARAMETERIZED_SCENARIO',
             'run_id': reader.manifest.run_id, 'world_id': reader.manifest.world_id,
             'source': source, 'parameters': parameters, 'scenario_sha256': scenario_hash,
             'runtime': runtime,
             'terrain_modes': terrain_modes(scenario.seed), 'observer_ground_level_m': ground_level,
-            'water_surface_visible': water_visible, 'observer_temperature_proxy_k': local_temp,
+            'water_surface_visible': water_visible, 'has_surface_water': water_volume > 0,
+            'observer_location': {'latitude_deg': scenario.latitude_deg,
+                                  'longitude_deg': scenario.longitude_deg},
+            'visualization': {
+                'terrain_vertical_exaggeration': scenario.terrain_vertical_exaggeration,
+                'background_stars_visible': not (
+                    pressure >= 1000.0
+                    and optics['sky_scattered_intensity_proxy_w_m2'] >= 1.0
+                ),
+                'semantics': 'DISPLAY_ONLY_NOT_USED_BY_PHYSICS',
+            },
+            'observer_temperature_proxy_k': local_temp,
             'radius_m': radius, 'gravity_m_s2': gravity, 'rotation_parameter_q': q,
             'equatorial_effective_gravity_m_s2': gravity*(1-q),
             'pressure_pa': pressure, 'scale_height_m': scale_height,
@@ -435,6 +470,15 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
             ),
             'atmospheric_optics': optics,
             'sea_level_m': sea_level, 'terrain_grid': [24, 48], 'regions': regions,
+            'water_volume_diagnostic': {
+                'method': 'equal_area_96x192_basin_fill',
+                'target_volume_m3': water_volume,
+                'represented_volume_m3': represented_water_volume,
+                'relative_residual': (
+                    0.0 if water_volume == 0 else
+                    (represented_water_volume-water_volume)/water_volume
+                ),
+            },
             'contour_levels_m': contour_levels,
             'bands': bands, 'sky': sky,
             'equator_temperature_k': equilibrium_temperature((1-scenario.albedo)*sum(
@@ -456,4 +500,5 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
                 'Sky optics use three broad visible bands; no refraction, clouds, terrain '
                 'occlusion, multiple scattering or line-by-line spectra.',
                 'Water proxy omits salinity, circulation, evaporation and feedback.',
+                'Terrain vertical exaggeration and decorative star suppression are visual only.',
             ]}

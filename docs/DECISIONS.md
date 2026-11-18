@@ -234,3 +234,20 @@
 - Artifact discovery accepts only direct non-symlink directories with allowlisted run IDs. The server
   binds only to loopback and emits a restrictive CSP; authentication is deferred because non-loopback or
   multi-user deployment is explicitly outside this prototype.
+
+## P0-M7.2-a — 2026-11-18
+
+- `m72_three_reservoir_v1` is a new authoritative dynamic-environment domain. It does not mutate or
+  reinterpret M3 C0/C1 archives; model/config/source/result hashes make comparisons explicit.
+- Surface, shallow-rock and ocean-mixed-layer sensible heat are integrated in SI. Linear reservoir
+  exchange cancels in the global energy budget; an extra integrated external-energy state provides a
+  direct conservation residual rather than an output-grid trapezoid proxy.
+- M5A coupling accepts only a verified `COMPLETED` segment chain and computes exact-sample three-star
+  irradiance. Between archived times it interpolates scalar flux linearly and makes no claim to recover
+  unresolved close-passage peaks.
+- JSON environment checkpoints are immutable, hash-bound restart states. Restarting `solve_ivp` at the
+  checkpoint boundary is tolerance-consistent, not a serialization of RK internal stages or a promise
+  of bitwise identity.
+- Planet exploration schema v3 uses a 96x192 equal-area basin solve for water level, ten map contours,
+  an observer marker and angular-radius star rendering. Terrain exaggeration, exposure and decorative
+  star suppression are display-only and never feed scientific state.

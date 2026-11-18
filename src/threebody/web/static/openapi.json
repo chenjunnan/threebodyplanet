@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Three Body Planet P0 local world science console",
-    "version": "0.7.1"
+    "version": "0.8.0"
   },
   "servers": [
     {
@@ -758,11 +758,18 @@
             "type": "number"
           },
           "contour_level_count": {
-            "default": 24,
-            "minimum": 20,
-            "maximum": 30,
+            "default": 10,
+            "minimum": 10,
+            "maximum": 10,
             "title": "Contour Level Count",
             "type": "integer"
+          },
+          "terrain_vertical_exaggeration": {
+            "default": 4.0,
+            "minimum": 1.0,
+            "maximum": 8.0,
+            "title": "Terrain Vertical Exaggeration",
+            "type": "number"
           },
           "wind_range_fraction_min": {
             "default": 0.25,

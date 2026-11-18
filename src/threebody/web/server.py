@@ -106,7 +106,7 @@ class ScienceConsoleServer(ThreadingHTTPServer):
 
 
 class ConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "ThreeBodyConsole/0.7.1"
+    server_version = "ThreeBodyConsole/0.8.0"
 
     @property
     def artifact_root(self) -> Path:

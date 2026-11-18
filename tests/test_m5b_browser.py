@@ -273,9 +273,9 @@ def test_real_browser_world_3d_drag_science_and_report():
         with open(future_scenario.value.path(),encoding='utf-8') as handle:
             scenario=json.load(handle)
         assert scenario['data_kind']=='PARAMETERIZED_SCENARIO'
-        assert scenario['schema_version']=='planet-exploration-v2'
+        assert scenario['schema_version']=='planet-exploration-v3'
         assert scenario['source']['t_s']==60
-        assert len(scenario['contour_levels_m'])==24
+        assert len(scenario['contour_levels_m'])==10
         assert scenario['atmospheric_optics']['model'] in {
             'vacuum','three_band_rayleigh_absorption_proxy_v1'}
         if scenario['pressure_pa']>0:

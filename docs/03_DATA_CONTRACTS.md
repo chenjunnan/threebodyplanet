@@ -23,8 +23,13 @@ M7.1 的 `stochastic_conics/0.4.3` 在行星 `properties` 中增加
 `atmosphere_hypothesis`。它必须包含 `model=retention_weighted_prior_v1`、
 `is_observation=false`、发生率抽样、旋转修正逃逸速度/Jeans 代理、质量和五种气体摩尔分数。
 该对象是带来源的随机先验，不得作为 S0/S1 大气事实或 M2 引力输入。0.4.2 及更旧世界不得
-被读取器自动补写该对象。M7.1 场景输出使用 `planet-exploration-v2`；M5A、M3、M4 schema
-保持各自版本，不随 Python 包版本 `0.7.1` 静默改变。
+被读取器自动补写该对象。M7.2 修正后的场景输出使用 `planet-exploration-v3`；M5A、M3、M4
+及旧 `planet-exploration-v2` schema 保持各自语义，不随 Python 包版本 `0.8.0` 静默改变。
+
+M7.2-a 的权威动态环境状态使用 `schema_version=0.8.0`、
+`model_id=m72_three_reservoir_v1`，记录地表、浅层岩石和海洋混合层温度、质量、总热容量、
+瞬时能量通量及总显热。它写入独立派生域，不覆盖 M3/C0/C1。结果、配置、M5A 强迫来源和
+检查点各自有 SHA-256；恢复必须重新验证配置和来源一致性。
 
 ### WorldInitialState
 

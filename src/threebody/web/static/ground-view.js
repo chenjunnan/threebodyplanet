@@ -51,7 +51,7 @@
     const program=gl.createProgram();gl.attachShader(program,vs);gl.attachShader(program,fs);
     gl.linkProgram(program);gl.deleteShader(vs);gl.deleteShader(fs);
     if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
-    const buffer=gl.createBuffer();let terrain=[],stars=[],yaw=0,pitch=-.12,drag=null;
+    const buffer=gl.createBuffer();let terrain=[],decorativeStars=[],realStars=[],yaw=0,pitch=-.12,drag=null;
     let lost=false,fov=1.4,skyColor=[.025,.045,.09],lockedStar='';
     const loc=name=>gl.getUniformLocation(program,name);
     function draw(){
@@ -61,7 +61,10 @@
       gl.useProgram(program);gl.uniform1f(loc('yaw'),yaw);gl.uniform1f(loc('pitch'),pitch);
       gl.uniform1f(loc('aspect'),canvas.width/canvas.height);gl.uniform1f(loc('fov'),fov);
       gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
-      for(const [data,sky,size] of [[terrain,false,1],[stars.slice(0,900),true,2],[stars.slice(900),true,10]]){
+      const batches=[[terrain,false,1],[decorativeStars,true,2],
+        ...realStars.map(star=>[star.data,true,star.pointSize])];
+      for(const [data,sky,size] of batches){
+        if(!data.length)continue;
         gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.DYNAMIC_DRAW);
         for(const [name,offset] of [['position',0],['color',12]]){
           const p=gl.getAttribLocation(program,name);gl.enableVertexAttribArray(p);
@@ -81,7 +84,7 @@
       pitch=Math.atan2(-y,rotatedZ);
     }
     function load(scene){
-      terrain=[];stars=[];
+      terrain=[];decorativeStars=[];realStars=[];
       if(!scene){skyColor=[.025,.045,.09];draw();return;}
       const optical=scene.atmospheric_optics;
       const intensity=optical?.sky_scattered_intensity_proxy_w_m2||0;
@@ -94,8 +97,11 @@
         const d=scene.radius_m*Math.min(.04,.3*Math.cos(phi));
         const lat=phi-z*d/scene.radius_m;
         const lon=lambda+x*d/(scene.radius_m*Math.max(.1,Math.cos(phi)));
-        const h=height(lat,lon),water=scene.water_surface_visible&&h<scene.sea_level_m;
-        const y=((water?scene.sea_level_m:h)-base-(x*x+z*z)*d*d/(2*scene.radius_m))/1e5;
+        const h=height(lat,lon),water=scene.has_surface_water&&h<scene.sea_level_m;
+        const surface=water?scene.sea_level_m:h;
+        const exaggeration=scene.visualization?.terrain_vertical_exaggeration||1;
+        const y=((surface-scene.observer_ground_level_m)*exaggeration+
+          scene.observer_ground_level_m-base-(x*x+z*z)*d*d/(2*scene.radius_m))/1e5;
         const snow=scene.observer_temperature_proxy_k<273.16;
         const dx=(height(lat,lon+1e-5)-height(lat,lon-1e-5))/(2e-5*scene.radius_m*Math.max(.1,Math.cos(lat)));
         const dz=(height(lat-1e-5,lon)-height(lat+1e-5,lon))/(2e-5*scene.radius_m);
@@ -122,20 +128,27 @@
         }
       }
       // Decorative star field is explicitly separate from the three archived stars.
-      for(let i=0;i<150;i++){
+      if(scene.visualization?.background_stars_visible!==false)for(let i=0;i<150;i++){
         const az=i*2.399963,alt=Math.asin((i+.5)/150);
-        stars.push(100*Math.cos(alt)*Math.sin(az),100*Math.sin(alt),
+        decorativeStars.push(100*Math.cos(alt)*Math.sin(az),100*Math.sin(alt),
           -100*Math.cos(alt)*Math.cos(az),.25,.3,.4);
       }
       for(const star of scene.sky){
         if(!star.above_geometric_horizon)continue;
         const az=star.azimuth_deg*Math.PI/180,alt=star.altitude_deg*Math.PI/180;
-        const exposure=1-Math.exp(-star.surface_direct_irradiance_proxy_w_m2/500);
+        const irradiance=star.surface_direct_irradiance_proxy_w_m2;
+        if(irradiance<=1e-9)continue;
+        const exposure=1-Math.exp(-irradiance/500);
         const transmitted=star.visible_transmittance_rgb;
-        const color=star.blackbody_rgb.map((value,i)=>
-          Math.min(1,value*transmitted[i]*(.18+.82*exposure)));
-        stars.push(99*Math.cos(alt)*Math.sin(az),99*Math.sin(alt),
-          -99*Math.cos(alt)*Math.cos(az),...color);
+        const raw=star.blackbody_rgb.map((value,i)=>value*transmitted[i]);
+        const peak=Math.max(...raw);
+        if(peak<=1e-12)continue;
+        const color=raw.map(value=>Math.min(1,value/peak*(.25+.75*exposure)));
+        const verticalFov=2*Math.atan(1/fov);
+        const diameterPixels=2*star.angular_radius_rad/verticalFov*canvas.height;
+        realStars.push({pointSize:Math.max(2,Math.min(96,diameterPixels)),data:[
+          99*Math.cos(alt)*Math.sin(az),99*Math.sin(alt),
+          -99*Math.cos(alt)*Math.cos(az),...color]});
       }
       orient(scene);
       draw();

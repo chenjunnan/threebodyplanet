@@ -8,7 +8,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 from pydantic import ValidationError
+from test_m72_dynamic_environment import config as environment_config
 
+from threebody.physics.environment.forcing import M5AOrbitForcing
+from threebody.physics.environment.solver import solve_environment
 from threebody.physics.longrun.runner import start_long_run
 from threebody.web.planet_scenarios import (
     SIGMA,
@@ -101,14 +104,19 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     region = next(r for r in first['regions'] if r['id'] == 'r12-c24')
     assert region['conditional_hazard_probability'] == pytest.approx(-math.expm1(-.1))
     assert first['regions'][0]['conditional_hazard_probability'] is None
-    area = 4*math.pi*first['radius_m']**2/len(first['regions'])
-    volume = sum(r['water_depth_m'] for r in first['regions'])*area
-    assert volume == pytest.approx(params.surface_water_kg/1000, rel=1e-10)
+    water = first['water_volume_diagnostic']
+    assert water['method'] == 'equal_area_96x192_basin_fill'
+    assert water['represented_volume_m3'] == pytest.approx(
+        params.surface_water_kg/1000, rel=1e-10
+    )
+    assert abs(water['relative_residual']) < 1e-10
     assert all(-90 <= s['altitude_deg'] <= 90 for s in first['sky'])
     assert all(0 <= s['azimuth_deg'] < 360 for s in first['sky'])
     assert len(first['sky']) == 3
-    assert first['schema_version'] == 'planet-exploration-v2'
-    assert len(first['contour_levels_m']) == 24
+    assert first['schema_version'] == 'planet-exploration-v3'
+    assert len(first['contour_levels_m']) == 10
+    assert first['observer_location'] == {'latitude_deg': 0.0, 'longitude_deg': 0.0}
+    assert first['visualization']['semantics'] == 'DISPLAY_ONLY_NOT_USED_BY_PHYSICS'
     assert first['atmospheric_optics']['optical_depth_rgb'][2] > (
         first['atmospheric_optics']['optical_depth_rgb'][0]
     )
@@ -124,6 +132,7 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     assert all(r['geostrophic_scale_mps'] is None for r in vacuum['regions'])
     assert all(r['wind_speed_range_mps'] is None for r in vacuum['regions'])
     assert all(r['water_depth_m'] == 0 for r in vacuum['regions'])
+    assert vacuum['has_surface_water'] is False
     with pytest.raises(ValueError, match='exact committed'):
         build_scenario(planet_archive, params.model_copy(update={'t_s': 61.}))
     with pytest.raises(ValueError, match='rotation'):
@@ -150,3 +159,22 @@ def test_read_only_scenario_http_and_validation(planet_archive):
             'run_id': '../planet-source', 'parameters': raw})
         assert code == 422
     assert (planet_archive/'initial_state.json').read_bytes() == before
+
+
+def test_m72_real_three_star_forcing_from_verified_m5a(planet_archive):
+    cfg = environment_config(max_step_s=2.0)
+    forcing = M5AOrbitForcing.from_run(
+        planet_archive, bond_albedo=cfg.bond_albedo,
+        max_sample_interval_s=cfg.max_orbit_sample_interval_s,
+    )
+    exact = forcing.sample(10.0)
+    between = forcing.sample(15.0)
+    assert exact.interpolation == 'EXACT_SAMPLE'
+    assert between.interpolation == 'LINEAR_FLUX'
+    assert between.top_of_atmosphere_flux_w_m2 == pytest.approx(
+        (forcing.sample(10.0).top_of_atmosphere_flux_w_m2+
+         forcing.sample(20.0).top_of_atmosphere_flux_w_m2)/2
+    )
+    result = solve_environment(cfg, forcing, [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
+    assert result.forcing_kind == 'M5A_THREE_STAR_LINEAR_FLUX_V1'
+    assert result.diagnostics.maximum_scaled_energy_residual < 1e-9
