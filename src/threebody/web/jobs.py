@@ -200,6 +200,17 @@ class LocalRunController:
                 raise ConfigError("server is shutting down")
             if (self.root / run_id).exists():
                 raise ConfigError("run_id already exists; never overwrite an archive")
+            stale_namespaces = (
+                self.root / "environments" / run_id,
+                self.root / "outcomes" / run_id,
+                self.root / "thermal_checkpoints" / run_id,
+                self._analysis_record_path(run_id),
+            )
+            if any(path.exists() or path.is_symlink() for path in stale_namespaces):
+                raise ConfigError(
+                    "run_id has derived artifacts from an older run; choose a new run_id "
+                    "or analyze the restored authoritative archive"
+                )
             self._register(run_id)
             self._executor.submit(self._worker, run_id, state, settings)
             return self._summary(self._jobs[run_id])
