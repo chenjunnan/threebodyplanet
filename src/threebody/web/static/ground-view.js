@@ -32,7 +32,13 @@
           -sin(yaw)*position.x+cos(yaw)*position.z);
         p=vec3(p.x,cos(pitch)*p.y+sin(pitch)*p.z,-sin(pitch)*p.y+cos(pitch)*p.z);
         float w=-p.z;
-        gl_Position=vec4(p.x*fov/aspect,p.y*fov,sky?w*.999:1.000000013*p.z*(-1.0)-.000002,w);
+        // Standard finite perspective depth for terrain. The former constant
+        // far-plane expression let triangles crossing the camera plane expand
+        // across the sky when tracking a high-altitude star.
+        float nearPlane=.002,farPlane=1000.0;
+        float terrainDepth=(farPlane+nearPlane)/(nearPlane-farPlane)*p.z+
+          (2.0*farPlane*nearPlane)/(nearPlane-farPlane);
+        gl_Position=vec4(p.x*fov/aspect,p.y*fov,sky?w*.999:terrainDepth,w);
         gl_PointSize=pointSize;shade=color;worldPos=position;
       }`);
     const fs=compile(gl.FRAGMENT_SHADER,`#version 300 es
@@ -120,7 +126,8 @@
         const d=scene.radius_m*Math.min(.04,.3*Math.cos(phi));
         const lat=phi-z*d/scene.radius_m;
         const lon=lambda+x*d/(scene.radius_m*Math.max(.1,Math.cos(phi)));
-        const h=height(lat,lon),water=scene.has_surface_water&&h<scene.sea_level_m;
+        const h=height(lat,lon),water=scene.has_surface_water&&
+          scene.water_surface_visible&&h<scene.sea_level_m;
         const surface=water?scene.sea_level_m:h;
         const exaggeration=scene.visualization?.terrain_vertical_exaggeration||1;
         const y=((surface-scene.observer_ground_level_m)*exaggeration+

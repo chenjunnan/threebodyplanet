@@ -248,6 +248,9 @@
 - JSON environment checkpoints are immutable, hash-bound restart states. Restarting `solve_ivp` at the
   checkpoint boundary is tolerance-consistent, not a serialization of RK internal stages or a promise
   of bitwise identity.
-- Planet exploration schema v3 uses a 96x192 equal-area basin solve for water level, ten map contours,
-  an observer marker and angular-radius star rendering. Terrain exaggeration, exposure and decorative
-  star suppression are display-only and never feed scientific state.
+- Planet exploration schema v4 uses a 96x192 equal-area basin solve, ten map contours, an observer
+  marker, finite-depth perspective and angular-radius star rendering. Terrain exaggeration, exposure,
+  point-spread display and decorative star suppression are display-only and never feed scientific state.
+- Surface and atmospheric water inventories are conserved by an explicit global saturation partition.
+  Above 647.096 K no liquid surface reservoir remains; water pressure distinguishes steam from a
+  supercritical envelope. This is an instantaneous parameterization, not a water-cycle simulation.

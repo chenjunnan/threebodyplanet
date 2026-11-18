@@ -66,6 +66,11 @@
       const p=document.createElement('p');p.textContent=label+'：'+
         (value==null?'未知':value.toPrecision(6))+' '+unit;summary.append(p);
     }
+    const water=document.createElement('p');water.textContent='水库存状态：'+
+      scene.water_inventory.state+' · 地表 '+
+      scene.water_inventory.remaining_surface_water_kg.toPrecision(5)+' kg · 转入大气 '+
+      scene.water_inventory.transferred_to_atmosphere_kg.toPrecision(5)+' kg';
+    summary.append(water);
     if(redrawMap)drawMap();
     document.querySelector('#planet-sky').textContent=scene.sky.map(s=>s.id+' 方位 '+
       s.azimuth_deg.toFixed(2)+'° / 高度 '+s.altitude_deg.toFixed(2)+'° · 大气外 '+

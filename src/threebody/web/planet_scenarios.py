@@ -18,6 +18,9 @@ G = 6.67430e-11
 SIGMA = 5.670374419e-8
 GAS_R = 8.314462618
 BOLTZMANN = 1.380649e-23
+WATER_MOLAR_MASS_KG_MOL = 0.01801528
+WATER_CRITICAL_TEMPERATURE_K = 647.096
+WATER_CRITICAL_PRESSURE_PA = 22.064e6
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 Rate = Annotated[float, Field(ge=0, le=1e6, allow_inf_nan=False)]
 
@@ -105,10 +108,54 @@ def daily_mean_flux(latitude: float, star_flux: float, declination: float) -> fl
 def water_phase_proxy(temperature: float, pressure: float) -> str:
     if temperature < 273.16:
         return 'ice'
-    if temperature >= 373.15:
-        return 'unknown_high_temperature'
-    saturation = 611.657*math.exp(2.5e6/461.5*(1/273.16-1/temperature))
-    return 'liquid_possible' if pressure >= saturation else 'vapor_or_unconfined'
+    if temperature >= WATER_CRITICAL_TEMPERATURE_K:
+        return (
+            'supercritical_water_envelope'
+            if pressure >= WATER_CRITICAL_PRESSURE_PA else 'steam_atmosphere'
+        )
+    saturation = water_saturation_pressure_pa(temperature)
+    return 'liquid_possible' if pressure >= saturation else 'steam_atmosphere'
+
+
+def water_saturation_pressure_pa(temperature_k: float) -> float:
+    """IAPWS-region saturation proxy, capped at the water critical point."""
+    if temperature_k >= WATER_CRITICAL_TEMPERATURE_K:
+        return WATER_CRITICAL_PRESSURE_PA
+    if temperature_k <= 273.16:
+        return 611.657 * math.exp(
+            2.834e6 / 461.5 * (1 / 273.16 - 1 / max(1.0, temperature_k))
+        )
+    tau = 1.0 - temperature_k / WATER_CRITICAL_TEMPERATURE_K
+    coefficients = (-7.85951783, 1.84408259, -11.7866497,
+                    22.6807411, -15.9618719, 1.80122502)
+    powers = (1.0, 1.5, 3.0, 3.5, 4.0, 7.5)
+    exponent = WATER_CRITICAL_TEMPERATURE_K / temperature_k * sum(
+        coefficient * tau**power
+        for coefficient, power in zip(coefficients, powers, strict=True)
+    )
+    return WATER_CRITICAL_PRESSURE_PA * math.exp(exponent)
+
+
+def partition_water_inventory(
+    *, total_surface_inventory_kg: float, global_temperature_k: float,
+    area_m2: float, gravity_m_s2: float, base_atmospheric_water_kg: float,
+) -> tuple[float, float, float]:
+    """Return surface, transferred-atmosphere and saturation-pressure inventories.
+
+    This is a global well-mixed equilibrium parameterization, not hydrology.
+    Above the critical temperature there is no liquid surface reservoir.
+    """
+    if total_surface_inventory_kg <= 0.0:
+        return 0.0, 0.0, water_saturation_pressure_pa(global_temperature_k)
+    saturation = water_saturation_pressure_pa(global_temperature_k)
+    if global_temperature_k >= WATER_CRITICAL_TEMPERATURE_K:
+        transferred = total_surface_inventory_kg
+    else:
+        atmospheric_capacity = max(
+            0.0, saturation * area_m2 / gravity_m_s2 - base_atmospheric_water_kg
+        )
+        transferred = min(total_surface_inventory_kg, atmospheric_capacity)
+    return total_surface_inventory_kg - transferred, transferred, saturation
 
 
 def terrain_modes(seed: int) -> list[dict]:
@@ -223,15 +270,14 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         raise ValueError('rotation outside spherical, slow-rotation approximation (q < 0.1)')
     if scenario.atmosphere_mass_kg == 0 and scenario.optical_depth != 0:
         raise ValueError('a vacuum cannot have atmospheric optical depth')
-    pressure = gravity*scenario.atmosphere_mass_kg/(4*math.pi*radius**2)
-    composition = {
+    area_m2 = 4*math.pi*radius**2
+    base_composition = {
         'oxygen': scenario.oxygen_mole_fraction,
         'water_vapor': scenario.water_vapor_mole_fraction,
         'carbon_dioxide': scenario.carbon_dioxide_mole_fraction,
         'argon': scenario.argon_mole_fraction,
     }
-    composition['nitrogen'] = 1.0 - sum(composition.values())
-    optics = _atmospheric_optics(pressure, composition)
+    base_composition['nitrogen'] = 1.0 - sum(base_composition.values())
     xyz = {b.id: np.asarray(b.position_m) for b in sample.bodies}
     stars = []
     for star in metadata['bodies'][:3]:
@@ -259,19 +305,67 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         bands.append({'latitude_rad': latitude, 'temperature_k': temperature,
                       'diurnal_mean_flux_w_m2': flux})
     mean_band_temperature = sum(b['temperature_k'] for b in bands) / len(bands)
+    base_moles = (
+        scenario.atmosphere_mass_kg / scenario.molar_mass_kg_mol
+        if scenario.atmosphere_mass_kg > 0.0 else 0.0
+    )
+    base_water_mass = (
+        base_moles * base_composition['water_vapor'] * WATER_MOLAR_MASS_KG_MOL
+    )
+    surface_water_kg, transferred_water_kg, saturation_pressure = (
+        partition_water_inventory(
+            total_surface_inventory_kg=scenario.surface_water_kg,
+            global_temperature_k=mean_band_temperature,
+            area_m2=area_m2, gravity_m_s2=gravity,
+            base_atmospheric_water_kg=base_water_mass,
+        )
+    )
+    component_moles = {
+        name: base_moles * fraction for name, fraction in base_composition.items()
+    }
+    component_moles['water_vapor'] += (
+        transferred_water_kg / WATER_MOLAR_MASS_KG_MOL
+    )
+    total_moles = sum(component_moles.values())
+    composition = (
+        {name: value / total_moles for name, value in component_moles.items()}
+        if total_moles > 0.0 else base_composition
+    )
+    atmosphere_mass_kg = scenario.atmosphere_mass_kg + transferred_water_kg
+    effective_molar_mass = (
+        atmosphere_mass_kg / total_moles
+        if total_moles > 0.0 else scenario.molar_mass_kg_mol
+    )
+    pressure = gravity * atmosphere_mass_kg / area_m2
+    optics = _atmospheric_optics(pressure, composition)
+    water_partial_pressure = pressure * composition['water_vapor']
+    if scenario.surface_water_kg == 0.0:
+        inventory_state = 'NO_SEPARATE_SURFACE_WATER_INVENTORY'
+    elif mean_band_temperature >= WATER_CRITICAL_TEMPERATURE_K:
+        inventory_state = (
+            'SUPERCRITICAL_WATER_ENVELOPE'
+            if water_partial_pressure >= WATER_CRITICAL_PRESSURE_PA
+            else 'STEAM_ATMOSPHERE'
+        )
+    elif surface_water_kg == 0.0:
+        inventory_state = 'STEAM_ATMOSPHERE'
+    elif mean_band_temperature < 273.16:
+        inventory_state = 'SURFACE_ICE_WITH_SATURATED_VAPOR'
+    else:
+        inventory_state = 'CONDENSED_SURFACE_WATER_WITH_SATURATED_VAPOR'
     for i, band in enumerate(bands):
         lo, hi = max(0, i-1), min(len(bands)-1, i+1)
         gradient = (bands[hi]['temperature_k']-bands[lo]['temperature_k'])/(
             radius*(bands[hi]['latitude_rad']-bands[lo]['latitude_rad']))
         coriolis = 2*omega*math.sin(band['latitude_rad'])
         # Order-of-magnitude geostrophic scale, not a surface wind forecast.
-        speed = (abs(GAS_R/scenario.molar_mass_kg_mol*gradient/coriolis)
+        speed = (abs(GAS_R/effective_molar_mass*gradient/coriolis)
                  if pressure > 0 and abs(coriolis) > 1e-8
                  and abs(band['latitude_rad']) > math.radians(5) else None)
-        sound = math.sqrt(1.4*GAS_R/scenario.molar_mass_kg_mol*band['temperature_k'])
+        sound = math.sqrt(1.4*GAS_R/effective_molar_mass*band['temperature_k'])
         band['geostrophic_scale_mps'] = speed if speed is not None and speed < .3*sound else None
         thermal_scale = math.sqrt(
-            GAS_R/scenario.molar_mass_kg_mol
+            GAS_R/effective_molar_mass
             * abs(band['temperature_k']-mean_band_temperature)
         )
         reference = band['geostrophic_scale_mps'] or thermal_scale
@@ -316,7 +410,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         scenario.terrain_shape_exponent
     )
     water_cell_area = 4*math.pi*radius**2/water_heights.size
-    water_volume = scenario.surface_water_kg/1000
+    water_volume = surface_water_kg/1000
     lower, upper = (float(water_heights.min()),
                     float(water_heights.max())+water_volume/(water_cell_area*water_heights.size))
     for _ in range(80):
@@ -428,7 +522,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     optics['sky_scattered_intensity_proxy_w_m2'] = sum(scattered)
     optics['display_semantics'] = 'RELATIVE_HDR_TONE_MAPPING_NOT_SI_SCREEN_LUMINANCE'
     mean_temp = sum(b['temperature_k'] for b in bands)/36
-    scale_height = GAS_R*mean_temp/(scenario.molar_mass_kg_mol*gravity) if pressure > 0 else None
+    scale_height = GAS_R*mean_temp/(effective_molar_mass*gravity) if pressure > 0 else None
     if scale_height is not None and scale_height > radius*.1:
         raise ValueError('scale height exceeds thin-atmosphere approximation')
     parameters = scenario.model_dump(mode='json')
@@ -438,12 +532,12 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     runtime = {
         'project': __version__, 'python': platform.python_version(), 'numpy': np.__version__
     }
-    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v3',
+    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v4',
                                  'source': source, 'parameters': parameters})
     contour_levels = np.linspace(
         float(heights.min()), float(heights.max()), scenario.contour_level_count+2
     )[1:-1].tolist()
-    return {'schema_version': 'planet-exploration-v3', 'data_kind': 'PARAMETERIZED_SCENARIO',
+    return {'schema_version': 'planet-exploration-v4', 'data_kind': 'PARAMETERIZED_SCENARIO',
             'run_id': reader.manifest.run_id, 'world_id': reader.manifest.world_id,
             'source': source, 'parameters': parameters, 'scenario_sha256': scenario_hash,
             'runtime': runtime,
@@ -464,11 +558,26 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
             'radius_m': radius, 'gravity_m_s2': gravity, 'rotation_parameter_q': q,
             'equatorial_effective_gravity_m_s2': gravity*(1-q),
             'pressure_pa': pressure, 'scale_height_m': scale_height,
-            'oxygen_partial_pressure_pa': pressure*scenario.oxygen_mole_fraction,
-            'water_vapor_partial_pressure_pa': pressure*scenario.water_vapor_mole_fraction,
+            'atmosphere_mass_kg': atmosphere_mass_kg,
+            'effective_molar_mass_kg_mol': effective_molar_mass,
+            'atmospheric_composition_mole_fraction': composition,
+            'oxygen_partial_pressure_pa': pressure*composition['oxygen'],
+            'water_vapor_partial_pressure_pa': water_partial_pressure,
             'carbon_dioxide_partial_pressure_pa': (
-                pressure*scenario.carbon_dioxide_mole_fraction
+                pressure*composition['carbon_dioxide']
             ),
+            'water_inventory': {
+                'model': 'global_saturation_partition_v1',
+                'total_input_surface_inventory_kg': scenario.surface_water_kg,
+                'remaining_surface_water_kg': surface_water_kg,
+                'transferred_to_atmosphere_kg': transferred_water_kg,
+                'base_atmospheric_water_kg': base_water_mass,
+                'global_equal_area_temperature_proxy_k': mean_band_temperature,
+                'saturation_pressure_proxy_pa': saturation_pressure,
+                'water_partial_pressure_pa': water_partial_pressure,
+                'state': inventory_state,
+                'semantics': 'PARAMETERIZED_GLOBAL_EQUILIBRIUM_NOT_WATER_CYCLE',
+            },
             'atmospheric_optics': optics,
             'sea_level_m': sea_level, 'terrain_grid': [24, 48], 'regions': regions,
             'water_volume_diagnostic': {
@@ -501,5 +610,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
                 'Sky optics use three broad visible bands; no refraction, clouds, terrain '
                 'occlusion, multiple scattering or line-by-line spectra.',
                 'Water proxy omits salinity, circulation, evaporation and feedback.',
+                'Water inventory partition is instantaneous global saturation equilibrium, '
+                'not resolved transport, clouds, precipitation or cold-trap hydrology.',
                 'Terrain vertical exaggeration and decorative star suppression are visual only.',
             ]}

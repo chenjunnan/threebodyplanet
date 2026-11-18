@@ -22,6 +22,7 @@ from threebody.web.planet_scenarios import (
     daily_mean_flux,
     equilibrium_temperature,
     terrain_height,
+    water_phase_proxy,
 )
 from threebody.web.worldsets import simulation_settings
 
@@ -70,6 +71,8 @@ def test_three_band_atmosphere_and_air_mass_limits():
     assert _air_mass(0.) > 30
     assert _air_mass(-.01) is None
     assert _atmospheric_optics(0., composition)["model"] == "vacuum"
+    assert water_phase_proxy(673.0, 1.0e6) == 'steam_atmosphere'
+    assert water_phase_proxy(673.0, 30.0e6) == 'supercritical_water_envelope'
 
 
 def test_scenario_rejects_unphysical_or_unknown_inputs():
@@ -107,17 +110,21 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     water = first['water_volume_diagnostic']
     assert water['method'] == 'equal_area_96x192_basin_fill'
     assert water['represented_volume_m3'] == pytest.approx(
-        params.surface_water_kg/1000, rel=1e-10
+        first['water_inventory']['remaining_surface_water_kg']/1000, rel=1e-10
     )
     assert abs(water['relative_residual']) < 1e-10
     assert all(-90 <= s['altitude_deg'] <= 90 for s in first['sky'])
     assert all(0 <= s['azimuth_deg'] < 360 for s in first['sky'])
     assert len(first['sky']) == 3
-    assert first['schema_version'] == 'planet-exploration-v3'
+    assert first['schema_version'] == 'planet-exploration-v4'
     assert len(first['contour_levels_m']) == 10
     assert first['observer_location'] == {'latitude_deg': 0.0, 'longitude_deg': 0.0}
     assert first['visualization']['semantics'] == 'DISPLAY_ONLY_NOT_USED_BY_PHYSICS'
     assert first['visualization']['minimum_point_source_psf_px'] == 5
+    inventory = first['water_inventory']
+    assert inventory['remaining_surface_water_kg'] + (
+        inventory['transferred_to_atmosphere_kg']
+    ) == pytest.approx(params.surface_water_kg)
     assert first['atmospheric_optics']['optical_depth_rgb'][2] > (
         first['atmospheric_optics']['optical_depth_rgb'][0]
     )
@@ -126,7 +133,12 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
                for b in first['bands'])
     doubled = build_scenario(planet_archive, params.model_copy(update={
         'atmosphere_mass_kg': params.atmosphere_mass_kg*2}))
-    assert doubled['pressure_pa'] == pytest.approx(2*first['pressure_pa'])
+    base_pressure = first['gravity_m_s2'] * params.atmosphere_mass_kg / (
+        4*math.pi*first['radius_m']**2
+    )
+    assert doubled['pressure_pa'] - first['pressure_pa'] == pytest.approx(
+        base_pressure, rel=1e-12
+    )
     vacuum = build_scenario(planet_archive, params.model_copy(update={
         'atmosphere_mass_kg': 0., 'surface_water_kg': 0.}))
     assert vacuum['scale_height_m'] is None
@@ -138,6 +150,25 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
         build_scenario(planet_archive, params.model_copy(update={'t_s': 61.}))
     with pytest.raises(ValueError, match='rotation'):
         build_scenario(planet_archive, params.model_copy(update={'rotation_rate_rad_s': 1.}))
+
+
+def test_supercritical_global_temperature_moves_surface_water_into_atmosphere(
+    planet_archive,
+):
+    hot = build_scenario(planet_archive, PlanetScenario(
+        t_s=60.0, rotation_axis=(0.0, 0.0, 1.0),
+        rotation_rate_rad_s=2*math.pi/86400, optical_depth=20.0,
+        emissivity=0.1,
+    ))
+    inventory = hot['water_inventory']
+    assert inventory['global_equal_area_temperature_proxy_k'] > 647.096
+    assert inventory['remaining_surface_water_kg'] == 0.0
+    assert inventory['transferred_to_atmosphere_kg'] == 1.4e21
+    assert inventory['state'] == 'SUPERCRITICAL_WATER_ENVELOPE'
+    assert hot['has_surface_water'] is False
+    assert hot['water_surface_visible'] is False
+    assert all(region['water_depth_m'] == 0.0 for region in hot['regions'])
+    assert hot['water_vapor_partial_pressure_pa'] > 22.064e6
 
 
 def test_read_only_scenario_http_and_validation(planet_archive):

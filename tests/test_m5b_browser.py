@@ -273,7 +273,7 @@ def test_real_browser_world_3d_drag_science_and_report():
         with open(future_scenario.value.path(),encoding='utf-8') as handle:
             scenario=json.load(handle)
         assert scenario['data_kind']=='PARAMETERIZED_SCENARIO'
-        assert scenario['schema_version']=='planet-exploration-v3'
+        assert scenario['schema_version']=='planet-exploration-v4'
         assert scenario['source']['t_s']==60
         assert len(scenario['contour_levels_m'])==10
         assert scenario['atmospheric_optics']['model'] in {
@@ -299,6 +299,26 @@ def test_real_browser_world_3d_drag_science_and_report():
             if visible:
                 page.locator('#planet-lock-star').select_option(visible)
             assert ground.evaluate("n => n.getContext('webgl2').getError()") == 0
+            projection=page.evaluate("""scene=>{
+              scene=structuredClone(scene);
+              const star={...scene.sky[0],id:'star-2',altitude_deg:80,
+                azimuth_deg:202,above_geometric_horizon:true,
+                angular_radius_rad:.0668,surface_direct_irradiance_proxy_w_m2:235,
+                irradiance_w_m2:235,visible_transmittance_rgb:[.1,.07,.01],
+                blackbody_rgb:[1,.64,.28]};
+              scene.sky=[star];scene.water_surface_visible=false;
+              const canvas=document.querySelector('#planet-ground');
+              const view=createPlanetGround(canvas);view.load(scene);view.lockStar('star-2',scene);
+              const gl=canvas.getContext('webgl2'),pixel=(x,y)=>{
+                const p=new Uint8Array(4);gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,p);
+                return Array.from(p);
+              };
+              return {error:gl.getError(),center:pixel(canvas.width/2,canvas.height/2),
+                top:pixel(canvas.width/2,canvas.height-2),corner:pixel(2,canvas.height-2)};
+            }""",scenario)
+            assert projection['error'] == 0
+            assert projection['center'] != projection['top']
+            assert projection['top'] == projection['corner']
         # Surface playback advances only across exact archived samples and rebuilds the sky.
         page.locator('#planet-ground-previous').click()
         page.wait_for_function("() => document.querySelector('#planet-status')"
