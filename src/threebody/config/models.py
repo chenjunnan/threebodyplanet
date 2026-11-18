@@ -201,22 +201,83 @@ class InitialConstraintsConfig(StrictModel):
     allow_initial_contact: bool
 
 
+class PlanetRotationDistributionConfig(StrictModel):
+    axis: Literal["isotropic"]
+    period_s: ScalarDistributionConfig
+
+    @model_validator(mode="after")
+    def positive_period(self) -> PlanetRotationDistributionConfig:
+        if self.period_s.min <= 0.0:
+            raise ValueError("planet rotation period requires min > 0")
+        return self
+
+
+class AtmospherePriorConfig(StrictModel):
+    model: Literal["retention_weighted_prior_v1"]
+    occurrence_probability: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    mass_fraction: ScalarDistributionConfig
+    albedo: ScalarDistributionConfig
+    jeans_transition: tuple[float, float]
+    composition_dirichlet_alpha: dict[
+        Literal["nitrogen", "carbon_dioxide", "argon", "water_vapor", "oxygen"],
+        float,
+    ]
+
+    @field_validator("composition_dirichlet_alpha")
+    @classmethod
+    def valid_composition_alpha(cls, value: dict[str, float]) -> dict[str, float]:
+        expected = {"nitrogen", "carbon_dioxide", "argon", "water_vapor", "oxygen"}
+        if set(value) != expected:
+            raise ValueError("composition Dirichlet alpha requires the five canonical gases")
+        if any(not math.isfinite(item) or item <= 0.0 for item in value.values()):
+            raise ValueError("composition Dirichlet alpha values must be finite and positive")
+        return value
+
+    @field_validator("jeans_transition", mode="before")
+    @classmethod
+    def list_to_transition(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return tuple(float(item) for item in value)
+        return value
+
+    @model_validator(mode="after")
+    def valid_prior(self) -> AtmospherePriorConfig:
+        if self.mass_fraction.min <= 0.0 or self.mass_fraction.max > 0.05:
+            raise ValueError("atmosphere mass fraction must be within (0, 0.05]")
+        if not 0.0 <= self.albedo.min <= self.albedo.max <= 1.0:
+            raise ValueError("atmosphere albedo distribution must be within [0, 1]")
+        low, high = self.jeans_transition
+        if not (math.isfinite(low) and math.isfinite(high) and 0.0 < low < high):
+            raise ValueError("jeans_transition must be an increasing positive pair")
+        return self
+
+
 class BoundedStochasticConicsGeneratorConfig(StrictModel):
     type: Literal["stochastic_conics"]
-    version: Literal["0.4.1", "0.4.2"]
+    version: Literal["0.4.1", "0.4.2", "0.4.3"]
     stars: StellarDistributionConfig
     planet: PlanetDistributionConfig
     geometry: StochasticGeometryConfig
     initial_constraints: InitialConstraintsConfig
+    planet_rotation: PlanetRotationDistributionConfig | None = None
+    atmosphere_prior: AtmospherePriorConfig | None = None
 
     @model_validator(mode="after")
     def supported_main_sequence_range(self) -> BoundedStochasticConicsGeneratorConfig:
-        if self.version == "0.4.2":
+        if self.version in {"0.4.2", "0.4.3"}:
             masses = self.stars.mass_solar
             if masses.min < 0.3 or masses.max > 8.0:
                 raise ValueError(
-                    "stochastic_conics/0.4.2 main-sequence mass must be within 0.3..8 M_sun"
+                    f"stochastic_conics/{self.version} main-sequence mass must be within "
+                    "0.3..8 M_sun"
                 )
+        enhanced = self.planet_rotation is not None or self.atmosphere_prior is not None
+        if self.version == "0.4.3" and (
+            self.planet_rotation is None or self.atmosphere_prior is None
+        ):
+            raise ValueError("stochastic_conics/0.4.3 requires rotation and atmosphere priors")
+        if self.version != "0.4.3" and enhanced:
+            raise ValueError("rotation/atmosphere priors require stochastic_conics/0.4.3")
         return self
 
 
@@ -270,7 +331,7 @@ class OutputConfig(StrictModel):
 
 
 class ResolvedExperimentConfig(StrictModel):
-    schema_version: Literal["0.1.0", "0.4.0", "0.4.1", "0.4.2"]
+    schema_version: Literal["0.1.0", "0.4.0", "0.4.1", "0.4.2", "0.4.3"]
     experiment: ExperimentConfig
     world_generation: WorldGenerationConfig
     screening: ScreeningConfig

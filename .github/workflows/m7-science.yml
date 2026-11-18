@@ -1,6 +1,13 @@
 name: M7 Parameter Science and Numerical Acceptance
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/threebody/web/planet_scenarios.py'
+      - 'scripts/m7_numerical_acceptance.py'
+      - 'tests/test_planet_scenarios.py'
+      - '.github/workflows/m7-science.yml'
   pull_request:
     paths:
       - 'src/threebody/web/planet_scenarios.py'

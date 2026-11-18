@@ -1,0 +1,64 @@
+schema_version: "0.4.3"
+experiment:
+  id: p0-m71-random-planets
+  seed: 20261118
+  candidate_count: 100
+world_generation:
+  body_count: {stars: 3, planets: 1}
+  generator:
+    type: stochastic_conics
+    version: "0.4.3"
+    stars:
+      mass_solar: {min: 0.3, max: 8.0, distribution: log_uniform}
+    planet:
+      mass_earth: {min: 0.1, max: 8.0, distribution: log_uniform}
+      density_kg_m3: {min: 2800.0, max: 8500.0, distribution: uniform}
+    geometry:
+      inner:
+        periapsis_m: {min: 1.0e+10, max: 2.0e+12, distribution: log_uniform}
+        eccentricity: {min: 0.0, max: 1.8, distribution: uniform}
+      outer:
+        periapsis_m: {min: 2.0e+10, max: 2.0e+13, distribution: log_uniform}
+        eccentricity: {min: 0.0, max: 2.0, distribution: uniform}
+      planet:
+        periapsis_m: {min: 2.0e+9, max: 5.0e+12, distribution: log_uniform}
+        eccentricity: {min: 0.0, max: 2.2, distribution: uniform}
+        host_weights: {star-1: 1.0, star-2: 1.0, star-3: 1.0, barycenter: 1.0}
+      orientation: {normal: isotropic, node: uniform, periapsis_argument: uniform}
+      anomaly: {distribution: true_anomaly_uniform_on_valid_domain}
+      velocity_kick:
+        distribution: isotropic_speed_fraction
+        speed_scale_fraction: {min: 0.0, max: 0.6, distribution: uniform}
+    initial_constraints:
+      mode: bounded
+      max_attempts: 256
+      planet_star_distance_m: {min: null, max_nearest: 1.5e+12, max_each: null}
+      stellar_pair_max_distance_m: null
+      planet_speed:
+        absolute_max_mps: 80000.0
+        escape_mode: combined_potential
+        escape_speed_fraction_max: 0.90
+      allow_initial_contact: false
+    planet_rotation:
+      axis: isotropic
+      period_s: {min: 14400.0, max: 1728000.0, distribution: log_uniform}
+    atmosphere_prior:
+      model: retention_weighted_prior_v1
+      occurrence_probability: 0.72
+      mass_fraction: {min: 1.0e-9, max: 2.0e-4, distribution: log_uniform}
+      albedo: {min: 0.08, max: 0.55, distribution: uniform}
+      jeans_transition: [8.0, 28.0]
+      composition_dirichlet_alpha:
+        nitrogen: 5.0
+        carbon_dioxide: 1.5
+        argon: 0.5
+        water_vapor: 0.3
+        oxygen: 0.05
+screening:
+  preset: research
+  default_rule_state: disabled
+  fail_fast: false
+  initial_physics: {enabled: true, rules: {}}
+  exploration: {enabled: false}
+runtime: {simulation_enabled: false}
+output: {max_candidates: 10000, format: json}

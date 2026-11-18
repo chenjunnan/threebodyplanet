@@ -1,0 +1,53 @@
+{
+  "schema_version": "m71-acceptance-v1",
+  "project_version": "0.7.1",
+  "generator": "0.4.3",
+  "config_sha256": "73930ec403e882a863fab654f0c1570cdf6967ad2303d46fa96612023d27dde7",
+  "run_status": "COMPLETED",
+  "rotation_period_s": 542497.5645522518,
+  "atmosphere": {
+    "model": "retention_weighted_prior_v1",
+    "status": "PRESENT_PRIOR_SAMPLE",
+    "is_observation": false,
+    "atmosphere_mass_kg": 1.2367857580775917e+21,
+    "mass_fraction": 0.0001192984333459198,
+    "composition_mole_fraction": {
+      "nitrogen": 0.5813623457766264,
+      "carbon_dioxide": 0.39704856419918366,
+      "argon": 0.021569002405527817,
+      "water_vapor": 1.780917563727067e-11,
+      "oxygen": 2.0087600852927274e-05
+    },
+    "mean_molar_mass_kg_mol": 0.03462212601084196,
+    "sampled_albedo": 0.1985048573361692,
+    "total_initial_stellar_flux_w_m2": 34195.76326090926,
+    "equilibrium_temperature_proxy_k": 589.5903506167195,
+    "upper_atmosphere_temperature_proxy_k": 1473.975876541799,
+    "rotation_adjusted_escape_speed_proxy_mps": 13348.076628930356,
+    "jeans_parameter_proxy": 251.6729608974387,
+    "retention_weight": 1.0,
+    "base_occurrence_probability": 0.72,
+    "weighted_occurrence_probability": 0.72,
+    "occurrence_draw": 0.2598915039539601,
+    "scientific_claim": "seeded retention-weighted atmosphere prior; not proof of atmosphere or composition"
+  },
+  "scene": {
+    "schema_version": "planet-exploration-v2",
+    "runtime": {
+      "project": "0.7.1",
+      "python": "3.11.18",
+      "numpy": "2.4.6"
+    },
+    "source": {
+      "initial_state_sha256": "f088d6bdd20026b1ffaa4a7c8583db1a8bad67e3060ff2c60dd5cead63e3e170",
+      "physics_sha256": "caf2411aa42030470569b90d94dd7d40f1348a6dcc247b9c91afee3c438d5fe9",
+      "sample_sha256": "f69d5483e1f08330a1f5d9a70fa0d44c2c7a9e937611159c2d3d3d5d564c6fd0",
+      "t_s": 60.0
+    },
+    "scenario_sha256": "e4fae847b33c94e56452c228aded1ab14ae3c9c15b7788782464af222844d66e",
+    "pressure_pa": 18715294.911311768,
+    "contour_level_count": 24,
+    "wind_band_count": 36,
+    "optics_model": "three_band_rayleigh_absorption_proxy_v1"
+  }
+}

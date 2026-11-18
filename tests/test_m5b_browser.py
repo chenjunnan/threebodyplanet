@@ -273,7 +273,15 @@ def test_real_browser_world_3d_drag_science_and_report():
         with open(future_scenario.value.path(),encoding='utf-8') as handle:
             scenario=json.load(handle)
         assert scenario['data_kind']=='PARAMETERIZED_SCENARIO'
+        assert scenario['schema_version']=='planet-exploration-v2'
         assert scenario['source']['t_s']==60
+        assert len(scenario['contour_levels_m'])==24
+        assert scenario['atmospheric_optics']['model'] in {
+            'vacuum','three_band_rayleigh_absorption_proxy_v1'}
+        if scenario['pressure_pa']>0:
+            assert all(r['wind_speed_range_mps'] is not None for r in scenario['regions'])
+        else:
+            assert all(r['wind_speed_range_mps'] is None for r in scenario['regions'])
         assert all(r['conditional_hazard_probability'] is None for r in scenario['regions'])
         ground=page.locator('#planet-ground')
         ground.scroll_into_view_if_needed()
@@ -282,7 +290,22 @@ def test_real_browser_world_3d_drag_science_and_report():
             ground.focus()
             ground.press('ArrowRight')
             assert ground.evaluate('n => n.toDataURL()')!=before
+            visible=next((star['id'] for star in scenario['sky']
+                          if star['above_geometric_horizon']),None)
+            if visible:
+                page.locator('#planet-lock-star').select_option(visible)
             assert ground.evaluate("n => n.getContext('webgl2').getError()") == 0
+        # Surface playback advances only across exact archived samples and rebuilds the sky.
+        page.locator('#planet-ground-previous').click()
+        page.wait_for_function("() => document.querySelector('#planet-status')"
+                               ".textContent.includes('t=50')",timeout=10000)
+        page.locator('#planet-ground-previous').click()
+        page.wait_for_function("() => document.querySelector('#planet-status')"
+                               ".textContent.includes('t=40')",timeout=10000)
+        page.locator('#planet-ground-play').click()
+        page.wait_for_function("() => document.querySelector('#planet-status')"
+                               ".textContent.includes('t=50')",timeout=10000)
+        page.locator('#planet-ground-pause').click()
         page.get_by_text('区域地质事件先验（可选）',exact=True).click()
         page.locator('#planet-hazard-definition').fill('test event in each equal-area region')
         page.locator('#planet-hazard-rates').fill('{"r12-c24":0.01}')

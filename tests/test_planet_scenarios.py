@@ -13,6 +13,8 @@ from threebody.physics.longrun.runner import start_long_run
 from threebody.web.planet_scenarios import (
     SIGMA,
     PlanetScenario,
+    _air_mass,
+    _atmospheric_optics,
     build_scenario,
     daily_mean_flux,
     equilibrium_temperature,
@@ -54,6 +56,19 @@ def test_terrain_seed_reproducibility_and_poles():
     assert np.allclose(2*a, terrain_height(normals, 42, 12000.))
 
 
+def test_three_band_atmosphere_and_air_mass_limits():
+    composition = {"nitrogen": .78, "oxygen": .21, "carbon_dioxide": .0004,
+                   "argon": .0093, "water_vapor": .0003}
+    optics = _atmospheric_optics(101325., composition)
+    assert optics["optical_depth_rgb"][2] > optics["optical_depth_rgb"][1] > (
+        optics["optical_depth_rgb"][0]
+    )
+    assert _air_mass(math.pi/2) == pytest.approx(1., rel=5e-4)
+    assert _air_mass(0.) > 30
+    assert _air_mass(-.01) is None
+    assert _atmospheric_optics(0., composition)["model"] == "vacuum"
+
+
 def test_scenario_rejects_unphysical_or_unknown_inputs():
     for extra in ({'oxygen_mole_fraction': .8, 'water_vapor_mole_fraction': .3},
                   {'rotation_axis': (1., 1., 1.)}, {'albedo': float('nan')},
@@ -92,6 +107,14 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     assert all(-90 <= s['altitude_deg'] <= 90 for s in first['sky'])
     assert all(0 <= s['azimuth_deg'] < 360 for s in first['sky'])
     assert len(first['sky']) == 3
+    assert first['schema_version'] == 'planet-exploration-v2'
+    assert len(first['contour_levels_m']) == 24
+    assert first['atmospheric_optics']['optical_depth_rgb'][2] > (
+        first['atmospheric_optics']['optical_depth_rgb'][0]
+    )
+    assert all(b['wind_speed_range_mps'] is not None for b in first['bands'])
+    assert all(0 <= b['wind_speed_range_mps'][0] <= b['wind_speed_range_mps'][1]
+               for b in first['bands'])
     doubled = build_scenario(planet_archive, params.model_copy(update={
         'atmosphere_mass_kg': params.atmosphere_mass_kg*2}))
     assert doubled['pressure_pa'] == pytest.approx(2*first['pressure_pa'])
@@ -99,6 +122,7 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
         'atmosphere_mass_kg': 0., 'surface_water_kg': 0.}))
     assert vacuum['scale_height_m'] is None
     assert all(r['geostrophic_scale_mps'] is None for r in vacuum['regions'])
+    assert all(r['wind_speed_range_mps'] is None for r in vacuum['regions'])
     assert all(r['water_depth_m'] == 0 for r in vacuum['regions'])
     with pytest.raises(ValueError, match='exact committed'):
         build_scenario(planet_archive, params.model_copy(update={'t_s': 61.}))

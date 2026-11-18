@@ -3,8 +3,10 @@
   'use strict';
   function heightAt(scene,lat,lon){
     const n=[Math.cos(lat)*Math.cos(lon),Math.cos(lat)*Math.sin(lon),Math.sin(lat)];
-    return scene.parameters.relief_m*scene.terrain_modes.reduce((sum,m)=>sum+
+    const raw=scene.terrain_modes.reduce((sum,m)=>sum+
       Math.sin(n.reduce((v,x,k)=>v+x*m.direction[k],0)*m.frequency+m.phase)*m.amplitude,0);
+    return scene.parameters.relief_m*Math.sign(raw)*
+      Math.abs(raw)**scene.parameters.terrain_shape_exponent;
   }
   global.planetSurfaceHeight=heightAt;
   function create(canvas){
@@ -50,11 +52,11 @@
     gl.linkProgram(program);gl.deleteShader(vs);gl.deleteShader(fs);
     if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
     const buffer=gl.createBuffer();let terrain=[],stars=[],yaw=0,pitch=-.12,drag=null;
-    let lost=false,fov=1.4;
+    let lost=false,fov=1.4,skyColor=[.025,.045,.09],lockedStar='';
     const loc=name=>gl.getUniformLocation(program,name);
     function draw(){
       if(lost)return;
-      gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(.025,.045,.09,1);
+      gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(...skyColor,1);
       gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);
       gl.useProgram(program);gl.uniform1f(loc('yaw'),yaw);gl.uniform1f(loc('pitch'),pitch);
       gl.uniform1f(loc('aspect'),canvas.width/canvas.height);gl.uniform1f(loc('fov'),fov);
@@ -69,9 +71,22 @@
         gl.uniform1i(loc('sky'),sky?1:0);gl.drawArrays(sky?gl.POINTS:gl.TRIANGLES,0,data.length/6);
       }
     }
+    function orient(scene){
+      const star=scene?.sky?.find(item=>item.id===lockedStar&&item.above_geometric_horizon);
+      if(!star)return;
+      const az=star.azimuth_deg*Math.PI/180,alt=star.altitude_deg*Math.PI/180;
+      const x=Math.cos(alt)*Math.sin(az),y=Math.sin(alt),z=-Math.cos(alt)*Math.cos(az);
+      yaw=Math.atan2(-x,z);
+      const rotatedZ=-Math.sin(yaw)*x+Math.cos(yaw)*z;
+      pitch=Math.atan2(-y,rotatedZ);
+    }
     function load(scene){
       terrain=[];stars=[];
-      if(!scene){draw();return;}
+      if(!scene){skyColor=[.025,.045,.09];draw();return;}
+      const optical=scene.atmospheric_optics;
+      const intensity=optical?.sky_scattered_intensity_proxy_w_m2||0;
+      const exposure=1-Math.exp(-intensity/500);
+      skyColor=(optical?.sky_display_srgb||[0,0,0]).map(v=>.012+v*.48*exposure);
       const p=scene.parameters,phi=p.latitude_deg*Math.PI/180,lambda=p.longitude_deg*Math.PI/180;
       const height=(lat,lon)=>heightAt(scene,lat,lon);
       const base=scene.observer_ground_level_m+p.observer_height_m;
@@ -85,8 +100,8 @@
         const dx=(height(lat,lon+1e-5)-height(lat,lon-1e-5))/(2e-5*scene.radius_m*Math.max(.1,Math.cos(lat)));
         const dz=(height(lat-1e-5,lon)-height(lat+1e-5,lon))/(2e-5*scene.radius_m);
         const length=Math.hypot(dx,1,dz),normal=[-dx/length,1/length,-dz/length];
-        const total=Math.max(1,scene.sky.reduce((sum,s)=>sum+s.irradiance_w_m2,0));
-        let light=.16;
+        const total=Math.max(1e-12,scene.sky.reduce((sum,s)=>sum+s.irradiance_w_m2,0));
+        let light=scene.pressure_pa>0?.10:.035;
         for(const star of scene.sky){
           const a=star.azimuth_deg*Math.PI/180,b=star.altitude_deg*Math.PI/180;
           const direction=[Math.cos(b)*Math.sin(a),Math.sin(b),-Math.cos(b)*Math.cos(a)];
@@ -94,7 +109,7 @@
             normal.reduce((sum,v,k)=>sum+v*direction[k],0))*star.irradiance_w_m2/total;
         }
         const grain=.9+.1*Math.sin(lat*20000+Math.sin(lon*17000));
-        const shade=Math.sqrt(light)*grain;
+        const shade=Math.sqrt(Math.max(0,light))*grain;
         const c=water?[.03*shade,.24*shade,.38*shade]:snow?[.7*shade,.75*shade,.76*shade]:
           [.42*shade,.35*shade,.24*shade];
         return [x*d/1e5,y,z*d/1e5,...c];
@@ -115,9 +130,14 @@
       for(const star of scene.sky){
         if(!star.above_geometric_horizon)continue;
         const az=star.azimuth_deg*Math.PI/180,alt=star.altitude_deg*Math.PI/180;
+        const exposure=1-Math.exp(-star.surface_direct_irradiance_proxy_w_m2/500);
+        const transmitted=star.visible_transmittance_rgb;
+        const color=star.blackbody_rgb.map((value,i)=>
+          Math.min(1,value*transmitted[i]*(.18+.82*exposure)));
         stars.push(99*Math.cos(alt)*Math.sin(az),99*Math.sin(alt),
-          -99*Math.cos(alt)*Math.cos(az),1,.8,.4);
+          -99*Math.cos(alt)*Math.cos(az),...color);
       }
+      orient(scene);
       draw();
     }
     canvas.style.touchAction='none';
@@ -139,7 +159,8 @@
     });
     canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();lost=true;
       document.querySelector('#planet-sky').textContent+=' · 地表WebGL上下文丢失，请刷新恢复；地图与数值仍可使用。';});
-    return {load,draw};
+    function lockStar(id,scene){lockedStar=id||'';orient(scene);draw();}
+    return {load,draw,lockStar};
   }
   global.createPlanetGround=create;
 })(window);

@@ -1,5 +1,16 @@
 # P0-M0/M1 implementation decisions
 
+## ADR-M71-01：大气保留先验与视觉光学和权威轨道分层（2026-11-18）
+
+- `stochastic_conics/0.4.3` 使用独立随机子流生成行星周期和大气先验；冻结 0.4.2 固定种子
+  世界哈希，避免新抽样扰动历史轨道。
+- 大气存在不能由质量/自转唯一推导。实现记录瞬时辐照、旋转修正逃逸速度、Jeans 参数代理、
+  显式发生率和随机抽样，结果标记 `is_observation=false`。
+- 纬向风只输出有种子、受声速及热力/地转参考尺度约束的范围；真空返回空值。
+- 三波段大气光学负责地面观察的相对天空色与直达光消光，不进入 M3/C0/C1 权威历史，
+  不宣称逐线光谱、云、折射或多次散射。
+- 地面动画只遍历 API 返回的精确 M5A 采样。显示速度、请求频率和 HDR 曝光均不改变物理时间。
+
 ## 0.1.0 — 2026-11-16
 
 - The resolved configuration SHA-256 covers the complete resolved experiment configuration. It

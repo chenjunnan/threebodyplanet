@@ -11,8 +11,7 @@ function escapeText(value) {
 async function loadRuns() {
   runs.innerHTML = '<p class="muted">读取中…</p>';
   try {
-    const response = await fetch('/api/v1/runs');
-    const data = await response.json();
+    const data = await window.ThreeBodyWeb.get('/api/v1/runs');
     if (!data.runs.length) {
       runs.innerHTML = '<p class="muted">归档根目录中没有可识别运行。</p>';
       return;
@@ -53,14 +52,7 @@ let activeRunId = null;
 let pollHandle = null;
 
 async function apiPost(path, payload) {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.message || result.error || response.status);
-  return result;
+  return window.ThreeBodyWeb.post(path,payload);
 }
 
 const scienceAutoRequested = new Set();
@@ -430,9 +422,12 @@ function orbitSetIndex(i) {
   orbitDraw();
   renderOrbitBodyDetails();
   renderThermal();
+  window.ThreeBodyWeb.set('orbitIndex',orbitIndex);
+  window.ThreeBodyWeb.set('physicalTime_s',orbitSamples[orbitIndex].t_s);
   window.dispatchEvent(new Event('threebody-time'));
 }
 function orbitStop(){if(orbitTimer!==null)clearInterval(orbitTimer);orbitTimer=null;}
+window.ThreeBodyWeb.onRoute('orbit',{leave:orbitStop,enter:orbitDraw});
 async function loadOrbit() {
   orbitLoadedRunId=null;
   window.dispatchEvent(new Event('threebody-time'));
@@ -578,6 +573,9 @@ async function loadOrbit() {
       if(collision>=0){orbitSelectedEvent=collision;orbitEvents.value=String(collision);}
     }
     orbitLoadedRunId=id;
+    window.ThreeBodyWeb.set('runId',id);
+    window.ThreeBodyWeb.set('trajectory',validatedTrajectory);
+    window.ThreeBodyWeb.set('bodyMetadata',linkedBodyMetadata);
     orbitSetIndex(orbitSamples.length-1);
     if(!orbitSamples.length){orbitDraw();renderThermal();}
   } catch(error) {

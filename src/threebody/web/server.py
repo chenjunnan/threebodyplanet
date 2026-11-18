@@ -106,7 +106,7 @@ class ScienceConsoleServer(ThreadingHTTPServer):
 
 
 class ConsoleHandler(BaseHTTPRequestHandler):
-    server_version = "ThreeBodyConsole/0.2"
+    server_version = "ThreeBodyConsole/0.7.1"
 
     @property
     def artifact_root(self) -> Path:
@@ -304,7 +304,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             if path in {"/", "/index.html"}:
                 self._static("index.html", "text/html; charset=utf-8")
                 return
-            if path in {"/navigation.js", "/planet-explorer.js", "/ground-view.js"}:
+            if path in {
+                "/web-core.js", "/navigation.js", "/planet-explorer.js", "/ground-view.js"
+            }:
                 self._static(path[1:], "text/javascript; charset=utf-8")
                 return
             if path == "/app.js":

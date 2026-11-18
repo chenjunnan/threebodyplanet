@@ -10,7 +10,9 @@ from pydantic import BaseModel, ConfigDict
 
 from threebody.common.constants import M_EARTH_KG, M_SUN_KG, R_SUN_M, G
 from threebody.config.models import (
+    AtmospherePriorConfig,
     BoundedStochasticConicsGeneratorConfig,
+    PlanetRotationDistributionConfig,
     ScalarDistributionConfig,
     StochasticConicsGeneratorConfig,
 )
@@ -19,6 +21,16 @@ from threebody.world.models import BodyKind, CelestialBody, WorldInitialState
 
 FloatArray = NDArray[np.float64]
 HOSTS = ("star-1", "star-2", "star-3", "barycenter")
+BOLTZMANN_J_K = 1.380649e-23
+ATOMIC_MASS_KG = 1.66053906660e-27
+SIGMA_W_M2_K4 = 5.670374419e-8
+GAS_MOLAR_MASS_KG_MOL = {
+    "nitrogen": 0.0280134,
+    "carbon_dioxide": 0.0440095,
+    "argon": 0.039948,
+    "water_vapor": 0.01801528,
+    "oxygen": 0.0319988,
+}
 
 
 class GenerationError(ValueError):
@@ -112,9 +124,9 @@ class ConstraintAttemptRecord(_MetadataModel):
 
 
 class GenerationMetadataV041(_MetadataModel):
-    schema_version: Literal["0.4.1", "0.4.2"] = "0.4.1"
+    schema_version: Literal["0.4.1", "0.4.2", "0.4.3"] = "0.4.1"
     generator_id: Literal["stochastic_conics"] = "stochastic_conics"
-    generator_version: Literal["0.4.1", "0.4.2"] = "0.4.1"
+    generator_version: Literal["0.4.1", "0.4.2", "0.4.3"] = "0.4.1"
     world_id: str
     seed: int
     candidate_index: int
@@ -122,7 +134,7 @@ class GenerationMetadataV041(_MetadataModel):
     substream_scheme: Literal[
         "SeedSequence([seed,candidate_index,attempt,stream_id])"
     ] = "SeedSequence([seed,candidate_index,attempt,stream_id])"
-    distribution_schema_version: Literal["0.4.1", "0.4.2"] = "0.4.1"
+    distribution_schema_version: Literal["0.4.1", "0.4.2", "0.4.3"] = "0.4.1"
     constraint_mode: Literal["unrestricted", "bounded"]
     constraints: dict[str, Any]
     selected_attempt: int
@@ -215,6 +227,93 @@ def _spin_properties(
         "rotation_rate_rad_s": math.tau / period_s,
         "rotation_period_s": period_s,
         "rotation_model": "kinematic_fixed_axis_v1",
+    }
+
+
+def _atmosphere_hypothesis(
+    *,
+    config: AtmospherePriorConfig,
+    occurrence_rng: np.random.Generator,
+    composition_rng: np.random.Generator,
+    mass_rng: np.random.Generator,
+    albedo_rng: np.random.Generator,
+    planet_mass_kg: float,
+    planet_radius_m: float,
+    rotation_rate_rad_s: float,
+    total_stellar_flux_w_m2: float,
+) -> dict[str, Any]:
+    """Versioned rocky-atmosphere prior; diagnostic plausibility, never proof."""
+    albedo = _sample(config.albedo, albedo_rng)
+    equilibrium_k = (
+        max(0.0, (1.0 - albedo) * total_stellar_flux_w_m2)
+        / (4.0 * SIGMA_W_M2_K4)
+    ) ** 0.25
+    upper_temperature_k = min(2500.0, max(120.0, 2.5 * equilibrium_k))
+    effective_escape_sq = max(
+        0.0,
+        2.0 * G * planet_mass_kg / planet_radius_m
+        - (rotation_rate_rad_s * planet_radius_m) ** 2,
+    )
+    gases = tuple(GAS_MOLAR_MASS_KG_MOL)
+    alpha = np.asarray(
+        [config.composition_dirichlet_alpha[name] for name in gases], dtype=np.float64
+    )
+    fractions = composition_rng.dirichlet(alpha)
+    mean_molar_mass = float(
+        sum(fractions[i] * GAS_MOLAR_MASS_KG_MOL[name] for i, name in enumerate(gases))
+    )
+    molecule_mass = mean_molar_mass / 6.02214076e23
+    jeans = (
+        molecule_mass * effective_escape_sq / (2.0 * BOLTZMANN_J_K * upper_temperature_k)
+        if upper_temperature_k > 0.0
+        else 0.0
+    )
+    low, high = config.jeans_transition
+    retention_weight = min(1.0, max(0.0, (jeans - low) / (high - low)))
+    draw = float(occurrence_rng.random())
+    probability = config.occurrence_probability * retention_weight
+    exists = draw < probability
+    mass_fraction = _sample(config.mass_fraction, mass_rng) if exists else 0.0
+    atmosphere_mass = planet_mass_kg * mass_fraction
+    pressure = (
+        G * planet_mass_kg / planet_radius_m**2
+        * atmosphere_mass / (4.0 * math.pi * planet_radius_m**2)
+    )
+    composition = {name: float(fractions[i]) if exists else 0.0 for i, name in enumerate(gases)}
+    # Limit the vapor mole fraction to a coarse saturation proxy and return excess to N2.
+    # This is a consistency bound, not a hydrological-cycle calculation.
+    if exists and pressure > 0.0 and equilibrium_k < 647.0:
+        saturation = 611.657 * math.exp(
+            2.5e6 / 461.5 * (1.0 / 273.16 - 1.0 / max(120.0, equilibrium_k))
+        )
+        allowed = min(1.0, saturation / pressure)
+        excess = max(0.0, composition["water_vapor"] - allowed)
+        composition["water_vapor"] -= excess
+        composition["nitrogen"] += excess
+        mean_molar_mass = sum(
+            composition[name] * GAS_MOLAR_MASS_KG_MOL[name] for name in gases
+        )
+    return {
+        "model": config.model,
+        "status": "PRESENT_PRIOR_SAMPLE" if exists else "ABSENT_PRIOR_SAMPLE",
+        "is_observation": False,
+        "atmosphere_mass_kg": atmosphere_mass,
+        "mass_fraction": mass_fraction,
+        "composition_mole_fraction": composition,
+        "mean_molar_mass_kg_mol": mean_molar_mass if exists else None,
+        "sampled_albedo": albedo,
+        "total_initial_stellar_flux_w_m2": total_stellar_flux_w_m2,
+        "equilibrium_temperature_proxy_k": equilibrium_k,
+        "upper_atmosphere_temperature_proxy_k": upper_temperature_k,
+        "rotation_adjusted_escape_speed_proxy_mps": math.sqrt(effective_escape_sq),
+        "jeans_parameter_proxy": jeans,
+        "retention_weight": retention_weight,
+        "base_occurrence_probability": config.occurrence_probability,
+        "weighted_occurrence_probability": probability,
+        "occurrence_draw": draw,
+        "scientific_claim": (
+            "seeded retention-weighted atmosphere prior; not proof of atmosphere or composition"
+        ),
     }
 
 
@@ -416,7 +515,9 @@ def generate_stochastic_state(
     candidate_index: int,
     config_sha256: str,
     attempt: int | None = None,
-    physics_version: Literal["0.4.0", "0.4.2"] = "0.4.0",
+    physics_version: Literal["0.4.0", "0.4.2", "0.4.3"] = "0.4.0",
+    planet_rotation: PlanetRotationDistributionConfig | None = None,
+    atmosphere_prior: AtmospherePriorConfig | None = None,
 ) -> GeneratedStochasticState:
     rng = lambda stream_id: _rng(seed, candidate_index, stream_id, attempt)  # noqa: E731
     star_solar = np.asarray(
@@ -428,7 +529,7 @@ def generate_stochastic_state(
         masses = np.concatenate((star_solar * M_SUN_KG, [planet_earth * M_EARTH_KG]))
         star_radii = (
             np.asarray([main_sequence_properties(float(m))[0] for m in star_solar])
-            if physics_version == "0.4.2"
+            if physics_version in {"0.4.2", "0.4.3"}
             else R_SUN_M * np.power(star_solar, 0.8)
         )
         planet_radius = (3.0 * masses[3] / (4.0 * math.pi * density)) ** (1.0 / 3.0)
@@ -513,7 +614,7 @@ def generate_stochastic_state(
     if not np.all(np.isfinite(positions)) or not np.all(np.isfinite(velocities)):
         raise GenerationError("NONFINITE_FINAL_STATE", "final barycentric state is non-finite")
 
-    if physics_version == "0.4.2":
+    if physics_version in {"0.4.2", "0.4.3"}:
         luminosities = np.asarray(
             [main_sequence_properties(float(m))[1] for m in star_solar], dtype=np.float64
         )
@@ -529,12 +630,12 @@ def generate_stochastic_state(
             "luminosity_w": float(luminosity),
             "mass_luminosity_model": (
                 "piecewise_main_sequence_0p3_8_v1"
-                if physics_version == "0.4.2" else "power_3.5_v1"
+                if physics_version in {"0.4.2", "0.4.3"} else "power_3.5_v1"
             ),
         }
         for luminosity in luminosities
     ]
-    if physics_version == "0.4.2":
+    if physics_version in {"0.4.2", "0.4.3"}:
         # New random streams do not perturb the historical orbit draws.
         orbital_normal = np.cross(
             planet_relative.position_m, planet_relative.velocity_mps
@@ -545,11 +646,37 @@ def generate_stochastic_state(
             star_properties.update(
                 _spin_properties(rng(710 + index), orbital_normal, period)
             )
+        planet_period_s = (
+            86400.0
+            if physics_version == "0.4.2"
+            else _sample(planet_rotation.period_s, rng(721))
+        )
         planet_properties: dict[str, Any] = {
             "mean_density_kg_m3": density,
             "composition_profile_id": "rocky_mean_v1",
         }
-        planet_properties.update(_spin_properties(rng(720), orbital_normal, 86400.0))
+        planet_properties.update(_spin_properties(rng(720), orbital_normal, planet_period_s))
+        if physics_version == "0.4.3":
+            if planet_rotation is None or atmosphere_prior is None:
+                raise GenerationError(
+                    "MISSING_043_PRIOR", "generator 0.4.3 requires rotation/atmosphere priors"
+                )
+            planet_position = positions[3]
+            total_flux = 0.0
+            for index, luminosity in enumerate(luminosities):
+                distance = float(np.linalg.norm(positions[index] - planet_position))
+                total_flux += float(luminosity) / (4.0 * math.pi * distance**2)
+            planet_properties["atmosphere_hypothesis"] = _atmosphere_hypothesis(
+                config=atmosphere_prior,
+                occurrence_rng=rng(730),
+                composition_rng=rng(731),
+                mass_rng=rng(732),
+                albedo_rng=rng(733),
+                planet_mass_kg=float(masses[3]),
+                planet_radius_m=float(radii[3]),
+                rotation_rate_rad_s=math.tau / planet_period_s,
+                total_stellar_flux_w_m2=total_flux,
+            )
         properties.append(planet_properties)
     else:
         properties.append(
@@ -707,7 +834,10 @@ def generate_bounded_stochastic_state(
     for attempt in range(max_attempts):
         generated = generate_stochastic_state(
             core_config, seed, candidate_index, config_sha256, attempt=attempt,
-            physics_version="0.4.2" if config.version == "0.4.2" else "0.4.0",
+            physics_version=(config.version if config.version in {"0.4.2", "0.4.3"}
+                             else "0.4.0"),
+            planet_rotation=config.planet_rotation,
+            atmosphere_prior=config.atmosphere_prior,
         )
         state = generated.state.model_copy(update={"generator_version": config.version})
         metrics = _constraint_metrics(

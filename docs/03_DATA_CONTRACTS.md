@@ -19,6 +19,13 @@
 
 行星 `kind=PLANET` 的 `properties` 可包含 `rotation_axis_unit`、`rotation_rate_rad_s`、`bond_albedo`、`surface_heat_capacity_j_m2_k`、`composition_profile_id`。参数在当前版本不用于N体积分。字段扩展必须在版本中登记，不把未实现的科学推论藏到properties里。
 
+M7.1 的 `stochastic_conics/0.4.3` 在行星 `properties` 中增加
+`atmosphere_hypothesis`。它必须包含 `model=retention_weighted_prior_v1`、
+`is_observation=false`、发生率抽样、旋转修正逃逸速度/Jeans 代理、质量和五种气体摩尔分数。
+该对象是带来源的随机先验，不得作为 S0/S1 大气事实或 M2 引力输入。0.4.2 及更旧世界不得
+被读取器自动补写该对象。M7.1 场景输出使用 `planet-exploration-v2`；M5A、M3、M4 schema
+保持各自版本，不随 Python 包版本 `0.7.1` 静默改变。
+
 ### WorldInitialState
 
 ```json
