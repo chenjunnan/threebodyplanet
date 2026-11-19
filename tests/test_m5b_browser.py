@@ -308,15 +308,22 @@ def test_real_browser_world_3d_drag_science_and_report():
                 blackbody_rgb:[1,.64,.28]};
               scene.sky=[star];scene.water_surface_visible=false;
               const canvas=document.querySelector('#planet-ground');
-              const view=createPlanetGround(canvas);view.load(scene);view.lockStar('star-2',scene);
+              const view=createPlanetGround(canvas);view.load(scene);
               const gl=canvas.getContext('webgl2'),pixel=(x,y)=>{
                 const p=new Uint8Array(4);gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,p);
                 return Array.from(p);
               };
-              return {error:gl.getError(),center:pixel(canvas.width/2,canvas.height/2),
+              const groundBottom=pixel(canvas.width/2,4);
+              const groundTop=pixel(canvas.width/2,canvas.height-4);
+              view.lockStar('star-2',scene);
+              return {error:gl.getError(),groundBottom,groundTop,
+                center:pixel(canvas.width/2,canvas.height/2),
                 top:pixel(canvas.width/2,canvas.height-2),corner:pixel(2,canvas.height-2)};
             }""",scenario)
             assert projection['error'] == 0
+            # A two-metre observer must retain foreground terrain. The old
+            # ~200 m near plane clipped it, leaving both halves as flat sky.
+            assert projection['groundBottom'] != projection['groundTop']
             assert projection['center'] != projection['top']
             assert projection['top'] == projection['corner']
         # Surface playback advances only across exact archived samples and rebuilds the sky.

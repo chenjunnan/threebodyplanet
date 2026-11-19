@@ -26,7 +26,7 @@
     };
     const vs=compile(gl.VERTEX_SHADER,`#version 300 es
       in vec3 position;in vec3 color;out vec3 shade;out vec3 worldPos;
-      uniform float yaw;uniform float pitch;uniform float aspect;uniform float fov;uniform float pointSize;uniform bool sky;uniform bool pointSource;
+      uniform float yaw;uniform float pitch;uniform float aspect;uniform float fov;uniform float pointSize;uniform float terrainNear;uniform float terrainFar;uniform bool sky;uniform bool pointSource;
       void main(){
         vec3 p=vec3(cos(yaw)*position.x+sin(yaw)*position.z,position.y,
           -sin(yaw)*position.x+cos(yaw)*position.z);
@@ -35,9 +35,8 @@
         // Standard finite perspective depth for terrain. The former constant
         // far-plane expression let triangles crossing the camera plane expand
         // across the sky when tracking a high-altitude star.
-        float nearPlane=.002,farPlane=1000.0;
-        float terrainDepth=(farPlane+nearPlane)/(nearPlane-farPlane)*p.z+
-          (2.0*farPlane*nearPlane)/(nearPlane-farPlane);
+        float terrainDepth=(terrainFar+terrainNear)/(terrainNear-terrainFar)*p.z+
+          (2.0*terrainFar*terrainNear)/(terrainNear-terrainFar);
         gl_Position=vec4(p.x*fov/aspect,p.y*fov,sky?w*.999:terrainDepth,w);
         gl_PointSize=pointSize;shade=color;worldPos=position;
       }`);
@@ -76,6 +75,7 @@
     if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
     const buffer=gl.createBuffer();let terrain=[],decorativeStars=[],realStars=[],yaw=0,pitch=-.12,drag=null;
     let lost=false,fov=1.4,skyColor=[.025,.045,.09],lockedStar='';
+    let terrainNear=5e-6,terrainFar=10;
     const loc=name=>gl.getUniformLocation(program,name);
     function draw(){
       if(lost)return;
@@ -83,6 +83,7 @@
       gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);
       gl.useProgram(program);gl.uniform1f(loc('yaw'),yaw);gl.uniform1f(loc('pitch'),pitch);
       gl.uniform1f(loc('aspect'),canvas.width/canvas.height);gl.uniform1f(loc('fov'),fov);
+      gl.uniform1f(loc('terrainNear'),terrainNear);gl.uniform1f(loc('terrainFar'),terrainFar);
       gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
       const batches=[[terrain,false,1,false],[decorativeStars,true,3,true],
         ...realStars.map(star=>[star.data,true,star.pointSize,star.pointSource])];
@@ -120,6 +121,9 @@
       const exposure=1-Math.exp(-intensity/500);
       skyColor=(optical?.sky_display_srgb||[0,0,0]).map(v=>.012+v*.48*exposure);
       const p=scene.parameters,phi=p.latitude_deg*Math.PI/180,lambda=p.longitude_deg*Math.PI/180;
+      // Terrain coordinates use 100 km per unit. Keep the near plane below
+      // the eye height so the foreground ground is not clipped away.
+      terrainNear=Math.max(1e-6,Math.min(.01,p.observer_height_m/1e5*.25));
       const height=(lat,lon)=>heightAt(scene,lat,lon);
       const base=scene.observer_ground_level_m+p.observer_height_m;
       const point=(x,z)=>{

@@ -105,25 +105,41 @@ def daily_mean_flux(latitude: float, star_flux: float, declination: float) -> fl
     return star_flux*(h*a+b*math.sin(h))/math.pi
 
 
-def water_phase_proxy(temperature: float, pressure: float) -> str:
-    if temperature < 273.16:
-        return 'ice'
+def water_phase_proxy(temperature: float, water_partial_pressure_pa: float) -> str:
+    """Classify an idealized local water phase from T and H2O partial pressure.
+
+    The result is an equilibrium proxy, not a hydrology or cloud calculation.
+    In particular, total atmospheric pressure is not substituted for water
+    fugacity: dry background gas alone cannot make condensed water appear.
+    """
+    if (not math.isfinite(temperature) or temperature <= 0.0
+            or not math.isfinite(water_partial_pressure_pa)
+            or water_partial_pressure_pa < 0.0):
+        raise ValueError('water phase inputs must be finite and physical')
     if temperature >= WATER_CRITICAL_TEMPERATURE_K:
         return (
             'supercritical_water_envelope'
-            if pressure >= WATER_CRITICAL_PRESSURE_PA else 'steam_atmosphere'
+            if water_partial_pressure_pa >= WATER_CRITICAL_PRESSURE_PA
+            else 'steam_atmosphere'
         )
     saturation = water_saturation_pressure_pa(temperature)
-    return 'liquid_possible' if pressure >= saturation else 'steam_atmosphere'
+    if water_partial_pressure_pa < saturation:
+        return 'steam_atmosphere'
+    return 'ice' if temperature < 273.16 else 'liquid_possible'
 
 
 def water_saturation_pressure_pa(temperature_k: float) -> float:
-    """IAPWS-region saturation proxy, capped at the water critical point."""
+    """Ice sublimation or liquid saturation pressure, capped at criticality."""
+    if not math.isfinite(temperature_k) or temperature_k <= 0.0:
+        raise ValueError('water saturation temperature must be finite and positive')
     if temperature_k >= WATER_CRITICAL_TEMPERATURE_K:
         return WATER_CRITICAL_PRESSURE_PA
-    if temperature_k <= 273.16:
-        return 611.657 * math.exp(
-            2.834e6 / 461.5 * (1 / 273.16 - 1 / max(1.0, temperature_k))
+    if temperature_k < 273.16:
+        # Murphy & Koop (2005) ice-vapour expression, in Pa. This branch
+        # deliberately models sublimation rather than a fixed freezing rule.
+        return math.exp(
+            9.550426 - 5723.265 / temperature_k
+            + 3.53068 * math.log(temperature_k) - 0.00728332 * temperature_k
         )
     tau = 1.0 - temperature_k / WATER_CRITICAL_TEMPERATURE_K
     coefficients = (-7.85951783, 1.84408259, -11.7866497,
@@ -436,7 +452,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
             rate = scenario.hazard_rates_per_year.get(name)
             wet = water_volume > 0 and heights[r, c] < sea_level
             temp = band['temperature_k']
-            potential_phase = water_phase_proxy(temp, pressure)
+            potential_phase = water_phase_proxy(temp, water_partial_pressure)
             phase = potential_phase if wet else 'dry'
             regions.append({'id': name, 'latitude_deg': float(np.degrees(latitudes[r])),
                             'longitude_deg': float(np.degrees(longitudes[c])),
@@ -469,7 +485,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     local_band = min(bands, key=lambda b: abs(b['latitude_rad']-phi))
     local_temp = local_band['temperature_k']
     water_visible = (water_volume > 0 and local_height < sea_level
-                     and water_phase_proxy(local_temp, pressure) in {
+                     and water_phase_proxy(local_temp, water_partial_pressure) in {
         'ice', 'liquid_possible'}
     )
     ground_level = max(local_height, sea_level) if water_visible else local_height

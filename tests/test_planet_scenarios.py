@@ -71,8 +71,16 @@ def test_three_band_atmosphere_and_air_mass_limits():
     assert _air_mass(0.) > 30
     assert _air_mass(-.01) is None
     assert _atmospheric_optics(0., composition)["model"] == "vacuum"
+    # Condensation is controlled by water partial pressure, not total dry-air
+    # pressure or a fixed boiling-temperature threshold.
+    assert water_phase_proxy(250.0, 1.0) == 'steam_atmosphere'
+    assert water_phase_proxy(250.0, 100.0) == 'ice'
+    assert water_phase_proxy(300.0, 1.0e3) == 'steam_atmosphere'
+    assert water_phase_proxy(300.0, 1.0e4) == 'liquid_possible'
     assert water_phase_proxy(673.0, 1.0e6) == 'steam_atmosphere'
     assert water_phase_proxy(673.0, 30.0e6) == 'supercritical_water_envelope'
+    with pytest.raises(ValueError):
+        water_phase_proxy(300.0, -1.0)
 
 
 def test_scenario_rejects_unphysical_or_unknown_inputs():
