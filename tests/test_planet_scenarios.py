@@ -12,6 +12,11 @@ from test_m72_dynamic_environment import config as environment_config
 
 from threebody.physics.environment.forcing import M5AOrbitForcing
 from threebody.physics.environment.solver import solve_environment
+from threebody.physics.environment.zonal_models import (
+    ZonalDynamicEnvironmentConfig,
+    sample_planet_material_profile,
+)
+from threebody.physics.environment.zonal_solver import solve_zonal_environment
 from threebody.physics.longrun.runner import start_long_run
 from threebody.web.planet_scenarios import (
     DIRECT_STAR_DISPLAY_FLOOR_W_M2,
@@ -340,3 +345,21 @@ def test_m72_real_three_star_forcing_from_verified_m5a(planet_archive):
     result = solve_environment(cfg, forcing, [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
     assert result.forcing_kind == 'M5A_THREE_STAR_LINEAR_FLUX_V1'
     assert result.diagnostics.maximum_scaled_energy_residual < 1e-9
+    zonal_config = ZonalDynamicEnvironmentConfig(
+        latitude_band_count=12, planet_radius_m=cfg.planet_radius_m,
+        emissivity=cfg.emissivity,
+        internal_heat_flux_w_m2=cfg.internal_heat_flux_w_m2,
+        surface=cfg.surface, shallow_rock=cfg.shallow_rock,
+        ocean_mixed_layer=cfg.ocean_mixed_layer,
+        surface_rock_exchange_w_m2_k=cfg.surface_rock_exchange_w_m2_k,
+        surface_ocean_exchange_w_m2_k=cfg.surface_ocean_exchange_w_m2_k,
+        meridional_interface_conductance_w_k=2.0e14,
+        material_profile=sample_planet_material_profile(42),
+        integrator=cfg.integrator,
+    )
+    zonal = solve_zonal_environment(
+        zonal_config, forcing, [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+    )
+    assert zonal.forcing_kind == 'M5A_THREE_STAR_LINEAR_FLUX_V1'
+    assert zonal.forcing_source_sha256 == result.forcing_source_sha256
+    assert zonal.diagnostics.maximum_scaled_energy_residual < 1e-9
