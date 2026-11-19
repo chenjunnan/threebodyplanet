@@ -273,7 +273,7 @@ def test_real_browser_world_3d_drag_science_and_report():
         with open(future_scenario.value.path(),encoding='utf-8') as handle:
             scenario=json.load(handle)
         assert scenario['data_kind']=='PARAMETERIZED_SCENARIO'
-        assert scenario['schema_version']=='planet-exploration-v5'
+        assert scenario['schema_version']=='planet-exploration-v6'
         assert scenario['terrain_model']['plains']
         assert scenario['terrain_model']['ridges']
         assert scenario['terrain_model']['faults']
@@ -283,6 +283,12 @@ def test_real_browser_world_3d_drag_science_and_report():
         )""",{'scene':scenario,'latitude_deg':region['latitude_deg'],
                'longitude_deg':region['longitude_deg']})
         assert browser_height == pytest.approx(region['elevation_m'],abs=1e-7)
+        latitude_before=page.locator('[data-planet="latitude_deg"]').input_value()
+        page.locator('#planet-goto-mountain').click()
+        page.wait_for_function("() => document.querySelector('#planet-status')"
+                               ".textContent.includes('真实源采样')",timeout=20000)
+        assert page.locator('[data-planet="latitude_deg"]').input_value()!=latitude_before
+        assert '参数化先验' in page.locator('#planet-summary').inner_text()
         assert scenario['source']['t_s']==60
         assert len(scenario['contour_levels_m'])==10
         assert scenario['atmospheric_optics']['model'] in {

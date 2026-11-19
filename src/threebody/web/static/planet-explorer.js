@@ -10,12 +10,14 @@
   function clear(){
     scene=null;ctx.clearRect(0,0,map.width,map.height);ground?.load(null);
     document.querySelector('#planet-export').disabled=true;
+    document.querySelector('#planet-goto-mountain').disabled=true;
+    document.querySelector('#planet-goto-plain').disabled=true;
     for(const id of ['planet-summary','planet-region','planet-sky','planet-limitations']){
       document.getElementById(id).textContent='';
     }
   }
   function drawMap(){
-    // The continuous v5 morphology is expensive enough that evaluating every
+    // The continuous v6 morphology is expensive enough that evaluating every
     // display pixel would stall lower-end browsers. Half-resolution equal-area
     // sampling still exceeds the 96x192 scientific basin grid and is upscaled
     // only for display; click coordinates and the observer marker remain exact.
@@ -99,6 +101,8 @@
       scene.limitations.join(' ');
     ground?.load(scene);ground?.lockStar(lockSelect.value,scene);
     document.querySelector('#planet-export').disabled=false;
+    document.querySelector('#planet-goto-mountain').disabled=false;
+    document.querySelector('#planet-goto-plain').disabled=false;
     status.textContent='场景 '+scene.scenario_sha256.slice(0,12)+' · '+scene.run_id+
       ' · 真实源采样 t='+scene.source.t_s+' SI s · '+scene.contour_levels_m.length+
       '级等高线 · 固定灰色平衡，不替代M3历史';
@@ -180,6 +184,43 @@
     document.querySelector('#planet-sky').textContent='地点已改变，请重新计算此地点的天空。';
     status.textContent='已选 '+region.id+'；点击计算以更新此地点的恒星天空。';
   });
+  function terrainSample(kind){
+    if(!scene?.terrain_model)return;
+    let target;
+    if(kind==='plain'){
+      const plain=scene.terrain_model.plains.reduce((best,item)=>
+        !best||item.strength>best.strength?item:best,null);
+      target=plain.center_unit;
+    }else{
+      let best={height:-Infinity,normal:null};
+      for(const ridge of scene.terrain_model.ridges){
+        const center=ridge.center_unit,normal=ridge.great_circle_normal_unit;
+        const tangent=[normal[1]*center[2]-normal[2]*center[1],
+          normal[2]*center[0]-normal[0]*center[2],
+          normal[0]*center[1]-normal[1]*center[0]];
+        for(let index=-20;index<=20;index++){
+          const angle=ridge.extent_rad*index/20;
+          const candidate=center.map((value,axis)=>
+            value*Math.cos(angle)+tangent[axis]*Math.sin(angle));
+          const latitude=Math.asin(Math.max(-1,Math.min(1,candidate[2])));
+          const longitude=Math.atan2(candidate[1],candidate[0]);
+          const height=planetSurfaceHeight(scene,latitude,longitude);
+          if(height>best.height)best={height,normal:candidate};
+        }
+      }
+      target=best.normal;
+    }
+    const latitude=Math.asin(Math.max(-1,Math.min(1,target[2])))*180/Math.PI;
+    const longitude=Math.atan2(target[1],target[0])*180/Math.PI;
+    document.querySelector('[data-planet="latitude_deg"]').value=latitude;
+    document.querySelector('[data-planet="longitude_deg"]').value=longitude;
+    status.textContent='正在按显式观测点重新计算'+(kind==='plain'?'平原':'山地')+'样本…';
+    calculate(orbitSamples[orbitIndex].t_s);
+  }
+  document.querySelector('#planet-goto-mountain').addEventListener(
+    'click',()=>terrainSample('mountain'));
+  document.querySelector('#planet-goto-plain').addEventListener(
+    'click',()=>terrainSample('plain'));
   document.querySelector('#planet-export').addEventListener('click',()=>{
     if(!scene)return;
     const url=URL.createObjectURL(new Blob([JSON.stringify(scene,null,2)],{type:'application/json'}));

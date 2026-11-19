@@ -231,15 +231,31 @@ def environment_terrain_model(
         return center, normal
 
     ridges = []
-    for _ in range(3 + int(fracture > .58)):
+    for _ in range(4 + int(fracture > .42) + int(fracture > .72)):
         center, normal = linear_feature()
         ridges.append({
             'center_unit': center.tolist(), 'great_circle_normal_unit': normal.tolist(),
-            'half_width_rad': float(rng.uniform(.018, .055)),
-            'extent_rad': float(rng.uniform(.42, 1.0)),
-            'amplitude_fraction': float(rng.uniform(.16, .30) * (1.08 - .32 * erosion)),
-            'crest_frequency': float(rng.uniform(8.0, 18.0)),
+            'half_width_rad': float(rng.uniform(.010, .038)),
+            'extent_rad': float(rng.uniform(.28, .82)),
+            'amplitude_fraction': float(rng.uniform(.20, .36) * (1.12 - .36 * erosion)),
+            'profile_exponent': float(rng.uniform(.48, .72)),
+            'crest_frequency': float(rng.uniform(180.0, 520.0)),
             'crest_phase_rad': float(rng.uniform(-math.pi, math.pi)),
+            'gully_frequency': float(rng.uniform(650.0, 1500.0)),
+            'gully_phase_rad': float(rng.uniform(-math.pi, math.pi)),
+            'gully_depth_fraction': float(rng.uniform(.018, .052) * (1.08 - .45 * erosion)),
+        })
+
+    rugged_modes = []
+    ruggedness = .18 + .72 * (1.0 - erosion) + .25 * fracture
+    for octave in range(7):
+        rugged_modes.append({
+            'direction': _random_unit_vector(rng).tolist(),
+            'phase': float(rng.uniform(-math.pi, math.pi)),
+            'frequency': float(900.0 * 1.62**octave * rng.uniform(.88, 1.12)),
+            'amplitude_fraction': float(
+                min(1.0, ruggedness) * .020 * .66**octave
+            ),
         })
 
     faults = []
@@ -253,7 +269,7 @@ def environment_terrain_model(
             'scarp_height_fraction': float(rng.uniform(.045, .12) * (.65 + .55 * fracture)),
         })
     return {
-        'model': 'environment_morphology_proxy_v1',
+        'model': 'environment_morphology_proxy_v2',
         'base_scale': .56,
         'drivers': {
             'reference_temperature_k': reference_temperature_k,
@@ -264,6 +280,7 @@ def environment_terrain_model(
             'fracture_index': fracture,
         },
         'plains': plains, 'ridges': ridges, 'faults': faults,
+        'rugged_modes': rugged_modes,
         'semantics': (
             'SEEDED_ENVIRONMENT_CONSTRAINED_MORPHOLOGY_PRIOR_NOT_TECTONIC_INFERENCE'
         ),
@@ -295,6 +312,11 @@ def environment_terrain_height(
         ) * mode['amplitude']
     height = model['base_scale'] * np.sign(raw) * np.abs(raw) ** shape_exponent
 
+    for mode in model.get('rugged_modes', []):
+        height += mode['amplitude_fraction'] * np.sin(
+            normals @ np.asarray(mode['direction']) * mode['frequency'] + mode['phase']
+        )
+
     for plain in model['plains']:
         angle = np.arccos(np.clip(normals @ np.asarray(plain['center_unit']), -1.0, 1.0))
         radius = plain['angular_radius_rad']
@@ -308,12 +330,19 @@ def environment_terrain_height(
         signed = np.arcsin(np.clip(normals @ normal, -1.0, 1.0))
         along = np.arccos(np.clip(normals @ np.asarray(ridge['center_unit']), -1.0, 1.0))
         localization = np.exp(-(along / ridge['extent_rad']) ** 4)
-        crest = .72 + .28 * np.abs(np.sin(
+        crest_wave = .5 + .5 * np.sin(
             along * ridge['crest_frequency'] + ridge['crest_phase_rad']
-        ))
-        height += ridge['amplitude_fraction'] * np.exp(
-            -(signed / ridge['half_width_rad']) ** 2
-        ) * localization * crest
+        )
+        crest = .48 + .52 * np.maximum(0.0, crest_wave) ** .32
+        profile = np.exp(-(
+            np.abs(signed) / ridge['half_width_rad']
+        ) ** ridge['profile_exponent'])
+        gullies = ridge['gully_depth_fraction'] * np.maximum(0.0, np.sin(
+            along * ridge['gully_frequency'] + ridge['gully_phase_rad']
+        )) ** 3
+        height += localization * profile * (
+            ridge['amplitude_fraction'] * crest - gullies
+        )
 
     for fault in model['faults']:
         normal = np.asarray(fault['great_circle_normal_unit'])
@@ -561,7 +590,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     heights = environment_terrain_height(
         normals, modes, morphology, scenario.relief_m, scenario.terrain_shape_exponent
     )
-    # Determine sea level on a materially finer equal-area grid. The v5 grid
+    # Determine sea level on a materially finer equal-area grid. The v6 grid
     # also resolves the finite-width fault/canyon features used by the map.
     water_latitudes = np.arcsin(-1+(2*np.arange(192)+1)/192)
     water_longitudes = -math.pi+(2*np.arange(384)+1)*math.pi/384
@@ -699,14 +728,14 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     runtime = {
         'project': __version__, 'python': platform.python_version(), 'numpy': np.__version__
     }
-    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v5',
+    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v6',
                                  'source': source, 'parameters': parameters,
                                  'terrain_model': morphology})
     contour_levels = np.linspace(
         float(water_heights.min()), float(water_heights.max()),
         scenario.contour_level_count+2
     )[1:-1].tolist()
-    return {'schema_version': 'planet-exploration-v5', 'data_kind': 'PARAMETERIZED_SCENARIO',
+    return {'schema_version': 'planet-exploration-v6', 'data_kind': 'PARAMETERIZED_SCENARIO',
             'run_id': reader.manifest.run_id, 'world_id': reader.manifest.world_id,
             'source': source, 'parameters': parameters, 'scenario_sha256': scenario_hash,
             'runtime': runtime,

@@ -19,6 +19,10 @@
     const clamp=value=>Math.max(-1,Math.min(1,value));
     let height=model.base_scale*Math.sign(raw)*
       Math.abs(raw)**scene.parameters.terrain_shape_exponent;
+    for(const mode of model.rugged_modes||[]){
+      height+=mode.amplitude_fraction*Math.sin(
+        dot(n,mode.direction)*mode.frequency+mode.phase);
+    }
     for(const plain of model.plains){
       const angle=Math.acos(clamp(dot(n,plain.center_unit))),radius=plain.angular_radius_rad;
       const inner=radius*plain.inner_fraction;
@@ -30,10 +34,14 @@
       const signed=Math.asin(clamp(dot(n,ridge.great_circle_normal_unit)));
       const along=Math.acos(clamp(dot(n,ridge.center_unit)));
       const localization=Math.exp(-((along/ridge.extent_rad)**4));
-      const crest=.72+.28*Math.abs(Math.sin(
-        along*ridge.crest_frequency+ridge.crest_phase_rad));
-      height+=ridge.amplitude_fraction*Math.exp(
-        -((signed/ridge.half_width_rad)**2))*localization*crest;
+      const crestWave=.5+.5*Math.sin(
+        along*ridge.crest_frequency+ridge.crest_phase_rad);
+      const crest=.48+.52*Math.max(0,crestWave)**.32;
+      const profile=Math.exp(-((Math.abs(signed)/ridge.half_width_rad)**
+        ridge.profile_exponent));
+      const gullies=ridge.gully_depth_fraction*Math.max(0,Math.sin(
+        along*ridge.gully_frequency+ridge.gully_phase_rad))**3;
+      height+=localization*profile*(ridge.amplitude_fraction*crest-gullies);
     }
     for(const fault of model.faults){
       const signed=Math.asin(clamp(dot(n,fault.great_circle_normal_unit)));
@@ -94,7 +102,8 @@
           float scale=max(0.25,length(fwidth(uv)));
           float grit=noise(uv/scale);
           float stones=noise(uv/max(1.5,scale));
-          vec3 surface=shade*(.85+.1*stones+.05*grit);
+          float strata=.88+.12*sin(worldPos.y*850.0+worldPos.x*19.0+worldPos.z*13.0);
+          vec3 surface=shade*(.76+.13*stones+.11*grit)*strata;
           float fog=1.0-exp(-length(worldPos.xz)*.4);
           result=vec4(mix(surface,fogColor,fog*.72),1.0);
         }
@@ -104,6 +113,7 @@
     if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
     const buffer=gl.createBuffer();let terrain=[],decorativeStars=[],realStars=[],yaw=0,pitch=-.12,drag=null;
     let lost=false,fov=1.4,skyColor=[.025,.045,.09],lockedStar='';
+    let terrainSite='',homeYaw=0,homePitch=-.12;
     let terrainNear=5e-6,terrainFar=10;
     const loc=name=>gl.getUniformLocation(program,name);
     function draw(){
@@ -143,6 +153,30 @@
       const rotatedZ=-Math.sin(yaw)*x+Math.cos(yaw)*z;
       pitch=Math.atan2(y,-rotatedZ);
     }
+    function orientTerrain(scene,height,latitude,longitude,groundLevel,exaggeration){
+      let best={score:-Infinity,azimuth:0};
+      const distances=[5000,12000,25000,50000,90000,150000];
+      for(let step=0;step<72;step++){
+        const azimuth=step*2*Math.PI/72;
+        for(const distance of distances){
+          const angular=distance/scene.radius_m;
+          const lat=Math.asin(Math.sin(latitude)*Math.cos(angular)+
+            Math.cos(latitude)*Math.sin(angular)*Math.cos(azimuth));
+          const lon=longitude+Math.atan2(Math.sin(azimuth)*Math.sin(angular)*
+            Math.cos(latitude),Math.cos(angular)-Math.sin(latitude)*Math.sin(lat));
+          let surface=height(lat,lon);
+          if(scene.has_surface_water&&scene.water_surface_visible&&surface<scene.sea_level_m){
+            surface=scene.sea_level_m;
+          }
+          const vertical=(surface-groundLevel)*exaggeration-
+            distance*distance/(2*scene.radius_m);
+          const score=Math.atan2(vertical,distance);
+          if(score>best.score)best={score,azimuth};
+        }
+      }
+      homeYaw=best.azimuth;homePitch=Math.max(-.16,Math.min(.18,best.score*.42-.055));
+      yaw=homeYaw;pitch=homePitch;
+    }
     function load(scene){
       terrain=[];decorativeStars=[];realStars=[];
       if(!scene){skyColor=[.025,.045,.09];draw();return;}
@@ -156,6 +190,13 @@
       terrainNear=Math.max(1e-6,Math.min(.01,p.observer_height_m/1e5*.25));
       const height=(lat,lon)=>heightAt(scene,lat,lon);
       const base=scene.observer_ground_level_m+p.observer_height_m;
+      const exaggeration=scene.visualization?.terrain_vertical_exaggeration||1;
+      const site=[p.seed,p.latitude_deg,p.longitude_deg,p.relief_m,
+        p.terrain_shape_exponent,exaggeration].join(':');
+      if(!lockedStar&&terrainSite!==site){
+        orientTerrain(scene,height,phi,lambda,scene.observer_ground_level_m,exaggeration);
+        terrainSite=site;
+      }
       const point=(x,z)=>{
         const d=scene.radius_m*Math.min(.04,.3*Math.cos(phi));
         const lat=phi-z*d/scene.radius_m;
@@ -163,7 +204,6 @@
         const h=height(lat,lon),water=scene.has_surface_water&&
           scene.water_surface_visible&&h<scene.sea_level_m;
         const surface=water?scene.sea_level_m:h;
-        const exaggeration=scene.visualization?.terrain_vertical_exaggeration||1;
         const y=((surface-scene.observer_ground_level_m)*exaggeration+
           scene.observer_ground_level_m-base-(x*x+z*z)*d*d/(2*scene.radius_m))/1e5;
         const snow=scene.observer_temperature_proxy_k<273.16;
@@ -188,7 +228,7 @@
           [.42*shade*elevationTone,.35*shade*elevationTone,.24*shade*elevationTone];
         return [x*d/1e5,y,z*d/1e5,...c];
       };
-      const n=64;
+      const n=80;
       for(let j=0;j<n;j++)for(let i=0;i<n;i++){
         const x=-1+2*i/n,z=-1+2*j/n,step=2/n;
         for(const [dx,dz] of [[0,0],[step,0],[step,step],[0,0],[step,step],[0,step]]){
@@ -234,7 +274,7 @@
     canvas.addEventListener('keydown',e=>{
       if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home'].includes(e.key))return;
       e.preventDefault();
-      if(e.key==='Home'){yaw=0;pitch=-.12;}
+      if(e.key==='Home'){yaw=homeYaw;pitch=homePitch;}
       else if(e.key==='ArrowLeft')yaw-=.1;else if(e.key==='ArrowRight')yaw+=.1;
       else pitch=Math.max(-1.4,Math.min(1.4,pitch+(e.key==='ArrowUp'?.1:-.1)));
       draw();

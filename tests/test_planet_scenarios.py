@@ -163,8 +163,8 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     assert all(-90 <= s['altitude_deg'] <= 90 for s in first['sky'])
     assert all(0 <= s['azimuth_deg'] < 360 for s in first['sky'])
     assert len(first['sky']) == 3
-    assert first['schema_version'] == 'planet-exploration-v5'
-    assert first['terrain_model']['model'] == 'environment_morphology_proxy_v1'
+    assert first['schema_version'] == 'planet-exploration-v6'
+    assert first['terrain_model']['model'] == 'environment_morphology_proxy_v2'
     assert first['terrain_model'] == build_scenario(
         planet_archive, params.model_copy(update={'t_s': 50.0})
     )['terrain_model']

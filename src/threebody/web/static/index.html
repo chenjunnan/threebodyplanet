@@ -207,6 +207,7 @@
       <details><summary>区域地质事件先验（可选）</summary><p>区域为 r0-c0 至 r23-c47；输入对应区域每年的事件发生率 λ。例如 {"r12-c24":0.01}。概率采用 1−exp(−λ·年数)，不是由地形预测；未提供的区域显示未知。你需要确保各区域的事件定义、空间范围和时间单位一致。</p><label for="planet-hazard-definition">事件定义（提供发生率时必填）</label><input id="planet-hazard-definition" placeholder="例如：该区域内，震级≥5的地震">
       <textarea id="planet-hazard-rates" aria-label="区域灾害年发生率JSON">{}</textarea></details>
       <div class="actions"><button id="planet-build" class="primary">计算当前采样的探索场景</button><button id="planet-export" disabled>导出场景与假设</button></div>
+      <div class="actions"><button id="planet-goto-mountain" disabled>定位山地样本</button><button id="planet-goto-plain" disabled>定位平原样本</button><span>只改变显式观测经纬度，不修改地貌。</span></div>
       <p id="planet-status" role="status">等待真实轨道采样。表单预置值是可编辑假设，不是该行星实测值。</p>
       <div id="planet-summary"></div>
       <canvas id="planet-map" width="960" height="480" aria-label="带10级稀疏等高线和当前观测点的全球程序地形与盆地水体地图，可点击选择观测地点"></canvas>
