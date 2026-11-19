@@ -42,6 +42,13 @@ M7.2-a 的权威动态环境状态使用 `schema_version=0.8.0`、
 瞬时能量通量及总显热。它写入独立派生域，不覆盖 M3/C0/C1。结果、配置、M5A 强迫来源和
 检查点各自有 SHA-256；恢复必须重新验证配置和来源一致性。
 
+M7.2-b 新增而不替换上述契约：`schema_version=0.9.0`、
+`model_id=m72_zonal_three_reservoir_v1`。`snapshots[]` 按物理时间保存等面积纬带；每带记录
+边界/中心纬度、面积比例、三储层温度/热容量、辐射、内热、经向热收敛和参数化总液态/岩浆诊断。
+配置、随机物质先验、M5A/基准强迫和结果分别哈希。`environment-point-state-v1` 是稳定查询
+DTO；M7.2-b 未计算的气温、湿度、风、降水与天气必须为 `null` 并附 `NOT_COMPUTED` 标志，
+不能用0占位。该DTO不改变旧M3/C1或M7.2-a归档。
+
 ### WorldInitialState
 
 ```json
