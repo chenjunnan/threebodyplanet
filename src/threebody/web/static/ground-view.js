@@ -1,10 +1,14 @@
 /* Local first-person terrain view. Geometry is a parameter experiment, not an archive. */
 (function(global){
   'use strict';
-  function starSpriteMetrics(angularRadius,canvasHeight,fov,minimumPsf=5){
-    const verticalFov=2*Math.atan(1/fov);
-    const diameterPixels=2*angularRadius/verticalFov*canvasHeight;
-    return {diameterPixels,pointSize:Math.max(minimumPsf,Math.min(96,diameterPixels)),
+  function starSpriteMetrics(
+    angularRadius,canvasHeight,fov,minimumPsf=5,maximumPointSize=Infinity
+  ){
+    // Rectilinear projection at the optical axis. The old 96 px visual cap
+    // made large stellar discs disappear before their upper limb set.
+    const diameterPixels=Math.tan(angularRadius)*fov*canvasHeight;
+    return {diameterPixels,
+      pointSize:Math.max(minimumPsf,Math.min(maximumPointSize,diameterPixels)),
       pointSource:diameterPixels<minimumPsf};
   }
   global.planetStarSpriteMetrics=starSpriteMetrics;
@@ -56,6 +60,7 @@
   function create(canvas){
     const gl=canvas.getContext('webgl2',{antialias:true,preserveDrawingBuffer:true});
     if(!gl)return null;
+    const maximumPointSize=gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
     const compile=(type,source)=>{
       const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);
       if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader));
@@ -253,7 +258,8 @@
         if(peak<=1e-12)continue;
         const color=raw.map(value=>Math.min(1,value/peak*(.25+.75*exposure)));
         const minimumPsf=scene.visualization?.minimum_point_source_psf_px||5;
-        const sprite=starSpriteMetrics(star.angular_radius_rad,canvas.height,fov,minimumPsf);
+        const sprite=starSpriteMetrics(
+          star.angular_radius_rad,canvas.height,fov,minimumPsf,maximumPointSize);
         realStars.push({pointSize:sprite.pointSize,
           pointSource:sprite.pointSource,data:[
           99*Math.cos(alt)*Math.sin(az),99*Math.sin(alt),

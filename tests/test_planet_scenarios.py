@@ -18,6 +18,7 @@ from threebody.web.planet_scenarios import (
     PlanetScenario,
     _air_mass,
     _atmospheric_optics,
+    _stellar_disk_transmission,
     build_scenario,
     daily_mean_flux,
     environment_terrain_height,
@@ -122,6 +123,20 @@ def test_three_band_atmosphere_and_air_mass_limits():
         water_phase_proxy(300.0, -1.0)
 
 
+def test_finite_stellar_disc_crosses_horizon_continuously():
+    radius = math.radians(5.0)
+    fraction, transmission = _stellar_disk_transmission(0.0, radius, [0.0]*3)
+    assert fraction == pytest.approx(.5)
+    assert transmission == pytest.approx([.5]*3)
+    assert _stellar_disk_transmission(-radius, radius, [0.0]*3)[0] == 0.0
+    assert _stellar_disk_transmission(radius, radius, [0.0]*3)[0] == 1.0
+    partial, attenuated = _stellar_disk_transmission(
+        -radius/2, radius, [.02, .04, .08]
+    )
+    assert 0.0 < partial < .5
+    assert 0.0 < attenuated[2] < attenuated[1] < attenuated[0] < partial
+
+
 def test_scenario_rejects_unphysical_or_unknown_inputs():
     for extra in ({'oxygen_mole_fraction': .8, 'water_vapor_mole_fraction': .3},
                   {'rotation_axis': (1., 1., 1.)}, {'albedo': float('nan')},
@@ -163,7 +178,7 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     assert all(-90 <= s['altitude_deg'] <= 90 for s in first['sky'])
     assert all(0 <= s['azimuth_deg'] < 360 for s in first['sky'])
     assert len(first['sky']) == 3
-    assert first['schema_version'] == 'planet-exploration-v6'
+    assert first['schema_version'] == 'planet-exploration-v7'
     assert first['terrain_model']['model'] == 'environment_morphology_proxy_v2'
     assert first['terrain_model'] == build_scenario(
         planet_archive, params.model_copy(update={'t_s': 50.0})

@@ -6,6 +6,7 @@ Run with: pip install playwright && python -m playwright install chromium
 from __future__ import annotations
 
 import json
+import math
 import os
 import socket
 import subprocess
@@ -273,7 +274,7 @@ def test_real_browser_world_3d_drag_science_and_report():
         with open(future_scenario.value.path(),encoding='utf-8') as handle:
             scenario=json.load(handle)
         assert scenario['data_kind']=='PARAMETERIZED_SCENARIO'
-        assert scenario['schema_version']=='planet-exploration-v6'
+        assert scenario['schema_version']=='planet-exploration-v7'
         assert scenario['terrain_model']['plains']
         assert scenario['terrain_model']['ridges']
         assert scenario['terrain_model']['faults']
@@ -305,6 +306,10 @@ def test_real_browser_world_3d_drag_science_and_report():
             assert sprite['pointSource'] is True
             assert sprite['pointSize'] == 5
             assert sprite['diameterPixels'] < 1
+            resolved=page.evaluate("planetStarSpriteMetrics(.2,540,1.4,5,2048)")
+            assert resolved['pointSize'] == pytest.approx(math.tan(.2)*1.4*540)
+            capped=page.evaluate("planetStarSpriteMetrics(.2,540,1.4,5,100)")
+            assert capped['pointSize'] == 100
             before=ground.evaluate('n => n.toDataURL()')
             ground.focus()
             ground.press('ArrowRight')

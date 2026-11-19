@@ -21,6 +21,7 @@ BOLTZMANN = 1.380649e-23
 WATER_MOLAR_MASS_KG_MOL = 0.01801528
 WATER_CRITICAL_TEMPERATURE_K = 647.096
 WATER_CRITICAL_PRESSURE_PA = 22.064e6
+DISK_QUADRATURE_NODES, DISK_QUADRATURE_WEIGHTS = np.polynomial.legendre.leggauss(24)
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 Rate = Annotated[float, Field(ge=0, le=1e6, allow_inf_nan=False)]
 
@@ -407,6 +408,44 @@ def _air_mass(altitude_rad: float) -> float | None:
     )
 
 
+def _stellar_disk_transmission(
+    center_altitude_rad: float, angular_radius_rad: float,
+    optical_depth_rgb: list[float],
+) -> tuple[float, list[float]]:
+    """Uniform-disc horizon clipping with 24-point vertical quadrature.
+
+    Refraction and limb darkening are intentionally absent. Unlike a center
+    threshold, this keeps the visible part of a large stellar disc when its
+    centre has already crossed the geometric horizon.
+    """
+    if angular_radius_rad <= 0.0 or not math.isfinite(angular_radius_rad):
+        raise ValueError('stellar angular radius must be finite and positive')
+    ratio = max(-1.0, min(1.0, center_altitude_rad / angular_radius_rad))
+    if ratio <= -1.0:
+        return 0.0, [0.0, 0.0, 0.0]
+    visible_fraction = (
+        math.acos(-ratio) + ratio * math.sqrt(max(0.0, 1.0-ratio*ratio))
+    ) / math.pi
+    if all(depth == 0.0 for depth in optical_depth_rgb):
+        return visible_fraction, [visible_fraction] * 3
+
+    lower = max(-1.0, -center_altitude_rad/angular_radius_rad)
+    midpoint, half_span = (1.0+lower)/2.0, (1.0-lower)/2.0
+    transmissions = [0.0, 0.0, 0.0]
+    for node, weight in zip(
+        DISK_QUADRATURE_NODES, DISK_QUADRATURE_WEIGHTS, strict=True
+    ):
+        y = midpoint + half_span*float(node)
+        altitude = center_altitude_rad + angular_radius_rad*y
+        air_mass = _air_mass(max(0.0, altitude))
+        area_weight = 2.0/math.pi * math.sqrt(max(0.0, 1.0-y*y))
+        for channel, depth in enumerate(optical_depth_rgb):
+            transmissions[channel] += (
+                half_span * float(weight) * area_weight * math.exp(-depth*air_mass)
+            )
+    return visible_fraction, transmissions
+
+
 def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     reader = SegmentedTrajectoryReader(directory)
     sample = next(reader.iter_samples(start_s=scenario.t_s, end_s=scenario.t_s), None)
@@ -676,10 +715,10 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         distance = float(np.linalg.norm(delta))
         direction = delta/distance
         altitude = math.asin(float(np.clip(direction@up, -1., 1.)))
+        angular_radius = math.asin(min(1., star['radius_m']/distance))
         air_mass = _air_mass(altitude)
-        transmittance = (
-            [math.exp(-depth*air_mass) for depth in optics['optical_depth_rgb']]
-            if air_mass is not None else [0.0, 0.0, 0.0]
+        visible_fraction, transmittance = _stellar_disk_transmission(
+            altitude, angular_radius, optics['optical_depth_rgb']
         )
         spectral_weights = star['blackbody_rgb']
         visible_transmission = sum(
@@ -688,14 +727,16 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         sky.append({'id': star['id'], 'altitude_deg': math.degrees(altitude),
                     'azimuth_deg': math.degrees(math.atan2(float(direction@east),
                                                          float(direction@north))) % 360,
-                    'above_geometric_horizon': altitude >= 0,
-                    'angular_radius_rad': math.asin(min(1., star['radius_m']/distance)),
+                    'above_geometric_horizon': visible_fraction > 0.0,
+                    'center_above_geometric_horizon': altitude >= 0.0,
+                    'geometric_visible_disc_fraction': visible_fraction,
+                    'angular_radius_rad': angular_radius,
                     'top_of_atmosphere_irradiance_w_m2': star['flux_w_m2'],
                     'visible_air_mass': air_mass,
                     'visible_transmittance_rgb': transmittance,
                     'blackbody_rgb': spectral_weights,
                     'surface_direct_irradiance_proxy_w_m2': (
-                        star['flux_w_m2']*visible_transmission if altitude >= 0 else 0.0
+                        star['flux_w_m2']*visible_transmission
                     ),
                     # Backward-compatible name now explicitly equals surface direct proxy.
                     'irradiance_w_m2': (
@@ -728,14 +769,14 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     runtime = {
         'project': __version__, 'python': platform.python_version(), 'numpy': np.__version__
     }
-    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v6',
+    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v7',
                                  'source': source, 'parameters': parameters,
                                  'terrain_model': morphology})
     contour_levels = np.linspace(
         float(water_heights.min()), float(water_heights.max()),
         scenario.contour_level_count+2
     )[1:-1].tolist()
-    return {'schema_version': 'planet-exploration-v6', 'data_kind': 'PARAMETERIZED_SCENARIO',
+    return {'schema_version': 'planet-exploration-v7', 'data_kind': 'PARAMETERIZED_SCENARIO',
             'run_id': reader.manifest.run_id, 'world_id': reader.manifest.world_id,
             'source': source, 'parameters': parameters, 'scenario_sha256': scenario_hash,
             'runtime': runtime,
