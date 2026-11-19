@@ -15,36 +15,45 @@
     }
   }
   function drawMap(){
-    const image=ctx.createImageData(map.width,map.height);
-    const elevations=new Float32Array(map.width*map.height);
+    // The continuous v5 morphology is expensive enough that evaluating every
+    // display pixel would stall lower-end browsers. Half-resolution equal-area
+    // sampling still exceeds the 96x192 scientific basin grid and is upscaled
+    // only for display; click coordinates and the observer marker remain exact.
+    const width=Math.ceil(map.width/2),height=Math.ceil(map.height/2);
+    const raster=document.createElement('canvas');raster.width=width;raster.height=height;
+    const rasterContext=raster.getContext('2d'),image=rasterContext.createImageData(width,height);
+    const elevations=new Float32Array(width*height);
     let minimum=Infinity,maximum=-Infinity;
-    for(let y=0;y<map.height;y++){
-      const latitude=Math.asin(1-2*(y+.5)/map.height);
+    for(let y=0;y<height;y++){
+      const latitude=Math.asin(1-2*(y+.5)/height);
       const row=Math.min(23,Math.floor((1+Math.sin(latitude))*12));
-      for(let x=0;x<map.width;x++){
-        const longitude=-Math.PI+2*Math.PI*(x+.5)/map.width;
-        const height=window.planetSurfaceHeight(scene,latitude,longitude);
-        elevations[y*map.width+x]=height;minimum=Math.min(minimum,height);maximum=Math.max(maximum,height);
-        const region=scene.regions[row*48+Math.min(47,Math.floor(x/map.width*48))];
-        const wet=height<scene.sea_level_m&&['ice','liquid_possible'].includes(region.potential_water_phase);
-        const h=Math.max(0,Math.min(1,(height/scene.parameters.relief_m+1)/2));
+      for(let x=0;x<width;x++){
+        const longitude=-Math.PI+2*Math.PI*(x+.5)/width;
+        const elevation=window.planetSurfaceHeight(scene,latitude,longitude);
+        elevations[y*width+x]=elevation;minimum=Math.min(minimum,elevation);
+        maximum=Math.max(maximum,elevation);
+        const region=scene.regions[row*48+Math.min(47,Math.floor(x/width*48))];
+        const wet=elevation<scene.sea_level_m&&
+          ['ice','liquid_possible'].includes(region.potential_water_phase);
+        const h=Math.max(0,Math.min(1,(elevation/scene.parameters.relief_m+1)/2));
         const color=wet?(region.potential_water_phase==='ice'?[210,230,239]:
           [15,65+50*h,95+70*h]):[48+180*h,58+145*h,30+125*h];
-        const offset=(y*map.width+x)*4;image.data.set([...color.map(Math.round),255],offset);
+        const offset=(y*width+x)*4;image.data.set([...color.map(Math.round),255],offset);
       }
     }
     const count=scene.contour_levels_m.length,span=Math.max(1,maximum-minimum);
     const band=value=>Math.max(0,Math.min(count,Math.floor((value-minimum)/span*(count+1))));
-    for(let y=0;y<map.height-1;y++)for(let x=0;x<map.width-1;x++){
-      const index=y*map.width+x,b=band(elevations[index]);
-      if(b!==band(elevations[index+1])||b!==band(elevations[index+map.width])){
+    for(let y=0;y<height-1;y++)for(let x=0;x<width-1;x++){
+      const index=y*width+x,b=band(elevations[index]);
+      if(b!==band(elevations[index+1])||b!==band(elevations[index+width])){
         const offset=index*4;
         image.data[offset]=Math.round(image.data[offset]*.32);
         image.data[offset+1]=Math.round(image.data[offset+1]*.32);
         image.data[offset+2]=Math.round(image.data[offset+2]*.32);
       }
     }
-    ctx.putImageData(image,0,0);
+    rasterContext.putImageData(image,0,0);ctx.imageSmoothingEnabled=true;
+    ctx.clearRect(0,0,map.width,map.height);ctx.drawImage(raster,0,0,map.width,map.height);
     // The marker is the currently calculated observer, not a guessed click point.
     const marker=scene.observer_location;
     const markerX=(marker.longitude_deg+180)/360*map.width;
@@ -71,6 +80,14 @@
       scene.water_inventory.remaining_surface_water_kg.toPrecision(5)+' kg · 转入大气 '+
       scene.water_inventory.transferred_to_atmosphere_kg.toPrecision(5)+' kg';
     summary.append(water);
+    if(scene.terrain_model){
+      const terrain=document.createElement('p'),drivers=scene.terrain_model.drivers;
+      terrain.textContent='环境地貌代理：平原 '+scene.terrain_model.plains.length+
+        ' · 山脊 '+scene.terrain_model.ridges.length+' · 断裂峡谷/陡崖 '+
+        scene.terrain_model.faults.length+' · 侵蚀指数 '+drivers.erosion_index.toFixed(3)+
+        ' · 断裂指数 '+drivers.fracture_index.toFixed(3)+'（参数化先验，非板块反演）';
+      summary.append(terrain);
+    }
     if(redrawMap)drawMap();
     document.querySelector('#planet-sky').textContent=scene.sky.map(s=>s.id+' 方位 '+
       s.azimuth_deg.toFixed(2)+'° / 高度 '+s.altitude_deg.toFixed(2)+'° · 大气外 '+

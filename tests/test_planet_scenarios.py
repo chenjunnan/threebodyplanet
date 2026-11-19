@@ -20,8 +20,11 @@ from threebody.web.planet_scenarios import (
     _atmospheric_optics,
     build_scenario,
     daily_mean_flux,
+    environment_terrain_height,
+    environment_terrain_model,
     equilibrium_temperature,
     terrain_height,
+    terrain_modes,
     water_phase_proxy,
 )
 from threebody.web.worldsets import simulation_settings
@@ -58,6 +61,42 @@ def test_terrain_seed_reproducibility_and_poles():
     assert not np.array_equal(a, terrain_height(normals, 43, 6000.))
     assert np.max(np.abs(a)) <= 6000
     assert np.allclose(2*a, terrain_height(normals, 42, 12000.))
+
+
+def test_environment_morphology_has_plains_ridges_faults_and_driver_response():
+    temperate = environment_terrain_model(
+        42, reference_temperature_k=288.0, reference_pressure_pa=101325.0,
+        rotation_parameter_q=.001, surface_water_mass_fraction=.001,
+    )
+    hostile = environment_terrain_model(
+        42, reference_temperature_k=800.0, reference_pressure_pa=100.0,
+        rotation_parameter_q=.08, surface_water_mass_fraction=0.0,
+    )
+    assert temperate == environment_terrain_model(
+        42, reference_temperature_k=288.0, reference_pressure_pa=101325.0,
+        rotation_parameter_q=.001, surface_water_mass_fraction=.001,
+    )
+    assert temperate['drivers']['erosion_index'] > hostile['drivers']['erosion_index']
+    assert hostile['drivers']['fracture_index'] > temperate['drivers']['fracture_index']
+    assert temperate['plains'] and temperate['ridges'] and temperate['faults']
+    assert 'NOT_TECTONIC_INFERENCE' in temperate['semantics']
+
+    latitudes = np.arcsin(-1 + (2*np.arange(90)+1)/90)
+    longitudes = -math.pi + (2*np.arange(180)+1)*math.pi/180
+    lat, lon = np.meshgrid(latitudes, longitudes, indexing='ij')
+    normals = np.stack([
+        np.cos(lat)*np.cos(lon), np.cos(lat)*np.sin(lon), np.sin(lat)
+    ], axis=-1)
+    heights = environment_terrain_height(
+        normals, terrain_modes(42), hostile, 18000.0, .72
+    )
+    assert np.all(np.isfinite(heights))
+    assert np.max(np.abs(heights)) <= 18000.0
+    # Adjacent two-degree samples include kilometre-scale scarps/canyons while
+    # the full distribution retains broad low-gradient terrain.
+    neighbour_steps = np.abs(np.diff(heights, axis=1))
+    assert np.percentile(neighbour_steps, 99) > 1000.0
+    assert np.percentile(neighbour_steps, 25) < 300.0
 
 
 def test_three_band_atmosphere_and_air_mass_limits():
@@ -116,7 +155,7 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     assert region['conditional_hazard_probability'] == pytest.approx(-math.expm1(-.1))
     assert first['regions'][0]['conditional_hazard_probability'] is None
     water = first['water_volume_diagnostic']
-    assert water['method'] == 'equal_area_96x192_basin_fill'
+    assert water['method'] == 'equal_area_192x384_basin_fill'
     assert water['represented_volume_m3'] == pytest.approx(
         first['water_inventory']['remaining_surface_water_kg']/1000, rel=1e-10
     )
@@ -124,7 +163,11 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     assert all(-90 <= s['altitude_deg'] <= 90 for s in first['sky'])
     assert all(0 <= s['azimuth_deg'] < 360 for s in first['sky'])
     assert len(first['sky']) == 3
-    assert first['schema_version'] == 'planet-exploration-v4'
+    assert first['schema_version'] == 'planet-exploration-v5'
+    assert first['terrain_model']['model'] == 'environment_morphology_proxy_v1'
+    assert first['terrain_model'] == build_scenario(
+        planet_archive, params.model_copy(update={'t_s': 50.0})
+    )['terrain_model']
     assert len(first['contour_levels_m']) == 10
     assert first['observer_location'] == {'latitude_deg': 0.0, 'longitude_deg': 0.0}
     assert first['visualization']['semantics'] == 'DISPLAY_ONLY_NOT_USED_BY_PHYSICS'

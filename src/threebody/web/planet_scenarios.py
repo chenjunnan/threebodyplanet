@@ -187,6 +187,89 @@ def terrain_modes(seed: int) -> list[dict]:
     return modes
 
 
+def _random_unit_vector(rng: np.random.Generator) -> np.ndarray:
+    vector = rng.normal(size=3)
+    return vector / np.linalg.norm(vector)
+
+
+def environment_terrain_model(
+    seed: int, *, reference_temperature_k: float, reference_pressure_pa: float,
+    rotation_parameter_q: float, surface_water_mass_fraction: float,
+) -> dict:
+    """Create a deterministic morphology prior from persistent environment drivers.
+
+    The drivers constrain erosion/fracture *priors*; they cannot prove tectonic
+    history. Features remain fixed across trajectory playback because the
+    reference temperature is derived from the initial archived configuration.
+    """
+    atmosphere = min(1.0, math.log1p(reference_pressure_pa / 1000.0) / math.log(102.325))
+    thermal_stress = min(1.0, abs(reference_temperature_k - 288.0) / 500.0)
+    rotation_stress = min(1.0, rotation_parameter_q / 0.1)
+    temperate_water = math.exp(-((reference_temperature_k - 288.0) / 85.0) ** 2)
+    water = min(1.0, surface_water_mass_fraction / 0.001)
+    erosion = min(1.0, 0.08 + 0.38 * atmosphere + 0.34 * water * temperate_water)
+    fracture = min(1.0, 0.22 + 0.46 * thermal_stress + 0.22 * rotation_stress)
+    rng = np.random.Generator(np.random.PCG64(
+        np.random.SeedSequence([seed, 0x4D4F5250])
+    ))
+
+    plains = []
+    for _ in range(2 + int(erosion > 0.62)):
+        plains.append({
+            'center_unit': _random_unit_vector(rng).tolist(),
+            'angular_radius_rad': float(rng.uniform(.20, .48)),
+            'inner_fraction': float(rng.uniform(.42, .62)),
+            'strength': float(rng.uniform(.62, .86) * (.72 + .28 * erosion)),
+            'target_normalized_height': float(rng.uniform(-.24, .12)),
+        })
+
+    def linear_feature() -> tuple[np.ndarray, np.ndarray]:
+        center = _random_unit_vector(rng)
+        trial = _random_unit_vector(rng)
+        normal = np.cross(center, trial)
+        normal /= np.linalg.norm(normal)
+        return center, normal
+
+    ridges = []
+    for _ in range(3 + int(fracture > .58)):
+        center, normal = linear_feature()
+        ridges.append({
+            'center_unit': center.tolist(), 'great_circle_normal_unit': normal.tolist(),
+            'half_width_rad': float(rng.uniform(.018, .055)),
+            'extent_rad': float(rng.uniform(.42, 1.0)),
+            'amplitude_fraction': float(rng.uniform(.16, .30) * (1.08 - .32 * erosion)),
+            'crest_frequency': float(rng.uniform(8.0, 18.0)),
+            'crest_phase_rad': float(rng.uniform(-math.pi, math.pi)),
+        })
+
+    faults = []
+    for _ in range(2 + int(fracture > .48) + int(fracture > .78)):
+        center, normal = linear_feature()
+        faults.append({
+            'center_unit': center.tolist(), 'great_circle_normal_unit': normal.tolist(),
+            'half_width_rad': float(rng.uniform(.006, .022)),
+            'extent_rad': float(rng.uniform(.38, .92)),
+            'canyon_depth_fraction': float(rng.uniform(.10, .22) * (.65 + .55 * fracture)),
+            'scarp_height_fraction': float(rng.uniform(.045, .12) * (.65 + .55 * fracture)),
+        })
+    return {
+        'model': 'environment_morphology_proxy_v1',
+        'base_scale': .56,
+        'drivers': {
+            'reference_temperature_k': reference_temperature_k,
+            'reference_pressure_pa': reference_pressure_pa,
+            'rotation_parameter_q': rotation_parameter_q,
+            'surface_water_mass_fraction': surface_water_mass_fraction,
+            'erosion_index': erosion,
+            'fracture_index': fracture,
+        },
+        'plains': plains, 'ridges': ridges, 'faults': faults,
+        'semantics': (
+            'SEEDED_ENVIRONMENT_CONSTRAINED_MORPHOLOGY_PRIOR_NOT_TECTONIC_INFERENCE'
+        ),
+    }
+
+
 def terrain_height(
     normals: np.ndarray, seed: int, relief: float, shape_exponent: float = .72
 ) -> np.ndarray:
@@ -197,6 +280,52 @@ def terrain_height(
                           mode['phase'])*mode['amplitude']
     shaped = np.sign(heights) * np.abs(heights) ** shape_exponent
     return relief*shaped
+
+
+def environment_terrain_height(
+    normals: np.ndarray, modes: list[dict], model: dict, relief: float,
+    shape_exponent: float,
+) -> np.ndarray:
+    """Evaluate the shared spherical morphology used by map, water and WebGL."""
+    normals = np.asarray(normals, dtype=float)
+    raw = np.zeros(normals.shape[:-1])
+    for mode in modes:
+        raw += np.sin(
+            normals @ np.asarray(mode['direction']) * mode['frequency'] + mode['phase']
+        ) * mode['amplitude']
+    height = model['base_scale'] * np.sign(raw) * np.abs(raw) ** shape_exponent
+
+    for plain in model['plains']:
+        angle = np.arccos(np.clip(normals @ np.asarray(plain['center_unit']), -1.0, 1.0))
+        radius = plain['angular_radius_rad']
+        inner = radius * plain['inner_fraction']
+        weight = np.clip((radius - angle) / (radius - inner), 0.0, 1.0)
+        weight = weight * weight * (3.0 - 2.0 * weight) * plain['strength']
+        height = height * (1.0 - weight) + plain['target_normalized_height'] * weight
+
+    for ridge in model['ridges']:
+        normal = np.asarray(ridge['great_circle_normal_unit'])
+        signed = np.arcsin(np.clip(normals @ normal, -1.0, 1.0))
+        along = np.arccos(np.clip(normals @ np.asarray(ridge['center_unit']), -1.0, 1.0))
+        localization = np.exp(-(along / ridge['extent_rad']) ** 4)
+        crest = .72 + .28 * np.abs(np.sin(
+            along * ridge['crest_frequency'] + ridge['crest_phase_rad']
+        ))
+        height += ridge['amplitude_fraction'] * np.exp(
+            -(signed / ridge['half_width_rad']) ** 2
+        ) * localization * crest
+
+    for fault in model['faults']:
+        normal = np.asarray(fault['great_circle_normal_unit'])
+        signed = np.arcsin(np.clip(normals @ normal, -1.0, 1.0))
+        along = np.arccos(np.clip(normals @ np.asarray(fault['center_unit']), -1.0, 1.0))
+        localization = np.exp(-(along / fault['extent_rad']) ** 4)
+        width = fault['half_width_rad']
+        height += localization * (
+            fault['scarp_height_fraction'] * np.tanh(signed / (width * .38))
+            - fault['canyon_depth_fraction'] * np.exp(-(signed / width) ** 2)
+        )
+    return relief * np.clip(height, -1.0, 1.0)
 
 
 def _planck_rgb(temperature_k: float) -> list[float]:
@@ -321,6 +450,28 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         bands.append({'latitude_rad': latitude, 'temperature_k': temperature,
                       'diurnal_mean_flux_w_m2': flux})
     mean_band_temperature = sum(b['temperature_k'] for b in bands) / len(bands)
+    initial_sample = next(reader.iter_samples(), None)
+    if initial_sample is None:
+        raise ValueError('terrain reference requires the initial committed sample')
+    initial_xyz = {body.id: np.asarray(body.position_m) for body in initial_sample.bodies}
+    reference_flux = 0.0
+    for star in metadata['bodies'][:3]:
+        separation = float(np.linalg.norm(
+            initial_xyz[star['id']] - initial_xyz['planet-1']
+        ))
+        reference_flux += star['luminosity_w'] / (4 * math.pi * separation**2)
+    terrain_reference_temperature = equilibrium_temperature(
+        (1.0 - scenario.albedo) * reference_flux / 4.0, scenario
+    )
+    terrain_reference_pressure = gravity * scenario.atmosphere_mass_kg / area_m2
+    morphology = environment_terrain_model(
+        scenario.seed,
+        reference_temperature_k=terrain_reference_temperature,
+        reference_pressure_pa=terrain_reference_pressure,
+        rotation_parameter_q=q,
+        surface_water_mass_fraction=scenario.surface_water_kg / mass,
+    )
+    modes = terrain_modes(scenario.seed)
     base_moles = (
         scenario.atmosphere_mass_kg / scenario.molar_mass_kg_mol
         if scenario.atmosphere_mass_kg > 0.0 else 0.0
@@ -407,13 +558,13 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     longitudes = -math.pi+(2*np.arange(48)+1)*math.pi/48
     lat, lon = np.meshgrid(latitudes, longitudes, indexing='ij')
     normals = np.stack([np.cos(lat)*np.cos(lon), np.cos(lat)*np.sin(lon), np.sin(lat)], -1)
-    heights = terrain_height(
-        normals, scenario.seed, scenario.relief_m, scenario.terrain_shape_exponent
+    heights = environment_terrain_height(
+        normals, modes, morphology, scenario.relief_m, scenario.terrain_shape_exponent
     )
-    # Determine sea level on a materially finer equal-area grid.  The former
-    # 24x48 quadrature could make water appear detached from narrow basins.
-    water_latitudes = np.arcsin(-1+(2*np.arange(96)+1)/96)
-    water_longitudes = -math.pi+(2*np.arange(192)+1)*math.pi/192
+    # Determine sea level on a materially finer equal-area grid. The v5 grid
+    # also resolves the finite-width fault/canyon features used by the map.
+    water_latitudes = np.arcsin(-1+(2*np.arange(192)+1)/192)
+    water_longitudes = -math.pi+(2*np.arange(384)+1)*math.pi/384
     water_lat, water_lon = np.meshgrid(
         water_latitudes, water_longitudes, indexing='ij'
     )
@@ -421,8 +572,8 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         np.cos(water_lat)*np.cos(water_lon),
         np.cos(water_lat)*np.sin(water_lon), np.sin(water_lat)
     ], -1)
-    water_heights = terrain_height(
-        water_normals, scenario.seed, scenario.relief_m,
+    water_heights = environment_terrain_height(
+        water_normals, modes, morphology, scenario.relief_m,
         scenario.terrain_shape_exponent
     )
     water_cell_area = 4*math.pi*radius**2/water_heights.size
@@ -479,8 +630,8 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     north = -math.sin(phi)*radial+math.cos(phi)*axis
     normal = np.array([math.cos(phi)*math.cos(math.radians(scenario.longitude_deg)),
                        math.cos(phi)*math.sin(math.radians(scenario.longitude_deg)), math.sin(phi)])
-    local_height = float(terrain_height(
-        normal, scenario.seed, scenario.relief_m, scenario.terrain_shape_exponent
+    local_height = float(environment_terrain_height(
+        normal, modes, morphology, scenario.relief_m, scenario.terrain_shape_exponent
     ))
     local_band = min(bands, key=lambda b: abs(b['latitude_rad']-phi))
     local_temp = local_band['temperature_k']
@@ -548,16 +699,19 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     runtime = {
         'project': __version__, 'python': platform.python_version(), 'numpy': np.__version__
     }
-    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v4',
-                                 'source': source, 'parameters': parameters})
+    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v5',
+                                 'source': source, 'parameters': parameters,
+                                 'terrain_model': morphology})
     contour_levels = np.linspace(
-        float(heights.min()), float(heights.max()), scenario.contour_level_count+2
+        float(water_heights.min()), float(water_heights.max()),
+        scenario.contour_level_count+2
     )[1:-1].tolist()
-    return {'schema_version': 'planet-exploration-v4', 'data_kind': 'PARAMETERIZED_SCENARIO',
+    return {'schema_version': 'planet-exploration-v5', 'data_kind': 'PARAMETERIZED_SCENARIO',
             'run_id': reader.manifest.run_id, 'world_id': reader.manifest.world_id,
             'source': source, 'parameters': parameters, 'scenario_sha256': scenario_hash,
             'runtime': runtime,
-            'terrain_modes': terrain_modes(scenario.seed), 'observer_ground_level_m': ground_level,
+            'terrain_modes': modes, 'terrain_model': morphology,
+            'observer_ground_level_m': ground_level,
             'water_surface_visible': water_visible, 'has_surface_water': water_volume > 0,
             'observer_location': {'latitude_deg': scenario.latitude_deg,
                                   'longitude_deg': scenario.longitude_deg},
@@ -597,7 +751,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
             'atmospheric_optics': optics,
             'sea_level_m': sea_level, 'terrain_grid': [24, 48], 'regions': regions,
             'water_volume_diagnostic': {
-                'method': 'equal_area_96x192_basin_fill',
+                'method': 'equal_area_192x384_basin_fill',
                 'target_volume_m3': water_volume,
                 'represented_volume_m3': represented_water_volume,
                 'relative_residual': (

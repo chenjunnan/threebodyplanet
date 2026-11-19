@@ -12,8 +12,37 @@
     const n=[Math.cos(lat)*Math.cos(lon),Math.cos(lat)*Math.sin(lon),Math.sin(lat)];
     const raw=scene.terrain_modes.reduce((sum,m)=>sum+
       Math.sin(n.reduce((v,x,k)=>v+x*m.direction[k],0)*m.frequency+m.phase)*m.amplitude,0);
-    return scene.parameters.relief_m*Math.sign(raw)*
+    const model=scene.terrain_model;
+    if(!model)return scene.parameters.relief_m*Math.sign(raw)*
       Math.abs(raw)**scene.parameters.terrain_shape_exponent;
+    const dot=(a,b)=>a.reduce((sum,value,index)=>sum+value*b[index],0);
+    const clamp=value=>Math.max(-1,Math.min(1,value));
+    let height=model.base_scale*Math.sign(raw)*
+      Math.abs(raw)**scene.parameters.terrain_shape_exponent;
+    for(const plain of model.plains){
+      const angle=Math.acos(clamp(dot(n,plain.center_unit))),radius=plain.angular_radius_rad;
+      const inner=radius*plain.inner_fraction;
+      let weight=Math.max(0,Math.min(1,(radius-angle)/(radius-inner)));
+      weight=weight*weight*(3-2*weight)*plain.strength;
+      height=height*(1-weight)+plain.target_normalized_height*weight;
+    }
+    for(const ridge of model.ridges){
+      const signed=Math.asin(clamp(dot(n,ridge.great_circle_normal_unit)));
+      const along=Math.acos(clamp(dot(n,ridge.center_unit)));
+      const localization=Math.exp(-((along/ridge.extent_rad)**4));
+      const crest=.72+.28*Math.abs(Math.sin(
+        along*ridge.crest_frequency+ridge.crest_phase_rad));
+      height+=ridge.amplitude_fraction*Math.exp(
+        -((signed/ridge.half_width_rad)**2))*localization*crest;
+    }
+    for(const fault of model.faults){
+      const signed=Math.asin(clamp(dot(n,fault.great_circle_normal_unit)));
+      const along=Math.acos(clamp(dot(n,fault.center_unit)));
+      const localization=Math.exp(-((along/fault.extent_rad)**4)),width=fault.half_width_rad;
+      height+=localization*(fault.scarp_height_fraction*Math.tanh(signed/(width*.38))-
+        fault.canyon_depth_fraction*Math.exp(-((signed/width)**2)));
+    }
+    return scene.parameters.relief_m*Math.max(-1,Math.min(1,height));
   }
   global.planetSurfaceHeight=heightAt;
   function create(canvas){
@@ -41,7 +70,7 @@
         gl_PointSize=pointSize;shade=color;worldPos=position;
       }`);
     const fs=compile(gl.FRAGMENT_SHADER,`#version 300 es
-      precision highp float;in vec3 shade;in vec3 worldPos;out vec4 result;uniform bool sky;uniform bool pointSource;
+      precision highp float;in vec3 shade;in vec3 worldPos;out vec4 result;uniform bool sky;uniform bool pointSource;uniform vec3 fogColor;
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
       float noise(vec2 p){
         vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
@@ -67,7 +96,7 @@
           float stones=noise(uv/max(1.5,scale));
           vec3 surface=shade*(.85+.1*stones+.05*grit);
           float fog=1.0-exp(-length(worldPos.xz)*.4);
-          result=vec4(mix(surface,vec3(.12,.16,.20),fog*.65),1.0);
+          result=vec4(mix(surface,fogColor,fog*.72),1.0);
         }
       }`);
     const program=gl.createProgram();gl.attachShader(program,vs);gl.attachShader(program,fs);
@@ -84,6 +113,7 @@
       gl.useProgram(program);gl.uniform1f(loc('yaw'),yaw);gl.uniform1f(loc('pitch'),pitch);
       gl.uniform1f(loc('aspect'),canvas.width/canvas.height);gl.uniform1f(loc('fov'),fov);
       gl.uniform1f(loc('terrainNear'),terrainNear);gl.uniform1f(loc('terrainFar'),terrainFar);
+      gl.uniform3fv(loc('fogColor'),skyColor);
       gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
       const batches=[[terrain,false,1,false],[decorativeStars,true,3,true],
         ...realStars.map(star=>[star.data,true,star.pointSize,star.pointSource])];
@@ -137,11 +167,12 @@
         const y=((surface-scene.observer_ground_level_m)*exaggeration+
           scene.observer_ground_level_m-base-(x*x+z*z)*d*d/(2*scene.radius_m))/1e5;
         const snow=scene.observer_temperature_proxy_k<273.16;
-        const dx=(height(lat,lon+1e-5)-height(lat,lon-1e-5))/(2e-5*scene.radius_m*Math.max(.1,Math.cos(lat)));
-        const dz=(height(lat-1e-5,lon)-height(lat+1e-5,lon))/(2e-5*scene.radius_m);
+        const dx=(height(lat,lon+1e-5)-height(lat,lon-1e-5))/(2e-5*scene.radius_m*Math.max(.1,Math.cos(lat)))*exaggeration;
+        const dz=(height(lat-1e-5,lon)-height(lat+1e-5,lon))/(2e-5*scene.radius_m)*exaggeration;
         const length=Math.hypot(dx,1,dz),normal=[-dx/length,1/length,-dz/length];
+        if(water)normal.splice(0,3,0,1,0);
         const total=Math.max(1e-12,scene.sky.reduce((sum,s)=>sum+s.irradiance_w_m2,0));
-        let light=scene.pressure_pa>0?.10:.035;
+        let light=(scene.pressure_pa>0?.10:.035)*(.45+.55*normal[1]);
         for(const star of scene.sky){
           const a=star.azimuth_deg*Math.PI/180,b=star.altitude_deg*Math.PI/180;
           const direction=[Math.cos(b)*Math.sin(a),Math.sin(b),-Math.cos(b)*Math.cos(a)];
@@ -150,8 +181,11 @@
         }
         const grain=.9+.1*Math.sin(lat*20000+Math.sin(lon*17000));
         const shade=Math.sqrt(Math.max(0,light))*grain;
-        const c=water?[.03*shade,.24*shade,.38*shade]:snow?[.7*shade,.75*shade,.76*shade]:
-          [.42*shade,.35*shade,.24*shade];
+        const elevationTone=Math.max(.72,Math.min(1.28,
+          1+(surface-scene.observer_ground_level_m)/Math.max(1,p.relief_m)*.7));
+        const c=water?[.03*shade,.24*shade,.38*shade]:snow?
+          [.7*shade*elevationTone,.75*shade*elevationTone,.76*shade*elevationTone]:
+          [.42*shade*elevationTone,.35*shade*elevationTone,.24*shade*elevationTone];
         return [x*d/1e5,y,z*d/1e5,...c];
       };
       const n=64;
