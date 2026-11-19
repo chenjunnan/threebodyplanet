@@ -142,6 +142,11 @@ body::before {opacity:.45;background-image:radial-gradient(1px 1px at 17px 31px,
 .shared-timeline {min-height:0;padding:1rem;}.shared-timeline .actions {margin:0;}
 [data-page] .panel {min-height:0;border:1px solid #293a4b;border-radius:10px;margin-bottom:1rem;}
 #planet-map,#planet-ground {display:block;width:100%;height:auto;margin-top:1rem;background:#040812;}
+#planet-globe {display:block;width:min(100%,640px);height:auto;margin:1rem auto;
+  background:#040812;border:1px solid var(--line);touch-action:none;cursor:grab;}
+#planet-globe:active {cursor:grabbing;}
+#planet-atmosphere-composition {margin:1rem 0;padding:1rem;background:#101925;border-radius:8px;}
+#planet-atmosphere-composition ul {columns:2;column-width:240px;padding-left:1.4rem;}
 #planet-summary {display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin:1rem 0;}
 #planet-summary p {padding:1rem;background:#152030;border-radius:8px;}
 #planet-limitations {margin-top:1rem;color:#c4b995;}

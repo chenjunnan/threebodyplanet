@@ -8,17 +8,28 @@ from pathlib import Path
 import numpy as np
 import pytest
 from pydantic import ValidationError
+from test_m72_dynamic_environment import config as environment_config
 
+from threebody.physics.environment.forcing import M5AOrbitForcing
+from threebody.physics.environment.solver import solve_environment
 from threebody.physics.longrun.runner import start_long_run
 from threebody.web.planet_scenarios import (
+    DIRECT_STAR_DISPLAY_FLOOR_W_M2,
     SIGMA,
     PlanetScenario,
     _air_mass,
     _atmospheric_optics,
+    _direct_disc_visibility,
+    _stellar_disk_transmission,
     build_scenario,
     daily_mean_flux,
+    environment_terrain_height,
+    environment_terrain_model,
     equilibrium_temperature,
+    temperature_seeded_composition,
     terrain_height,
+    terrain_modes,
+    water_phase_proxy,
 )
 from threebody.web.worldsets import simulation_settings
 
@@ -56,6 +67,42 @@ def test_terrain_seed_reproducibility_and_poles():
     assert np.allclose(2*a, terrain_height(normals, 42, 12000.))
 
 
+def test_environment_morphology_has_plains_ridges_faults_and_driver_response():
+    temperate = environment_terrain_model(
+        42, reference_temperature_k=288.0, reference_pressure_pa=101325.0,
+        rotation_parameter_q=.001, surface_water_mass_fraction=.001,
+    )
+    hostile = environment_terrain_model(
+        42, reference_temperature_k=800.0, reference_pressure_pa=100.0,
+        rotation_parameter_q=.08, surface_water_mass_fraction=0.0,
+    )
+    assert temperate == environment_terrain_model(
+        42, reference_temperature_k=288.0, reference_pressure_pa=101325.0,
+        rotation_parameter_q=.001, surface_water_mass_fraction=.001,
+    )
+    assert temperate['drivers']['erosion_index'] > hostile['drivers']['erosion_index']
+    assert hostile['drivers']['fracture_index'] > temperate['drivers']['fracture_index']
+    assert temperate['plains'] and temperate['ridges'] and temperate['faults']
+    assert 'NOT_TECTONIC_INFERENCE' in temperate['semantics']
+
+    latitudes = np.arcsin(-1 + (2*np.arange(90)+1)/90)
+    longitudes = -math.pi + (2*np.arange(180)+1)*math.pi/180
+    lat, lon = np.meshgrid(latitudes, longitudes, indexing='ij')
+    normals = np.stack([
+        np.cos(lat)*np.cos(lon), np.cos(lat)*np.sin(lon), np.sin(lat)
+    ], axis=-1)
+    heights = environment_terrain_height(
+        normals, terrain_modes(42), hostile, 18000.0, .72
+    )
+    assert np.all(np.isfinite(heights))
+    assert np.max(np.abs(heights)) <= 18000.0
+    # Adjacent two-degree samples include kilometre-scale scarps/canyons while
+    # the full distribution retains broad low-gradient terrain.
+    neighbour_steps = np.abs(np.diff(heights, axis=1))
+    assert np.percentile(neighbour_steps, 99) > 1000.0
+    assert np.percentile(neighbour_steps, 25) < 300.0
+
+
 def test_three_band_atmosphere_and_air_mass_limits():
     composition = {"nitrogen": .78, "oxygen": .21, "carbon_dioxide": .0004,
                    "argon": .0093, "water_vapor": .0003}
@@ -67,6 +114,76 @@ def test_three_band_atmosphere_and_air_mass_limits():
     assert _air_mass(0.) > 30
     assert _air_mass(-.01) is None
     assert _atmospheric_optics(0., composition)["model"] == "vacuum"
+    # Condensation is controlled by water partial pressure, not total dry-air
+    # pressure or a fixed boiling-temperature threshold.
+    assert water_phase_proxy(250.0, 1.0) == 'steam_atmosphere'
+    assert water_phase_proxy(250.0, 100.0) == 'ice'
+    assert water_phase_proxy(300.0, 1.0e3) == 'steam_atmosphere'
+    assert water_phase_proxy(300.0, 1.0e4) == 'liquid_possible'
+    assert water_phase_proxy(673.0, 1.0e6) == 'steam_atmosphere'
+    assert water_phase_proxy(673.0, 30.0e6) == 'supercritical_water_envelope'
+    with pytest.raises(ValueError):
+        water_phase_proxy(300.0, -1.0)
+
+
+def test_temperature_seeded_extended_gases_are_reproducible_and_phase_weighted():
+    cold, cold_meta = temperature_seeded_composition(42, 180.0)
+    hot, hot_meta = temperature_seeded_composition(42, 700.0)
+    assert cold == temperature_seeded_composition(42, 180.0)[0]
+    assert set(hot) == {
+        'nitrogen', 'oxygen', 'carbon_dioxide', 'nitrogen_dioxide', 'methane',
+        'sulfur_dioxide', 'water_vapor', 'hydrogen', 'helium', 'ammonia', 'argon',
+    }
+    assert sum(cold.values()) == pytest.approx(1.0)
+    assert sum(hot.values()) == pytest.approx(1.0)
+    assert cold_meta['gas_availability_weight']['water_vapor'] < 1e-4
+    assert hot_meta['gas_availability_weight']['water_vapor'] > .99
+    assert cold != hot
+    assert 'NOT_CHEMICAL_EQUILIBRIUM' in hot_meta['semantics']
+
+
+def test_column_density_optics_uses_thickness_density_and_gas_absorption():
+    base = {gas: 0.0 for gas in (
+        'nitrogen', 'oxygen', 'carbon_dioxide', 'nitrogen_dioxide', 'methane',
+        'sulfur_dioxide', 'water_vapor', 'hydrogen', 'helium', 'ammonia', 'argon',
+    )}
+    base.update(nitrogen=.79, oxygen=.21)
+    clear = _atmospheric_optics(101325.0, base)
+    polluted_composition = dict(base)
+    polluted_composition['nitrogen'] -= 1e-6
+    polluted_composition['nitrogen_dioxide'] = 1e-6
+    polluted = _atmospheric_optics(101325.0, polluted_composition)
+    assert clear['model'] == 'column_density_three_band_optics_v2'
+    assert clear['scale_height_m'] > 7000
+    assert clear['effective_thickness_99_9_percent_m'] == pytest.approx(
+        clear['scale_height_m']*math.log(1000)
+    )
+    assert clear['surface_number_density_m3'] > 2e25
+    assert clear['optical_depth_rgb'][2] > clear['optical_depth_rgb'][0]
+    assert polluted['absorption_optical_depth_rgb'][2] > (
+        clear['absorption_optical_depth_rgb'][2]+1.0
+    )
+
+
+def test_finite_stellar_disc_crosses_horizon_continuously():
+    radius = math.radians(5.0)
+    fraction, transmission = _stellar_disk_transmission(0.0, radius, [0.0]*3)
+    assert fraction == pytest.approx(.5)
+    assert transmission == pytest.approx([.5]*3)
+    assert _stellar_disk_transmission(-radius, radius, [0.0]*3)[0] == 0.0
+    assert _stellar_disk_transmission(radius, radius, [0.0]*3)[0] == 1.0
+    partial, attenuated = _stellar_disk_transmission(
+        -radius/2, radius, [.02, .04, .08]
+    )
+    assert 0.0 < partial < .5
+    assert 0.0 < attenuated[2] < attenuated[1] < attenuated[0] < partial
+    assert _direct_disc_visibility(0.0, 1.0) == 'BELOW_GEOMETRIC_HORIZON'
+    assert _direct_disc_visibility(.5, DIRECT_STAR_DISPLAY_FLOOR_W_M2/2) == (
+        'ATMOSPHERIC_EXTINCTION_BELOW_DISPLAY_FLOOR'
+    )
+    assert _direct_disc_visibility(.5, DIRECT_STAR_DISPLAY_FLOOR_W_M2) == (
+        'VISIBLE_DIRECT_DISC'
+    )
 
 
 def test_scenario_rejects_unphysical_or_unknown_inputs():
@@ -101,14 +218,28 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     region = next(r for r in first['regions'] if r['id'] == 'r12-c24')
     assert region['conditional_hazard_probability'] == pytest.approx(-math.expm1(-.1))
     assert first['regions'][0]['conditional_hazard_probability'] is None
-    area = 4*math.pi*first['radius_m']**2/len(first['regions'])
-    volume = sum(r['water_depth_m'] for r in first['regions'])*area
-    assert volume == pytest.approx(params.surface_water_kg/1000, rel=1e-10)
+    water = first['water_volume_diagnostic']
+    assert water['method'] == 'equal_area_192x384_basin_fill'
+    assert water['represented_volume_m3'] == pytest.approx(
+        first['water_inventory']['remaining_surface_water_kg']/1000, rel=1e-10
+    )
+    assert abs(water['relative_residual']) < 1e-10
     assert all(-90 <= s['altitude_deg'] <= 90 for s in first['sky'])
     assert all(0 <= s['azimuth_deg'] < 360 for s in first['sky'])
     assert len(first['sky']) == 3
-    assert first['schema_version'] == 'planet-exploration-v2'
-    assert len(first['contour_levels_m']) == 24
+    assert first['schema_version'] == 'planet-exploration-v9'
+    assert first['terrain_model']['model'] == 'environment_morphology_proxy_v2'
+    assert first['terrain_model'] == build_scenario(
+        planet_archive, params.model_copy(update={'t_s': 50.0})
+    )['terrain_model']
+    assert len(first['contour_levels_m']) == 10
+    assert first['observer_location'] == {'latitude_deg': 0.0, 'longitude_deg': 0.0}
+    assert first['visualization']['semantics'] == 'DISPLAY_ONLY_NOT_USED_BY_PHYSICS'
+    assert first['visualization']['minimum_point_source_psf_px'] == 5
+    inventory = first['water_inventory']
+    assert inventory['remaining_surface_water_kg'] + (
+        inventory['transferred_to_atmosphere_kg']
+    ) == pytest.approx(params.surface_water_kg)
     assert first['atmospheric_optics']['optical_depth_rgb'][2] > (
         first['atmospheric_optics']['optical_depth_rgb'][0]
     )
@@ -117,17 +248,57 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
                for b in first['bands'])
     doubled = build_scenario(planet_archive, params.model_copy(update={
         'atmosphere_mass_kg': params.atmosphere_mass_kg*2}))
-    assert doubled['pressure_pa'] == pytest.approx(2*first['pressure_pa'])
+    base_pressure = first['gravity_m_s2'] * params.atmosphere_mass_kg / (
+        4*math.pi*first['radius_m']**2
+    )
+    assert doubled['pressure_pa'] - first['pressure_pa'] == pytest.approx(
+        base_pressure, rel=1e-12
+    )
+    seeded = build_scenario(planet_archive, params.model_copy(update={
+        'composition_mode': 'temperature_seeded_prior',
+    }))
+    assert seeded['atmospheric_composition_prior']['model'] == (
+        'temperature_filtered_dirichlet_proxy_v1'
+    )
+    assert set(seeded['atmospheric_composition_mole_fraction']) == set(
+        seeded['atmospheric_optics']['gas_optical_contributions']
+    )
     vacuum = build_scenario(planet_archive, params.model_copy(update={
         'atmosphere_mass_kg': 0., 'surface_water_kg': 0.}))
     assert vacuum['scale_height_m'] is None
     assert all(r['geostrophic_scale_mps'] is None for r in vacuum['regions'])
     assert all(r['wind_speed_range_mps'] is None for r in vacuum['regions'])
     assert all(r['water_depth_m'] == 0 for r in vacuum['regions'])
+    assert vacuum['has_surface_water'] is False
     with pytest.raises(ValueError, match='exact committed'):
         build_scenario(planet_archive, params.model_copy(update={'t_s': 61.}))
     with pytest.raises(ValueError, match='rotation'):
         build_scenario(planet_archive, params.model_copy(update={'rotation_rate_rad_s': 1.}))
+
+
+def test_supercritical_global_temperature_moves_surface_water_into_atmosphere(
+    planet_archive,
+):
+    hot = build_scenario(planet_archive, PlanetScenario(
+        t_s=60.0, rotation_axis=(0.0, 0.0, 1.0),
+        rotation_rate_rad_s=2*math.pi/86400, optical_depth=20.0,
+        emissivity=0.1,
+    ))
+    inventory = hot['water_inventory']
+    assert inventory['global_equal_area_temperature_proxy_k'] > 647.096
+    assert inventory['remaining_surface_water_kg'] == 0.0
+    assert inventory['transferred_to_atmosphere_kg'] == 1.4e21
+    assert inventory['state'] == 'SUPERCRITICAL_WATER_ENVELOPE'
+    assert hot['has_surface_water'] is False
+    assert hot['water_surface_visible'] is False
+    assert all(region['water_depth_m'] == 0.0 for region in hot['regions'])
+    assert hot['water_vapor_partial_pressure_pa'] > 22.064e6
+    assert hot['atmospheric_optics']['validity'].startswith('QUALITATIVE_ONLY')
+    extinct = [star for star in hot['sky'] if star['above_geometric_horizon']
+               and not star['display_direct_disc']]
+    assert extinct
+    assert all(star['direct_disc_visibility'] ==
+               'ATMOSPHERIC_EXTINCTION_BELOW_DISPLAY_FLOOR' for star in extinct)
 
 
 def test_read_only_scenario_http_and_validation(planet_archive):
@@ -150,3 +321,22 @@ def test_read_only_scenario_http_and_validation(planet_archive):
             'run_id': '../planet-source', 'parameters': raw})
         assert code == 422
     assert (planet_archive/'initial_state.json').read_bytes() == before
+
+
+def test_m72_real_three_star_forcing_from_verified_m5a(planet_archive):
+    cfg = environment_config(max_step_s=2.0)
+    forcing = M5AOrbitForcing.from_run(
+        planet_archive, bond_albedo=cfg.bond_albedo,
+        max_sample_interval_s=cfg.max_orbit_sample_interval_s,
+    )
+    exact = forcing.sample(10.0)
+    between = forcing.sample(15.0)
+    assert exact.interpolation == 'EXACT_SAMPLE'
+    assert between.interpolation == 'LINEAR_FLUX'
+    assert between.top_of_atmosphere_flux_w_m2 == pytest.approx(
+        (forcing.sample(10.0).top_of_atmosphere_flux_w_m2+
+         forcing.sample(20.0).top_of_atmosphere_flux_w_m2)/2
+    )
+    result = solve_environment(cfg, forcing, [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
+    assert result.forcing_kind == 'M5A_THREE_STAR_LINEAR_FLUX_V1'
+    assert result.diagnostics.maximum_scaled_energy_residual < 1e-9

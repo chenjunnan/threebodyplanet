@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import platform
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -18,6 +18,47 @@ G = 6.67430e-11
 SIGMA = 5.670374419e-8
 GAS_R = 8.314462618
 BOLTZMANN = 1.380649e-23
+WATER_MOLAR_MASS_KG_MOL = 0.01801528
+WATER_CRITICAL_TEMPERATURE_K = 647.096
+WATER_CRITICAL_PRESSURE_PA = 22.064e6
+DIRECT_STAR_DISPLAY_FLOOR_W_M2 = 1e-9
+DISK_QUADRATURE_NODES, DISK_QUADRATURE_WEIGHTS = np.polynomial.legendre.leggauss(24)
+AVOGADRO = 6.02214076e23
+GAS_MOLAR_MASS_KG_MOL = {
+    'nitrogen': .0280134, 'oxygen': .0319988, 'carbon_dioxide': .0440095,
+    'nitrogen_dioxide': .0460055, 'methane': .0160425,
+    'sulfur_dioxide': .064066, 'water_vapor': .01801528,
+    'hydrogen': .00201588, 'helium': .004002602, 'ammonia': .01703052,
+    'argon': .039948,
+}
+# One-atmosphere phase-transition references used only as smooth availability
+# priors. They are not mixture phase-equilibrium calculations.
+GAS_VOLATILITY_REFERENCE_K = {
+    'helium': 4.22, 'hydrogen': 20.27, 'nitrogen': 77.36, 'argon': 87.30,
+    'oxygen': 90.19, 'methane': 111.66, 'carbon_dioxide': 194.67,
+    'ammonia': 239.82, 'sulfur_dioxide': 263.05,
+    'nitrogen_dioxide': 294.3, 'water_vapor': 373.15,
+}
+RAYLEIGH_CROSS_SECTION_550_M2 = {
+    'nitrogen': 5.1e-31, 'oxygen': 4.6e-31, 'carbon_dioxide': 1.2e-30,
+    'nitrogen_dioxide': 1.5e-30, 'methane': 1.13e-30,
+    'sulfur_dioxide': 1.8e-30, 'water_vapor': 2.5e-31,
+    'hydrogen': 8.0e-32, 'helium': 1.0e-32, 'ammonia': 7.0e-31,
+    'argon': 5.0e-31,
+}
+# Broad illustrative absorption cross-sections at 680/550/440 nm. These are
+# deliberately versioned proxies, not line-by-line HITRAN coefficients.
+ABSORPTION_CROSS_SECTION_RGB_M2 = {
+    'nitrogen': (0.0, 0.0, 0.0), 'helium': (0.0, 0.0, 0.0),
+    'hydrogen': (0.0, 0.0, 0.0), 'argon': (0.0, 0.0, 0.0),
+    'oxygen': (1.0e-30, 2.0e-31, 4.0e-31),
+    'carbon_dioxide': (3.0e-31, 2.0e-31, 2.0e-31),
+    'water_vapor': (2.0e-29, 3.0e-30, 8.0e-31),
+    'methane': (3.0e-29, 2.0e-30, 2.0e-31),
+    'nitrogen_dioxide': (2.0e-24, 8.0e-24, 4.0e-23),
+    'sulfur_dioxide': (1.0e-27, 2.0e-26, 5.0e-25),
+    'ammonia': (2.0e-29, 2.0e-28, 2.0e-27),
+}
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 Rate = Annotated[float, Field(ge=0, le=1e6, allow_inf_nan=False)]
 
@@ -34,14 +75,22 @@ class PlanetScenario(BaseModel):
     conductivity_w_m_k: Finite = Field(default=3., ge=0, le=100)
     atmosphere_mass_kg: Finite = Field(default=5.15e18, ge=0, le=1e26)
     molar_mass_kg_mol: Finite = Field(default=.029, gt=.001, le=.3)
+    composition_mode: Literal['explicit', 'temperature_seeded_prior'] = 'explicit'
     oxygen_mole_fraction: Finite = Field(default=0., ge=0, le=1)
     water_vapor_mole_fraction: Finite = Field(default=0., ge=0, le=1)
     carbon_dioxide_mole_fraction: Finite = Field(default=0., ge=0, le=1)
     argon_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    nitrogen_dioxide_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    methane_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    sulfur_dioxide_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    hydrogen_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    helium_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    ammonia_mole_fraction: Finite = Field(default=0., ge=0, le=1)
     surface_water_kg: Finite = Field(default=1.4e21, ge=0, le=1e26)
     relief_m: Finite = Field(default=18000., gt=0, le=1e5)
     terrain_shape_exponent: Finite = Field(default=.72, ge=.5, le=1.5)
-    contour_level_count: int = Field(default=24, ge=20, le=30)
+    contour_level_count: int = Field(default=10, ge=10, le=10)
+    terrain_vertical_exaggeration: Finite = Field(default=4.0, ge=1.0, le=8.0)
     wind_range_fraction_min: Finite = Field(default=.25, ge=0, le=1)
     wind_range_fraction_max: Finite = Field(default=.9, gt=0, le=1.5)
     rotation_rate_rad_s: Finite | None = Field(default=None, ge=0, le=1)
@@ -57,7 +106,10 @@ class PlanetScenario(BaseModel):
     @model_validator(mode='after')
     def validate_composition(self):
         if sum((self.oxygen_mole_fraction, self.water_vapor_mole_fraction,
-                self.carbon_dioxide_mole_fraction, self.argon_mole_fraction)) > 1:
+                self.carbon_dioxide_mole_fraction, self.argon_mole_fraction,
+                self.nitrogen_dioxide_mole_fraction, self.methane_mole_fraction,
+                self.sulfur_dioxide_mole_fraction, self.hydrogen_mole_fraction,
+                self.helium_mole_fraction, self.ammonia_mole_fraction)) > 1:
             raise ValueError('gas mole fractions exceed one')
         if self.wind_range_fraction_min >= self.wind_range_fraction_max:
             raise ValueError('wind range fractions must be increasing')
@@ -101,13 +153,73 @@ def daily_mean_flux(latitude: float, star_flux: float, declination: float) -> fl
     return star_flux*(h*a+b*math.sin(h))/math.pi
 
 
-def water_phase_proxy(temperature: float, pressure: float) -> str:
-    if temperature < 273.16:
-        return 'ice'
-    if temperature >= 373.15:
-        return 'unknown_high_temperature'
-    saturation = 611.657*math.exp(2.5e6/461.5*(1/273.16-1/temperature))
-    return 'liquid_possible' if pressure >= saturation else 'vapor_or_unconfined'
+def water_phase_proxy(temperature: float, water_partial_pressure_pa: float) -> str:
+    """Classify an idealized local water phase from T and H2O partial pressure.
+
+    The result is an equilibrium proxy, not a hydrology or cloud calculation.
+    In particular, total atmospheric pressure is not substituted for water
+    fugacity: dry background gas alone cannot make condensed water appear.
+    """
+    if (not math.isfinite(temperature) or temperature <= 0.0
+            or not math.isfinite(water_partial_pressure_pa)
+            or water_partial_pressure_pa < 0.0):
+        raise ValueError('water phase inputs must be finite and physical')
+    if temperature >= WATER_CRITICAL_TEMPERATURE_K:
+        return (
+            'supercritical_water_envelope'
+            if water_partial_pressure_pa >= WATER_CRITICAL_PRESSURE_PA
+            else 'steam_atmosphere'
+        )
+    saturation = water_saturation_pressure_pa(temperature)
+    if water_partial_pressure_pa < saturation:
+        return 'steam_atmosphere'
+    return 'ice' if temperature < 273.16 else 'liquid_possible'
+
+
+def water_saturation_pressure_pa(temperature_k: float) -> float:
+    """Ice sublimation or liquid saturation pressure, capped at criticality."""
+    if not math.isfinite(temperature_k) or temperature_k <= 0.0:
+        raise ValueError('water saturation temperature must be finite and positive')
+    if temperature_k >= WATER_CRITICAL_TEMPERATURE_K:
+        return WATER_CRITICAL_PRESSURE_PA
+    if temperature_k < 273.16:
+        # Murphy & Koop (2005) ice-vapour expression, in Pa. This branch
+        # deliberately models sublimation rather than a fixed freezing rule.
+        return math.exp(
+            9.550426 - 5723.265 / temperature_k
+            + 3.53068 * math.log(temperature_k) - 0.00728332 * temperature_k
+        )
+    tau = 1.0 - temperature_k / WATER_CRITICAL_TEMPERATURE_K
+    coefficients = (-7.85951783, 1.84408259, -11.7866497,
+                    22.6807411, -15.9618719, 1.80122502)
+    powers = (1.0, 1.5, 3.0, 3.5, 4.0, 7.5)
+    exponent = WATER_CRITICAL_TEMPERATURE_K / temperature_k * sum(
+        coefficient * tau**power
+        for coefficient, power in zip(coefficients, powers, strict=True)
+    )
+    return WATER_CRITICAL_PRESSURE_PA * math.exp(exponent)
+
+
+def partition_water_inventory(
+    *, total_surface_inventory_kg: float, global_temperature_k: float,
+    area_m2: float, gravity_m_s2: float, base_atmospheric_water_kg: float,
+) -> tuple[float, float, float]:
+    """Return surface, transferred-atmosphere and saturation-pressure inventories.
+
+    This is a global well-mixed equilibrium parameterization, not hydrology.
+    Above the critical temperature there is no liquid surface reservoir.
+    """
+    if total_surface_inventory_kg <= 0.0:
+        return 0.0, 0.0, water_saturation_pressure_pa(global_temperature_k)
+    saturation = water_saturation_pressure_pa(global_temperature_k)
+    if global_temperature_k >= WATER_CRITICAL_TEMPERATURE_K:
+        transferred = total_surface_inventory_kg
+    else:
+        atmospheric_capacity = max(
+            0.0, saturation * area_m2 / gravity_m_s2 - base_atmospheric_water_kg
+        )
+        transferred = min(total_surface_inventory_kg, atmospheric_capacity)
+    return total_surface_inventory_kg - transferred, transferred, saturation
 
 
 def terrain_modes(seed: int) -> list[dict]:
@@ -123,6 +235,106 @@ def terrain_modes(seed: int) -> list[dict]:
     return modes
 
 
+def _random_unit_vector(rng: np.random.Generator) -> np.ndarray:
+    vector = rng.normal(size=3)
+    return vector / np.linalg.norm(vector)
+
+
+def environment_terrain_model(
+    seed: int, *, reference_temperature_k: float, reference_pressure_pa: float,
+    rotation_parameter_q: float, surface_water_mass_fraction: float,
+) -> dict:
+    """Create a deterministic morphology prior from persistent environment drivers.
+
+    The drivers constrain erosion/fracture *priors*; they cannot prove tectonic
+    history. Features remain fixed across trajectory playback because the
+    reference temperature is derived from the initial archived configuration.
+    """
+    atmosphere = min(1.0, math.log1p(reference_pressure_pa / 1000.0) / math.log(102.325))
+    thermal_stress = min(1.0, abs(reference_temperature_k - 288.0) / 500.0)
+    rotation_stress = min(1.0, rotation_parameter_q / 0.1)
+    temperate_water = math.exp(-((reference_temperature_k - 288.0) / 85.0) ** 2)
+    water = min(1.0, surface_water_mass_fraction / 0.001)
+    erosion = min(1.0, 0.08 + 0.38 * atmosphere + 0.34 * water * temperate_water)
+    fracture = min(1.0, 0.22 + 0.46 * thermal_stress + 0.22 * rotation_stress)
+    rng = np.random.Generator(np.random.PCG64(
+        np.random.SeedSequence([seed, 0x4D4F5250])
+    ))
+
+    plains = []
+    for _ in range(2 + int(erosion > 0.62)):
+        plains.append({
+            'center_unit': _random_unit_vector(rng).tolist(),
+            'angular_radius_rad': float(rng.uniform(.20, .48)),
+            'inner_fraction': float(rng.uniform(.42, .62)),
+            'strength': float(rng.uniform(.62, .86) * (.72 + .28 * erosion)),
+            'target_normalized_height': float(rng.uniform(-.24, .12)),
+        })
+
+    def linear_feature() -> tuple[np.ndarray, np.ndarray]:
+        center = _random_unit_vector(rng)
+        trial = _random_unit_vector(rng)
+        normal = np.cross(center, trial)
+        normal /= np.linalg.norm(normal)
+        return center, normal
+
+    ridges = []
+    for _ in range(4 + int(fracture > .42) + int(fracture > .72)):
+        center, normal = linear_feature()
+        ridges.append({
+            'center_unit': center.tolist(), 'great_circle_normal_unit': normal.tolist(),
+            'half_width_rad': float(rng.uniform(.010, .038)),
+            'extent_rad': float(rng.uniform(.28, .82)),
+            'amplitude_fraction': float(rng.uniform(.20, .36) * (1.12 - .36 * erosion)),
+            'profile_exponent': float(rng.uniform(.48, .72)),
+            'crest_frequency': float(rng.uniform(180.0, 520.0)),
+            'crest_phase_rad': float(rng.uniform(-math.pi, math.pi)),
+            'gully_frequency': float(rng.uniform(650.0, 1500.0)),
+            'gully_phase_rad': float(rng.uniform(-math.pi, math.pi)),
+            'gully_depth_fraction': float(rng.uniform(.018, .052) * (1.08 - .45 * erosion)),
+        })
+
+    rugged_modes = []
+    ruggedness = .18 + .72 * (1.0 - erosion) + .25 * fracture
+    for octave in range(7):
+        rugged_modes.append({
+            'direction': _random_unit_vector(rng).tolist(),
+            'phase': float(rng.uniform(-math.pi, math.pi)),
+            'frequency': float(900.0 * 1.62**octave * rng.uniform(.88, 1.12)),
+            'amplitude_fraction': float(
+                min(1.0, ruggedness) * .020 * .66**octave
+            ),
+        })
+
+    faults = []
+    for _ in range(2 + int(fracture > .48) + int(fracture > .78)):
+        center, normal = linear_feature()
+        faults.append({
+            'center_unit': center.tolist(), 'great_circle_normal_unit': normal.tolist(),
+            'half_width_rad': float(rng.uniform(.006, .022)),
+            'extent_rad': float(rng.uniform(.38, .92)),
+            'canyon_depth_fraction': float(rng.uniform(.10, .22) * (.65 + .55 * fracture)),
+            'scarp_height_fraction': float(rng.uniform(.045, .12) * (.65 + .55 * fracture)),
+        })
+    return {
+        'model': 'environment_morphology_proxy_v2',
+        'base_scale': .56,
+        'drivers': {
+            'reference_temperature_k': reference_temperature_k,
+            'reference_pressure_pa': reference_pressure_pa,
+            'rotation_parameter_q': rotation_parameter_q,
+            'surface_water_mass_fraction': surface_water_mass_fraction,
+            'erosion_index': erosion,
+            'fracture_index': fracture,
+        },
+        'plains': plains, 'ridges': ridges, 'faults': faults,
+        'rugged_modes': rugged_modes,
+        'semantics': (
+            'SEEDED_ENVIRONMENT_CONSTRAINED_MORPHOLOGY_PRIOR_NOT_TECTONIC_INFERENCE'
+        ),
+    }
+
+
 def terrain_height(
     normals: np.ndarray, seed: int, relief: float, shape_exponent: float = .72
 ) -> np.ndarray:
@@ -133,6 +345,64 @@ def terrain_height(
                           mode['phase'])*mode['amplitude']
     shaped = np.sign(heights) * np.abs(heights) ** shape_exponent
     return relief*shaped
+
+
+def environment_terrain_height(
+    normals: np.ndarray, modes: list[dict], model: dict, relief: float,
+    shape_exponent: float,
+) -> np.ndarray:
+    """Evaluate the shared spherical morphology used by map, water and WebGL."""
+    normals = np.asarray(normals, dtype=float)
+    raw = np.zeros(normals.shape[:-1])
+    for mode in modes:
+        raw += np.sin(
+            normals @ np.asarray(mode['direction']) * mode['frequency'] + mode['phase']
+        ) * mode['amplitude']
+    height = model['base_scale'] * np.sign(raw) * np.abs(raw) ** shape_exponent
+
+    for mode in model.get('rugged_modes', []):
+        height += mode['amplitude_fraction'] * np.sin(
+            normals @ np.asarray(mode['direction']) * mode['frequency'] + mode['phase']
+        )
+
+    for plain in model['plains']:
+        angle = np.arccos(np.clip(normals @ np.asarray(plain['center_unit']), -1.0, 1.0))
+        radius = plain['angular_radius_rad']
+        inner = radius * plain['inner_fraction']
+        weight = np.clip((radius - angle) / (radius - inner), 0.0, 1.0)
+        weight = weight * weight * (3.0 - 2.0 * weight) * plain['strength']
+        height = height * (1.0 - weight) + plain['target_normalized_height'] * weight
+
+    for ridge in model['ridges']:
+        normal = np.asarray(ridge['great_circle_normal_unit'])
+        signed = np.arcsin(np.clip(normals @ normal, -1.0, 1.0))
+        along = np.arccos(np.clip(normals @ np.asarray(ridge['center_unit']), -1.0, 1.0))
+        localization = np.exp(-(along / ridge['extent_rad']) ** 4)
+        crest_wave = .5 + .5 * np.sin(
+            along * ridge['crest_frequency'] + ridge['crest_phase_rad']
+        )
+        crest = .48 + .52 * np.maximum(0.0, crest_wave) ** .32
+        profile = np.exp(-(
+            np.abs(signed) / ridge['half_width_rad']
+        ) ** ridge['profile_exponent'])
+        gullies = ridge['gully_depth_fraction'] * np.maximum(0.0, np.sin(
+            along * ridge['gully_frequency'] + ridge['gully_phase_rad']
+        )) ** 3
+        height += localization * profile * (
+            ridge['amplitude_fraction'] * crest - gullies
+        )
+
+    for fault in model['faults']:
+        normal = np.asarray(fault['great_circle_normal_unit'])
+        signed = np.arcsin(np.clip(normals @ normal, -1.0, 1.0))
+        along = np.arccos(np.clip(normals @ np.asarray(fault['center_unit']), -1.0, 1.0))
+        localization = np.exp(-(along / fault['extent_rad']) ** 4)
+        width = fault['half_width_rad']
+        height += localization * (
+            fault['scarp_height_fraction'] * np.tanh(signed / (width * .38))
+            - fault['canyon_depth_fraction'] * np.exp(-(signed / width) ** 2)
+        )
+    return relief * np.clip(height, -1.0, 1.0)
 
 
 def _planck_rgb(temperature_k: float) -> list[float]:
@@ -147,32 +417,94 @@ def _planck_rgb(temperature_k: float) -> list[float]:
     return [value / maximum for value in values]
 
 
-def _atmospheric_optics(pressure_pa: float, composition: dict[str, float]) -> dict:
+def temperature_seeded_composition(
+    seed: int, temperature_k: float,
+) -> tuple[dict[str, float], dict]:
+    """Seeded volatile prior filtered by smooth one-atmosphere phase proxies."""
+    alpha = {
+        'nitrogen': 5.0, 'oxygen': .06, 'carbon_dioxide': 1.3,
+        'nitrogen_dioxide': .015, 'methane': .35, 'sulfur_dioxide': .04,
+        'water_vapor': .35, 'hydrogen': .45, 'helium': .18, 'ammonia': .12,
+        'argon': .45,
+    }
+    rng = np.random.Generator(np.random.PCG64(
+        np.random.SeedSequence([seed, 0x41544D4F])
+    ))
+    availability = {}
+    weights = {}
+    for gas, transition in GAS_VOLATILITY_REFERENCE_K.items():
+        width = max(3.0, transition*.045)
+        exponent = max(-60.0, min(60.0, (transition-temperature_k)/width))
+        availability[gas] = 1.0/(1.0+math.exp(exponent))
+        weights[gas] = float(rng.gamma(alpha[gas], 1.0))*availability[gas]
+    total = sum(weights.values())
+    if total <= 0.0:
+        raise ValueError('temperature-filtered atmosphere prior has no gas support')
+    composition = {gas: value/total for gas, value in weights.items()}
+    return composition, {
+        'model': 'temperature_filtered_dirichlet_proxy_v1',
+        'reference_temperature_k': temperature_k,
+        'one_atmosphere_volatility_reference_k': GAS_VOLATILITY_REFERENCE_K,
+        'gas_availability_weight': availability,
+        'seed': seed,
+        'semantics': 'SEEDED_PHASE_AVAILABILITY_PRIOR_NOT_CHEMICAL_EQUILIBRIUM',
+    }
+
+
+def _atmospheric_optics(
+    pressure_pa: float, composition: dict[str, float], *,
+    temperature_k: float = 288.15, gravity_m_s2: float = 9.80665,
+    molar_mass_kg_mol: float = .028965,
+) -> dict:
     if pressure_pa <= 0.0:
         return {
             'model': 'vacuum', 'optical_depth_rgb': [0.0, 0.0, 0.0],
-            'composition_mole_fraction': composition,
+            'composition_mole_fraction': composition, 'scale_height_m': None,
+            'effective_thickness_99_9_percent_m': None,
+            'surface_number_density_m3': 0.0,
         }
-    rayleigh_factor = sum(composition[name] * factor for name, factor in {
-        'nitrogen': 1.0, 'oxygen': 1.08, 'carbon_dioxide': 1.45,
-        'argon': .94, 'water_vapor': .62,
-    }.items())
-    pressure_ratio = pressure_pa / 101325.0
-    depths = []
-    for wavelength_nm in (680.0, 550.0, 440.0):
-        rayleigh = .10 * pressure_ratio * rayleigh_factor * (550.0 / wavelength_nm) ** 4
-        # Three broad visible-band absorption proxies; not line-by-line spectroscopy.
-        absorption = pressure_ratio * (
-            composition['water_vapor'] * ({680.: .035, 550.: .004, 440.: .001}[wavelength_nm])
-            + composition['oxygen'] * ({680.: .008, 550.: .001, 440.: .002}[wavelength_nm])
-            + composition['carbon_dioxide'] * .001
-        )
-        depths.append(rayleigh + absorption)
+    if temperature_k <= 0.0 or gravity_m_s2 <= 0.0 or molar_mass_kg_mol <= 0.0:
+        raise ValueError('atmospheric column inputs must be positive')
+    scale_height = GAS_R*temperature_k/(molar_mass_kg_mol*gravity_m_s2)
+    number_density = pressure_pa/(BOLTZMANN*temperature_k)
+    column_molecules = number_density*scale_height
+    wavelengths = (680.0, 550.0, 440.0)
+    rayleigh_depths = [0.0, 0.0, 0.0]
+    absorption_depths = [0.0, 0.0, 0.0]
+    gas_diagnostics = {}
+    for gas, fraction in composition.items():
+        gas_column = column_molecules*fraction
+        rayleigh = [
+            gas_column*RAYLEIGH_CROSS_SECTION_550_M2[gas]*(550.0/wavelength)**4
+            for wavelength in wavelengths
+        ]
+        absorption = [
+            gas_column*cross_section
+            for cross_section in ABSORPTION_CROSS_SECTION_RGB_M2[gas]
+        ]
+        rayleigh_depths = [a+b for a, b in zip(rayleigh_depths, rayleigh, strict=True)]
+        absorption_depths = [
+            a+b for a, b in zip(absorption_depths, absorption, strict=True)
+        ]
+        gas_diagnostics[gas] = {
+            'column_molecules_m2': gas_column,
+            'rayleigh_optical_depth_rgb': rayleigh,
+            'absorption_optical_depth_rgb': absorption,
+        }
+    depths = [a+b for a, b in zip(rayleigh_depths, absorption_depths, strict=True)]
     return {
-        'model': 'three_band_rayleigh_absorption_proxy_v1',
-        'wavelength_nm_rgb': [680.0, 550.0, 440.0],
+        'model': 'column_density_three_band_optics_v2',
+        'wavelength_nm_rgb': list(wavelengths),
         'optical_depth_rgb': depths,
+        'rayleigh_optical_depth_rgb': rayleigh_depths,
+        'absorption_optical_depth_rgb': absorption_depths,
         'composition_mole_fraction': composition,
+        'surface_number_density_m3': number_density,
+        'scale_height_m': scale_height,
+        'effective_thickness_99_9_percent_m': scale_height*math.log(1000.0),
+        'vertical_column_molecules_m2': column_molecules,
+        'gas_optical_contributions': gas_diagnostics,
+        'semantics': 'BEER_LAMBERT_SINGLE_PATH_BROADBAND_PROXY_NOT_LINE_BY_LINE',
     }
 
 
@@ -183,6 +515,52 @@ def _air_mass(altitude_rad: float) -> float | None:
     return 1.0 / (
         math.sin(altitude_rad) + .50572 * (altitude_deg + 6.07995) ** -1.6364
     )
+
+
+def _stellar_disk_transmission(
+    center_altitude_rad: float, angular_radius_rad: float,
+    optical_depth_rgb: list[float],
+) -> tuple[float, list[float]]:
+    """Uniform-disc horizon clipping with 24-point vertical quadrature.
+
+    Refraction and limb darkening are intentionally absent. Unlike a center
+    threshold, this keeps the visible part of a large stellar disc when its
+    centre has already crossed the geometric horizon.
+    """
+    if angular_radius_rad <= 0.0 or not math.isfinite(angular_radius_rad):
+        raise ValueError('stellar angular radius must be finite and positive')
+    ratio = max(-1.0, min(1.0, center_altitude_rad / angular_radius_rad))
+    if ratio <= -1.0:
+        return 0.0, [0.0, 0.0, 0.0]
+    visible_fraction = (
+        math.acos(-ratio) + ratio * math.sqrt(max(0.0, 1.0-ratio*ratio))
+    ) / math.pi
+    if all(depth == 0.0 for depth in optical_depth_rgb):
+        return visible_fraction, [visible_fraction] * 3
+
+    lower = max(-1.0, -center_altitude_rad/angular_radius_rad)
+    midpoint, half_span = (1.0+lower)/2.0, (1.0-lower)/2.0
+    transmissions = [0.0, 0.0, 0.0]
+    for node, weight in zip(
+        DISK_QUADRATURE_NODES, DISK_QUADRATURE_WEIGHTS, strict=True
+    ):
+        y = midpoint + half_span*float(node)
+        altitude = center_altitude_rad + angular_radius_rad*y
+        air_mass = _air_mass(max(0.0, altitude))
+        area_weight = 2.0/math.pi * math.sqrt(max(0.0, 1.0-y*y))
+        for channel, depth in enumerate(optical_depth_rgb):
+            transmissions[channel] += (
+                half_span * float(weight) * area_weight * math.exp(-depth*air_mass)
+            )
+    return visible_fraction, transmissions
+
+
+def _direct_disc_visibility(visible_fraction: float, irradiance_w_m2: float) -> str:
+    if visible_fraction <= 0.0:
+        return 'BELOW_GEOMETRIC_HORIZON'
+    if irradiance_w_m2 < DIRECT_STAR_DISPLAY_FLOOR_W_M2:
+        return 'ATMOSPHERIC_EXTINCTION_BELOW_DISPLAY_FLOOR'
+    return 'VISIBLE_DIRECT_DISC'
 
 
 def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
@@ -222,15 +600,20 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         raise ValueError('rotation outside spherical, slow-rotation approximation (q < 0.1)')
     if scenario.atmosphere_mass_kg == 0 and scenario.optical_depth != 0:
         raise ValueError('a vacuum cannot have atmospheric optical depth')
-    pressure = gravity*scenario.atmosphere_mass_kg/(4*math.pi*radius**2)
-    composition = {
+    area_m2 = 4*math.pi*radius**2
+    base_composition = {
         'oxygen': scenario.oxygen_mole_fraction,
         'water_vapor': scenario.water_vapor_mole_fraction,
         'carbon_dioxide': scenario.carbon_dioxide_mole_fraction,
         'argon': scenario.argon_mole_fraction,
+        'nitrogen_dioxide': scenario.nitrogen_dioxide_mole_fraction,
+        'methane': scenario.methane_mole_fraction,
+        'sulfur_dioxide': scenario.sulfur_dioxide_mole_fraction,
+        'hydrogen': scenario.hydrogen_mole_fraction,
+        'helium': scenario.helium_mole_fraction,
+        'ammonia': scenario.ammonia_mole_fraction,
     }
-    composition['nitrogen'] = 1.0 - sum(composition.values())
-    optics = _atmospheric_optics(pressure, composition)
+    base_composition['nitrogen'] = 1.0 - sum(base_composition.values())
     xyz = {b.id: np.asarray(b.position_m) for b in sample.bodies}
     stars = []
     for star in metadata['bodies'][:3]:
@@ -258,19 +641,102 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         bands.append({'latitude_rad': latitude, 'temperature_k': temperature,
                       'diurnal_mean_flux_w_m2': flux})
     mean_band_temperature = sum(b['temperature_k'] for b in bands) / len(bands)
+    composition_prior = None
+    base_molar_mass = scenario.molar_mass_kg_mol
+    if scenario.composition_mode == 'temperature_seeded_prior':
+        base_composition, composition_prior = temperature_seeded_composition(
+            scenario.seed, mean_band_temperature
+        )
+        base_molar_mass = sum(
+            fraction*GAS_MOLAR_MASS_KG_MOL[gas]
+            for gas, fraction in base_composition.items()
+        )
+    initial_sample = next(reader.iter_samples(), None)
+    if initial_sample is None:
+        raise ValueError('terrain reference requires the initial committed sample')
+    initial_xyz = {body.id: np.asarray(body.position_m) for body in initial_sample.bodies}
+    reference_flux = 0.0
+    for star in metadata['bodies'][:3]:
+        separation = float(np.linalg.norm(
+            initial_xyz[star['id']] - initial_xyz['planet-1']
+        ))
+        reference_flux += star['luminosity_w'] / (4 * math.pi * separation**2)
+    terrain_reference_temperature = equilibrium_temperature(
+        (1.0 - scenario.albedo) * reference_flux / 4.0, scenario
+    )
+    terrain_reference_pressure = gravity * scenario.atmosphere_mass_kg / area_m2
+    morphology = environment_terrain_model(
+        scenario.seed,
+        reference_temperature_k=terrain_reference_temperature,
+        reference_pressure_pa=terrain_reference_pressure,
+        rotation_parameter_q=q,
+        surface_water_mass_fraction=scenario.surface_water_kg / mass,
+    )
+    modes = terrain_modes(scenario.seed)
+    base_moles = (
+        scenario.atmosphere_mass_kg / base_molar_mass
+        if scenario.atmosphere_mass_kg > 0.0 else 0.0
+    )
+    base_water_mass = (
+        base_moles * base_composition['water_vapor'] * WATER_MOLAR_MASS_KG_MOL
+    )
+    surface_water_kg, transferred_water_kg, saturation_pressure = (
+        partition_water_inventory(
+            total_surface_inventory_kg=scenario.surface_water_kg,
+            global_temperature_k=mean_band_temperature,
+            area_m2=area_m2, gravity_m_s2=gravity,
+            base_atmospheric_water_kg=base_water_mass,
+        )
+    )
+    component_moles = {
+        name: base_moles * fraction for name, fraction in base_composition.items()
+    }
+    component_moles['water_vapor'] += (
+        transferred_water_kg / WATER_MOLAR_MASS_KG_MOL
+    )
+    total_moles = sum(component_moles.values())
+    composition = (
+        {name: value / total_moles for name, value in component_moles.items()}
+        if total_moles > 0.0 else base_composition
+    )
+    atmosphere_mass_kg = scenario.atmosphere_mass_kg + transferred_water_kg
+    effective_molar_mass = (
+        atmosphere_mass_kg / total_moles
+        if total_moles > 0.0 else base_molar_mass
+    )
+    pressure = gravity * atmosphere_mass_kg / area_m2
+    optics = _atmospheric_optics(
+        pressure, composition, temperature_k=mean_band_temperature,
+        gravity_m_s2=gravity, molar_mass_kg_mol=effective_molar_mass,
+    )
+    water_partial_pressure = pressure * composition['water_vapor']
+    if scenario.surface_water_kg == 0.0:
+        inventory_state = 'NO_SEPARATE_SURFACE_WATER_INVENTORY'
+    elif mean_band_temperature >= WATER_CRITICAL_TEMPERATURE_K:
+        inventory_state = (
+            'SUPERCRITICAL_WATER_ENVELOPE'
+            if water_partial_pressure >= WATER_CRITICAL_PRESSURE_PA
+            else 'STEAM_ATMOSPHERE'
+        )
+    elif surface_water_kg == 0.0:
+        inventory_state = 'STEAM_ATMOSPHERE'
+    elif mean_band_temperature < 273.16:
+        inventory_state = 'SURFACE_ICE_WITH_SATURATED_VAPOR'
+    else:
+        inventory_state = 'CONDENSED_SURFACE_WATER_WITH_SATURATED_VAPOR'
     for i, band in enumerate(bands):
         lo, hi = max(0, i-1), min(len(bands)-1, i+1)
         gradient = (bands[hi]['temperature_k']-bands[lo]['temperature_k'])/(
             radius*(bands[hi]['latitude_rad']-bands[lo]['latitude_rad']))
         coriolis = 2*omega*math.sin(band['latitude_rad'])
         # Order-of-magnitude geostrophic scale, not a surface wind forecast.
-        speed = (abs(GAS_R/scenario.molar_mass_kg_mol*gradient/coriolis)
+        speed = (abs(GAS_R/effective_molar_mass*gradient/coriolis)
                  if pressure > 0 and abs(coriolis) > 1e-8
                  and abs(band['latitude_rad']) > math.radians(5) else None)
-        sound = math.sqrt(1.4*GAS_R/scenario.molar_mass_kg_mol*band['temperature_k'])
+        sound = math.sqrt(1.4*GAS_R/effective_molar_mass*band['temperature_k'])
         band['geostrophic_scale_mps'] = speed if speed is not None and speed < .3*sound else None
         thermal_scale = math.sqrt(
-            GAS_R/scenario.molar_mass_kg_mol
+            GAS_R/effective_molar_mass
             * abs(band['temperature_k']-mean_band_temperature)
         )
         reference = band['geostrophic_scale_mps'] or thermal_scale
@@ -296,21 +762,42 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     longitudes = -math.pi+(2*np.arange(48)+1)*math.pi/48
     lat, lon = np.meshgrid(latitudes, longitudes, indexing='ij')
     normals = np.stack([np.cos(lat)*np.cos(lon), np.cos(lat)*np.sin(lon), np.sin(lat)], -1)
-    heights = terrain_height(
-        normals, scenario.seed, scenario.relief_m, scenario.terrain_shape_exponent
+    heights = environment_terrain_height(
+        normals, modes, morphology, scenario.relief_m, scenario.terrain_shape_exponent
     )
-    area = 4*math.pi*radius**2/heights.size
-    water_volume = scenario.surface_water_kg/1000
-    lower, upper = float(heights.min()), float(heights.max())+water_volume/(area*heights.size)
+    # Determine sea level on a materially finer equal-area grid. The v6 grid
+    # also resolves the finite-width fault/canyon features used by the map.
+    water_latitudes = np.arcsin(-1+(2*np.arange(192)+1)/192)
+    water_longitudes = -math.pi+(2*np.arange(384)+1)*math.pi/384
+    water_lat, water_lon = np.meshgrid(
+        water_latitudes, water_longitudes, indexing='ij'
+    )
+    water_normals = np.stack([
+        np.cos(water_lat)*np.cos(water_lon),
+        np.cos(water_lat)*np.sin(water_lon), np.sin(water_lat)
+    ], -1)
+    water_heights = environment_terrain_height(
+        water_normals, modes, morphology, scenario.relief_m,
+        scenario.terrain_shape_exponent
+    )
+    water_cell_area = 4*math.pi*radius**2/water_heights.size
+    water_volume = surface_water_kg/1000
+    lower, upper = (float(water_heights.min()),
+                    float(water_heights.max())+water_volume/(water_cell_area*water_heights.size))
     for _ in range(80):
         level = (lower+upper)/2
-        if float(np.maximum(0., level-heights).sum())*area > water_volume:
+        if float(np.maximum(0., level-water_heights).sum())*water_cell_area > water_volume:
             upper = level
         else:
             lower = level
-    sea_level = (lower+upper)/2 if water_volume > 0 else float(heights.min())-1
-    if water_volume > 0 and sea_level-float(heights.min()) > radius*.05:
+    sea_level = ((lower+upper)/2 if water_volume > 0
+                 else float(water_heights.min())-1)
+    if water_volume > 0 and sea_level-float(water_heights.min()) > radius*.05:
         raise ValueError('water layer exceeds small-surface approximation')
+    represented_water_volume = (
+        float(np.maximum(0., sea_level-water_heights).sum())*water_cell_area
+        if water_volume > 0 else 0.0
+    )
     regions = []
     for r in range(24):
         # Zonal equilibrium values use nearest computed latitude, with explicit provenance.
@@ -320,7 +807,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
             rate = scenario.hazard_rates_per_year.get(name)
             wet = water_volume > 0 and heights[r, c] < sea_level
             temp = band['temperature_k']
-            potential_phase = water_phase_proxy(temp, pressure)
+            potential_phase = water_phase_proxy(temp, water_partial_pressure)
             phase = potential_phase if wet else 'dry'
             regions.append({'id': name, 'latitude_deg': float(np.degrees(latitudes[r])),
                             'longitude_deg': float(np.degrees(longitudes[c])),
@@ -347,13 +834,15 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     north = -math.sin(phi)*radial+math.cos(phi)*axis
     normal = np.array([math.cos(phi)*math.cos(math.radians(scenario.longitude_deg)),
                        math.cos(phi)*math.sin(math.radians(scenario.longitude_deg)), math.sin(phi)])
-    local_height = float(terrain_height(
-        normal, scenario.seed, scenario.relief_m, scenario.terrain_shape_exponent
+    local_height = float(environment_terrain_height(
+        normal, modes, morphology, scenario.relief_m, scenario.terrain_shape_exponent
     ))
     local_band = min(bands, key=lambda b: abs(b['latitude_rad']-phi))
     local_temp = local_band['temperature_k']
-    water_visible = water_volume > 0 and water_phase_proxy(local_temp, pressure) in {
+    water_visible = (water_volume > 0 and local_height < sea_level
+                     and water_phase_proxy(local_temp, water_partial_pressure) in {
         'ice', 'liquid_possible'}
+    )
     ground_level = max(local_height, sea_level) if water_visible else local_height
     observer = xyz['planet-1']+(radius+ground_level+scenario.observer_height_m)*up
     sky = []
@@ -362,27 +851,33 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         distance = float(np.linalg.norm(delta))
         direction = delta/distance
         altitude = math.asin(float(np.clip(direction@up, -1., 1.)))
+        angular_radius = math.asin(min(1., star['radius_m']/distance))
         air_mass = _air_mass(altitude)
-        transmittance = (
-            [math.exp(-depth*air_mass) for depth in optics['optical_depth_rgb']]
-            if air_mass is not None else [0.0, 0.0, 0.0]
+        visible_fraction, transmittance = _stellar_disk_transmission(
+            altitude, angular_radius, optics['optical_depth_rgb']
         )
         spectral_weights = star['blackbody_rgb']
         visible_transmission = sum(
             spectral_weights[i]*transmittance[i] for i in range(3)
         )/sum(spectral_weights)
+        direct_irradiance = star['flux_w_m2']*visible_transmission
+        direct_visibility = _direct_disc_visibility(
+            visible_fraction, direct_irradiance
+        )
         sky.append({'id': star['id'], 'altitude_deg': math.degrees(altitude),
                     'azimuth_deg': math.degrees(math.atan2(float(direction@east),
                                                          float(direction@north))) % 360,
-                    'above_geometric_horizon': altitude >= 0,
-                    'angular_radius_rad': math.asin(min(1., star['radius_m']/distance)),
+                    'above_geometric_horizon': visible_fraction > 0.0,
+                    'center_above_geometric_horizon': altitude >= 0.0,
+                    'geometric_visible_disc_fraction': visible_fraction,
+                    'angular_radius_rad': angular_radius,
                     'top_of_atmosphere_irradiance_w_m2': star['flux_w_m2'],
                     'visible_air_mass': air_mass,
                     'visible_transmittance_rgb': transmittance,
                     'blackbody_rgb': spectral_weights,
-                    'surface_direct_irradiance_proxy_w_m2': (
-                        star['flux_w_m2']*visible_transmission if altitude >= 0 else 0.0
-                    ),
+                    'surface_direct_irradiance_proxy_w_m2': direct_irradiance,
+                    'direct_disc_visibility': direct_visibility,
+                    'display_direct_disc': direct_visibility == 'VISIBLE_DIRECT_DISC',
                     # Backward-compatible name now explicitly equals surface direct proxy.
                     'irradiance_w_m2': (
                         star['flux_w_m2']*visible_transmission if altitude >= 0 else 0.0
@@ -403,8 +898,12 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     optics['sky_display_srgb'] = [value**(1/2.2) for value in sky_linear_rgb]
     optics['sky_scattered_intensity_proxy_w_m2'] = sum(scattered)
     optics['display_semantics'] = 'RELATIVE_HDR_TONE_MAPPING_NOT_SI_SCREEN_LUMINANCE'
+    optics['validity'] = (
+        'QUALITATIVE_ONLY_DENSE_ATMOSPHERE_MULTIPLE_SCATTERING_NOT_MODELED'
+        if pressure > 1.0e6 else 'PARAMETERIZED_THREE_BAND_SINGLE_PATH_PROXY'
+    )
     mean_temp = sum(b['temperature_k'] for b in bands)/36
-    scale_height = GAS_R*mean_temp/(scenario.molar_mass_kg_mol*gravity) if pressure > 0 else None
+    scale_height = GAS_R*mean_temp/(effective_molar_mass*gravity) if pressure > 0 else None
     if scale_height is not None and scale_height > radius*.1:
         raise ValueError('scale height exceeds thin-atmosphere approximation')
     parameters = scenario.model_dump(mode='json')
@@ -414,27 +913,68 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     runtime = {
         'project': __version__, 'python': platform.python_version(), 'numpy': np.__version__
     }
-    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v2',
-                                 'source': source, 'parameters': parameters})
+    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v9',
+                                 'source': source, 'parameters': parameters,
+                                 'terrain_model': morphology})
     contour_levels = np.linspace(
-        float(heights.min()), float(heights.max()), scenario.contour_level_count+2
+        float(water_heights.min()), float(water_heights.max()),
+        scenario.contour_level_count+2
     )[1:-1].tolist()
-    return {'schema_version': 'planet-exploration-v2', 'data_kind': 'PARAMETERIZED_SCENARIO',
+    return {'schema_version': 'planet-exploration-v9', 'data_kind': 'PARAMETERIZED_SCENARIO',
             'run_id': reader.manifest.run_id, 'world_id': reader.manifest.world_id,
             'source': source, 'parameters': parameters, 'scenario_sha256': scenario_hash,
             'runtime': runtime,
-            'terrain_modes': terrain_modes(scenario.seed), 'observer_ground_level_m': ground_level,
-            'water_surface_visible': water_visible, 'observer_temperature_proxy_k': local_temp,
+            'terrain_modes': modes, 'terrain_model': morphology,
+            'observer_ground_level_m': ground_level,
+            'water_surface_visible': water_visible, 'has_surface_water': water_volume > 0,
+            'observer_location': {'latitude_deg': scenario.latitude_deg,
+                                  'longitude_deg': scenario.longitude_deg},
+            'visualization': {
+                'terrain_vertical_exaggeration': scenario.terrain_vertical_exaggeration,
+                'minimum_point_source_psf_px': 5,
+                'direct_star_display_floor_w_m2': DIRECT_STAR_DISPLAY_FLOOR_W_M2,
+                'background_stars_visible': not (
+                    pressure >= 1000.0
+                    and optics['sky_scattered_intensity_proxy_w_m2'] >= 1.0
+                ),
+                'semantics': 'DISPLAY_ONLY_NOT_USED_BY_PHYSICS',
+            },
+            'observer_temperature_proxy_k': local_temp,
             'radius_m': radius, 'gravity_m_s2': gravity, 'rotation_parameter_q': q,
             'equatorial_effective_gravity_m_s2': gravity*(1-q),
             'pressure_pa': pressure, 'scale_height_m': scale_height,
-            'oxygen_partial_pressure_pa': pressure*scenario.oxygen_mole_fraction,
-            'water_vapor_partial_pressure_pa': pressure*scenario.water_vapor_mole_fraction,
+            'atmosphere_mass_kg': atmosphere_mass_kg,
+            'effective_molar_mass_kg_mol': effective_molar_mass,
+            'atmospheric_composition_mole_fraction': composition,
+            'atmospheric_composition_prior': composition_prior,
+            'oxygen_partial_pressure_pa': pressure*composition['oxygen'],
+            'water_vapor_partial_pressure_pa': water_partial_pressure,
             'carbon_dioxide_partial_pressure_pa': (
-                pressure*scenario.carbon_dioxide_mole_fraction
+                pressure*composition['carbon_dioxide']
             ),
+            'water_inventory': {
+                'model': 'global_saturation_partition_v1',
+                'total_input_surface_inventory_kg': scenario.surface_water_kg,
+                'remaining_surface_water_kg': surface_water_kg,
+                'transferred_to_atmosphere_kg': transferred_water_kg,
+                'base_atmospheric_water_kg': base_water_mass,
+                'global_equal_area_temperature_proxy_k': mean_band_temperature,
+                'saturation_pressure_proxy_pa': saturation_pressure,
+                'water_partial_pressure_pa': water_partial_pressure,
+                'state': inventory_state,
+                'semantics': 'PARAMETERIZED_GLOBAL_EQUILIBRIUM_NOT_WATER_CYCLE',
+            },
             'atmospheric_optics': optics,
             'sea_level_m': sea_level, 'terrain_grid': [24, 48], 'regions': regions,
+            'water_volume_diagnostic': {
+                'method': 'equal_area_192x384_basin_fill',
+                'target_volume_m3': water_volume,
+                'represented_volume_m3': represented_water_volume,
+                'relative_residual': (
+                    0.0 if water_volume == 0 else
+                    (represented_water_volume-water_volume)/water_volume
+                ),
+            },
             'contour_levels_m': contour_levels,
             'bands': bands, 'sky': sky,
             'equator_temperature_k': equilibrium_temperature((1-scenario.albedo)*sum(
@@ -456,4 +996,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
                 'Sky optics use three broad visible bands; no refraction, clouds, terrain '
                 'occlusion, multiple scattering or line-by-line spectra.',
                 'Water proxy omits salinity, circulation, evaporation and feedback.',
+                'Water inventory partition is instantaneous global saturation equilibrium, '
+                'not resolved transport, clouds, precipitation or cold-trap hydrology.',
+                'Terrain vertical exaggeration and decorative star suppression are visual only.',
             ]}

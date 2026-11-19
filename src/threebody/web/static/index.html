@@ -178,14 +178,22 @@
         <label>地形种子<input data-planet="seed" type="number" value="42"></label>
         <label>地形起伏上限(m)<input data-planet="relief_m" type="number" value="18000"></label>
         <label>地形形状指数<input data-planet="terrain_shape_exponent" type="number" value="0.72" min="0.5" max="1.5" step="0.01"></label>
-        <label>等高线级数<input data-planet="contour_level_count" type="number" value="24" min="20" max="30"></label>
+        <label>等高线级数<input data-planet="contour_level_count" type="number" value="10" min="10" max="10"></label>
+        <label>地形视觉垂直夸张<input data-planet="terrain_vertical_exaggeration" type="number" value="4" min="1" max="8" step="0.5"></label>
         <label>表面水量(kg)<input data-planet="surface_water_kg" type="number" value="1.4e21"></label>
         <label>大气质量(kg)<input data-planet="atmosphere_mass_kg" type="number" value="5.15e18"></label>
         <label>平均摩尔质量(kg/mol)<input data-planet="molar_mass_kg_mol" type="number" value="0.029" step="any"></label>
+        <label>大气成分模式<select id="planet-composition-mode"><option value="explicit">显式摩尔分数</option><option value="temperature_seeded_prior">按全球温度播种先验</option></select></label>
         <label>氧气摩尔分数<input data-planet="oxygen_mole_fraction" type="number" value="0" step="any"></label>
         <label>水蒸气摩尔分数<input data-planet="water_vapor_mole_fraction" type="number" value="0" step="any"></label>
         <label>二氧化碳摩尔分数<input data-planet="carbon_dioxide_mole_fraction" type="number" value="0" step="any"></label>
         <label>氩气摩尔分数<input data-planet="argon_mole_fraction" type="number" value="0" step="any"></label>
+        <label>二氧化氮摩尔分数<input data-planet="nitrogen_dioxide_mole_fraction" type="number" value="0" step="any"></label>
+        <label>甲烷摩尔分数<input data-planet="methane_mole_fraction" type="number" value="0" step="any"></label>
+        <label>二氧化硫摩尔分数<input data-planet="sulfur_dioxide_mole_fraction" type="number" value="0" step="any"></label>
+        <label>氢气摩尔分数<input data-planet="hydrogen_mole_fraction" type="number" value="0" step="any"></label>
+        <label>氦气摩尔分数<input data-planet="helium_mole_fraction" type="number" value="0" step="any"></label>
+        <label>氨气摩尔分数<input data-planet="ammonia_mole_fraction" type="number" value="0" step="any"></label>
         <label>灰色光学厚度<input data-planet="optical_depth" type="number" value="0" step="any"></label>
         <label>反照率<input data-planet="albedo" type="number" value="0.3" step="any"></label>
         <label>表面发射率<input data-planet="emissivity" type="number" value="1" step="any"></label>
@@ -206,9 +214,14 @@
       <details><summary>区域地质事件先验（可选）</summary><p>区域为 r0-c0 至 r23-c47；输入对应区域每年的事件发生率 λ。例如 {"r12-c24":0.01}。概率采用 1−exp(−λ·年数)，不是由地形预测；未提供的区域显示未知。你需要确保各区域的事件定义、空间范围和时间单位一致。</p><label for="planet-hazard-definition">事件定义（提供发生率时必填）</label><input id="planet-hazard-definition" placeholder="例如：该区域内，震级≥5的地震">
       <textarea id="planet-hazard-rates" aria-label="区域灾害年发生率JSON">{}</textarea></details>
       <div class="actions"><button id="planet-build" class="primary">计算当前采样的探索场景</button><button id="planet-export" disabled>导出场景与假设</button></div>
+      <div class="actions"><button id="planet-goto-mountain" disabled>定位山地样本</button><button id="planet-goto-plain" disabled>定位平原样本</button><span>只改变显式观测经纬度，不修改地貌。</span></div>
       <p id="planet-status" role="status">等待真实轨道采样。表单预置值是可编辑假设，不是该行星实测值。</p>
       <div id="planet-summary"></div>
-      <canvas id="planet-map" width="960" height="480" aria-label="带24级稀疏等高线的全球程序地形与假设水盆地图，可点击选择观测地点"></canvas>
+      <div id="planet-atmosphere-composition"></div>
+      <h4>行星整体外观</h4>
+      <p>三维球体使用同一地形、水相、大气光学深度和当前三恒星方向；拖动旋转。显示为相对HDR，不是SI摄影测量。</p>
+      <canvas id="planet-globe" width="640" height="640" tabindex="0" aria-label="地形、水体与大气共同形成的行星三维整体外观"></canvas>
+      <canvas id="planet-map" width="960" height="480" aria-label="带10级稀疏等高线和当前观测点的全球程序地形与盆地水体地图，可点击选择观测地点"></canvas>
       <p id="planet-region" aria-live="polite">点击地图选择地区；颜色表示程序生成地形及水相代理。</p>
       <h4>WebGL 地表观察镜头</h4><p>拖动或方向键改变地平视角，滚轮缩放，Home重置。眼高默认2米。地形是程序网格；恒星方向只取真实归档轨道采样。大气颜色和直达光使用三波段消光代理并经HDR色调映射，不是逐线光谱或屏幕SI亮度。</p>
       <div class="actions ground-controls">
@@ -229,6 +242,7 @@
   <script src="/webgl-observer.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/ground-view.js" defer></script>
+  <script src="/planet-globe.js" defer></script>
   <script src="/planet-explorer.js" defer></script>
 </body>
 </html>

@@ -6,6 +6,7 @@ Run with: pip install playwright && python -m playwright install chromium
 from __future__ import annotations
 
 import json
+import math
 import os
 import socket
 import subprocess
@@ -273,11 +274,62 @@ def test_real_browser_world_3d_drag_science_and_report():
         with open(future_scenario.value.path(),encoding='utf-8') as handle:
             scenario=json.load(handle)
         assert scenario['data_kind']=='PARAMETERIZED_SCENARIO'
-        assert scenario['schema_version']=='planet-exploration-v2'
+        assert scenario['schema_version']=='planet-exploration-v9'
+        assert scenario['terrain_model']['plains']
+        assert scenario['terrain_model']['ridges']
+        assert scenario['terrain_model']['faults']
+        assert len(scenario['atmospheric_composition_mole_fraction']) == 11
+        assert page.locator('#planet-atmosphere-composition li').count() == 11
+        globe=page.locator('#planet-globe')
+        assert globe.evaluate("n => n.getContext('webgl2')!==null")
+        assert globe.evaluate("n => n.getContext('webgl2').getError()") == 0
+        assert globe.evaluate("""n => {
+          const gl=n.getContext('webgl2'),pixels=new Uint8Array(n.width*n.height*4);
+          gl.readPixels(0,0,n.width,n.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+          const colors=new Set();
+          for(let i=0;i<pixels.length;i+=4096){
+            colors.add(pixels[i]+','+pixels[i+1]+','+pixels[i+2]);
+          }
+          return colors.size;
+        }""") > 8
+        globe_before=globe.evaluate('n => n.toDataURL()')
+        globe.scroll_into_view_if_needed()
+        globe_bounds=globe.bounding_box()
+        page.mouse.move(globe_bounds['x']+globe_bounds['width']*.5,
+                        globe_bounds['y']+globe_bounds['height']*.5)
+        page.mouse.down()
+        page.mouse.move(globe_bounds['x']+globe_bounds['width']*.65,
+                        globe_bounds['y']+globe_bounds['height']*.58)
+        page.mouse.up()
+        assert globe.evaluate('n => n.toDataURL()') != globe_before
+        region=scenario['regions'][10*48+12]
+        browser_height=page.evaluate("""args => planetSurfaceHeight(
+          args.scene,args.latitude_deg*Math.PI/180,args.longitude_deg*Math.PI/180
+        )""",{'scene':scenario,'latitude_deg':region['latitude_deg'],
+               'longitude_deg':region['longitude_deg']})
+        assert browser_height == pytest.approx(region['elevation_m'],abs=1e-7)
+        latitude_before=page.locator('[data-planet="latitude_deg"]').input_value()
+        page.locator('#planet-goto-mountain').click()
+        page.wait_for_function("() => document.querySelector('#planet-status')"
+                               ".textContent.includes('真实源采样')",timeout=20000)
+        assert page.locator('[data-planet="latitude_deg"]').input_value()!=latitude_before
+        assert '参数化先验' in page.locator('#planet-summary').inner_text()
+        page.locator('#planet-composition-mode').select_option('temperature_seeded_prior')
+        assert page.locator('#planet-export').is_disabled()
+        page.locator('#planet-build').click()
+        page.wait_for_function("() => document.querySelector('#planet-status')"
+                               ".textContent.includes('真实源采样')",timeout=20000)
+        with page.expect_download() as seeded_download:
+            page.locator('#planet-export').click()
+        with open(seeded_download.value.path(),encoding='utf-8') as handle:
+            seeded_scenario=json.load(handle)
+        assert seeded_scenario['atmospheric_composition_prior']['model'] == (
+            'temperature_filtered_dirichlet_proxy_v1'
+        )
         assert scenario['source']['t_s']==60
-        assert len(scenario['contour_levels_m'])==24
+        assert len(scenario['contour_levels_m'])==10
         assert scenario['atmospheric_optics']['model'] in {
-            'vacuum','three_band_rayleigh_absorption_proxy_v1'}
+            'vacuum','column_density_three_band_optics_v2'}
         if scenario['pressure_pa']>0:
             assert all(r['wind_speed_range_mps'] is not None for r in scenario['regions'])
         else:
@@ -286,6 +338,14 @@ def test_real_browser_world_3d_drag_science_and_report():
         ground=page.locator('#planet-ground')
         ground.scroll_into_view_if_needed()
         if ground.evaluate("n => n.getContext('webgl2')!==null"):
+            sprite=page.evaluate("planetStarSpriteMetrics(7.8e-5,600,1.4,5)")
+            assert sprite['pointSource'] is True
+            assert sprite['pointSize'] == 5
+            assert sprite['diameterPixels'] < 1
+            resolved=page.evaluate("planetStarSpriteMetrics(.2,540,1.4,5,2048)")
+            assert resolved['pointSize'] == pytest.approx(math.tan(.2)*1.4*540)
+            capped=page.evaluate("planetStarSpriteMetrics(.2,540,1.4,5,100)")
+            assert capped['pointSize'] == 100
             before=ground.evaluate('n => n.toDataURL()')
             ground.focus()
             ground.press('ArrowRight')
@@ -295,6 +355,33 @@ def test_real_browser_world_3d_drag_science_and_report():
             if visible:
                 page.locator('#planet-lock-star').select_option(visible)
             assert ground.evaluate("n => n.getContext('webgl2').getError()") == 0
+            projection=page.evaluate("""scene=>{
+              scene=structuredClone(scene);
+              const star={...scene.sky[0],id:'star-2',altitude_deg:80,
+                azimuth_deg:202,above_geometric_horizon:true,
+                angular_radius_rad:.0668,surface_direct_irradiance_proxy_w_m2:235,
+                irradiance_w_m2:235,visible_transmittance_rgb:[.1,.07,.01],
+                blackbody_rgb:[1,.64,.28]};
+              scene.sky=[star];scene.water_surface_visible=false;
+              const canvas=document.querySelector('#planet-ground');
+              const view=createPlanetGround(canvas);view.load(scene);
+              const gl=canvas.getContext('webgl2'),pixel=(x,y)=>{
+                const p=new Uint8Array(4);gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,p);
+                return Array.from(p);
+              };
+              const groundBottom=pixel(canvas.width/2,4);
+              const groundTop=pixel(canvas.width/2,canvas.height-4);
+              view.lockStar('star-2',scene);
+              return {error:gl.getError(),groundBottom,groundTop,
+                center:pixel(canvas.width/2,canvas.height/2),
+                top:pixel(canvas.width/2,canvas.height-2),corner:pixel(2,canvas.height-2)};
+            }""",scenario)
+            assert projection['error'] == 0
+            # A two-metre observer must retain foreground terrain. The old
+            # ~200 m near plane clipped it, leaving both halves as flat sky.
+            assert projection['groundBottom'] != projection['groundTop']
+            assert projection['center'] != projection['top']
+            assert projection['top'] == projection['corner']
         # Surface playback advances only across exact archived samples and rebuilds the sky.
         page.locator('#planet-ground-previous').click()
         page.wait_for_function("() => document.querySelector('#planet-status')"

@@ -167,3 +167,29 @@ def test_m3_numerical_failure_keeps_valid_m4_dynamics(
     assert (tmp_path / "outcomes" / old_completed_run.name /
             "long_outcome_manifest.json").is_file()
     assert not (tmp_path / "environments" / old_completed_run.name).exists()
+
+
+def test_same_name_stale_outcome_is_preserved_then_recomputed(
+    tmp_path, old_completed_run
+):
+    run_id = old_completed_run.name
+    first = derive_run_science(tmp_path, run_id)
+    assert first == {"thermal": "COMPLETED", "outcome": "COMPLETED"}
+    outcome = tmp_path / "outcomes" / run_id
+    manifest_path = outcome / "long_outcome_manifest.json"
+    stale = json.loads(manifest_path.read_text(encoding="utf-8"))
+    stale["world_id"] = "candidate-from-older-same-name-run"
+    manifest_path.write_text(json.dumps(stale), encoding="utf-8")
+
+    repaired = derive_run_science(tmp_path, run_id)
+
+    assert repaired == {"thermal": "VERIFIED_EXISTING", "outcome": "COMPLETED"}
+    current = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert current["world_id"] != stale["world_id"]
+    quarantine = tmp_path / "stale_derived" / run_id
+    preserved = list(quarantine.glob("outcome-*"))
+    assert len(preserved) == 1
+    archived = json.loads(
+        (preserved[0] / "long_outcome_manifest.json").read_text(encoding="utf-8")
+    )
+    assert archived["world_id"] == stale["world_id"]

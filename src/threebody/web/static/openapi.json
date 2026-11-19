@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Three Body Planet P0 local world science console",
-    "version": "0.7.1"
+    "version": "0.8.0"
   },
   "servers": [
     {
@@ -708,6 +708,15 @@
             "title": "Molar Mass Kg Mol",
             "type": "number"
           },
+          "composition_mode": {
+            "default": "explicit",
+            "enum": [
+              "explicit",
+              "temperature_seeded_prior"
+            ],
+            "title": "Composition Mode",
+            "type": "string"
+          },
           "oxygen_mole_fraction": {
             "default": 0.0,
             "maximum": 1,
@@ -727,6 +736,48 @@
             "maximum": 1,
             "minimum": 0,
             "title": "Carbon Dioxide Mole Fraction",
+            "type": "number"
+          },
+          "nitrogen_dioxide_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Nitrogen Dioxide Mole Fraction",
+            "type": "number"
+          },
+          "methane_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Methane Mole Fraction",
+            "type": "number"
+          },
+          "sulfur_dioxide_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Sulfur Dioxide Mole Fraction",
+            "type": "number"
+          },
+          "hydrogen_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Hydrogen Mole Fraction",
+            "type": "number"
+          },
+          "helium_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Helium Mole Fraction",
+            "type": "number"
+          },
+          "ammonia_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Ammonia Mole Fraction",
             "type": "number"
           },
           "argon_mole_fraction": {
@@ -758,11 +809,18 @@
             "type": "number"
           },
           "contour_level_count": {
-            "default": 24,
-            "minimum": 20,
-            "maximum": 30,
+            "default": 10,
+            "minimum": 10,
+            "maximum": 10,
             "title": "Contour Level Count",
             "type": "integer"
+          },
+          "terrain_vertical_exaggeration": {
+            "default": 4.0,
+            "minimum": 1.0,
+            "maximum": 8.0,
+            "title": "Terrain Vertical Exaggeration",
+            "type": "number"
           },
           "wind_range_fraction_min": {
             "default": 0.25,
