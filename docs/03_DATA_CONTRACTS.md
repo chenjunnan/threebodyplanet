@@ -24,11 +24,13 @@ M7.1 的 `stochastic_conics/0.4.3` 在行星 `properties` 中增加
 `is_observation=false`、发生率抽样、旋转修正逃逸速度/Jeans 代理、质量和五种气体摩尔分数。
 该对象是带来源的随机先验，不得作为 S0/S1 大气事实或 M2 引力输入。0.4.2 及更旧世界不得
 被读取器自动补写该对象。M7.2 环境地貌修正后的场景输出使用
-`planet-exploration-v7`；其中 `terrain_model=environment_morphology_proxy_v2` 必须记录固定参考
+`planet-exploration-v8`；其中 `terrain_model=environment_morphology_proxy_v2` 必须记录固定参考
 温度/压力、自转参数、水质量分数、侵蚀/断裂指数及全部平原、山脊和断裂参数。M5A、M3、M4
-及旧 `planet-exploration-v2/v3/v4/v5/v6` schema 保持各自语义。v7 的天空条目新增恒星中心
+及旧 `planet-exploration-v2/v3/v4/v5/v6/v7` schema 保持各自语义。v7 的天空条目新增恒星中心
 地平线状态、几何可见圆盘比例和有限圆盘透射语义；所有版本均不随 Python 包版本 `0.8.0`
 静默改变。
+v8 进一步区分几何可见性、直达星盘显示状态和大气消光原因，并记录定量显示阈值；高于1 MPa
+时三波段单路径模型必须标记为密集大气定性代理，不得冒充多次散射或真实气体求解。
 
 M7.2-a 的权威动态环境状态使用 `schema_version=0.8.0`、
 `model_id=m72_three_reservoir_v1`，记录地表、浅层岩石和海洋混合层温度、质量、总热容量、

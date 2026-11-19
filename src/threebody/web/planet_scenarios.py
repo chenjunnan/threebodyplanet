@@ -21,6 +21,7 @@ BOLTZMANN = 1.380649e-23
 WATER_MOLAR_MASS_KG_MOL = 0.01801528
 WATER_CRITICAL_TEMPERATURE_K = 647.096
 WATER_CRITICAL_PRESSURE_PA = 22.064e6
+DIRECT_STAR_DISPLAY_FLOOR_W_M2 = 1e-9
 DISK_QUADRATURE_NODES, DISK_QUADRATURE_WEIGHTS = np.polynomial.legendre.leggauss(24)
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 Rate = Annotated[float, Field(ge=0, le=1e6, allow_inf_nan=False)]
@@ -446,6 +447,14 @@ def _stellar_disk_transmission(
     return visible_fraction, transmissions
 
 
+def _direct_disc_visibility(visible_fraction: float, irradiance_w_m2: float) -> str:
+    if visible_fraction <= 0.0:
+        return 'BELOW_GEOMETRIC_HORIZON'
+    if irradiance_w_m2 < DIRECT_STAR_DISPLAY_FLOOR_W_M2:
+        return 'ATMOSPHERIC_EXTINCTION_BELOW_DISPLAY_FLOOR'
+    return 'VISIBLE_DIRECT_DISC'
+
+
 def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     reader = SegmentedTrajectoryReader(directory)
     sample = next(reader.iter_samples(start_s=scenario.t_s, end_s=scenario.t_s), None)
@@ -724,6 +733,10 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         visible_transmission = sum(
             spectral_weights[i]*transmittance[i] for i in range(3)
         )/sum(spectral_weights)
+        direct_irradiance = star['flux_w_m2']*visible_transmission
+        direct_visibility = _direct_disc_visibility(
+            visible_fraction, direct_irradiance
+        )
         sky.append({'id': star['id'], 'altitude_deg': math.degrees(altitude),
                     'azimuth_deg': math.degrees(math.atan2(float(direction@east),
                                                          float(direction@north))) % 360,
@@ -735,9 +748,9 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
                     'visible_air_mass': air_mass,
                     'visible_transmittance_rgb': transmittance,
                     'blackbody_rgb': spectral_weights,
-                    'surface_direct_irradiance_proxy_w_m2': (
-                        star['flux_w_m2']*visible_transmission
-                    ),
+                    'surface_direct_irradiance_proxy_w_m2': direct_irradiance,
+                    'direct_disc_visibility': direct_visibility,
+                    'display_direct_disc': direct_visibility == 'VISIBLE_DIRECT_DISC',
                     # Backward-compatible name now explicitly equals surface direct proxy.
                     'irradiance_w_m2': (
                         star['flux_w_m2']*visible_transmission if altitude >= 0 else 0.0
@@ -758,6 +771,10 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     optics['sky_display_srgb'] = [value**(1/2.2) for value in sky_linear_rgb]
     optics['sky_scattered_intensity_proxy_w_m2'] = sum(scattered)
     optics['display_semantics'] = 'RELATIVE_HDR_TONE_MAPPING_NOT_SI_SCREEN_LUMINANCE'
+    optics['validity'] = (
+        'QUALITATIVE_ONLY_DENSE_ATMOSPHERE_MULTIPLE_SCATTERING_NOT_MODELED'
+        if pressure > 1.0e6 else 'PARAMETERIZED_THREE_BAND_SINGLE_PATH_PROXY'
+    )
     mean_temp = sum(b['temperature_k'] for b in bands)/36
     scale_height = GAS_R*mean_temp/(effective_molar_mass*gravity) if pressure > 0 else None
     if scale_height is not None and scale_height > radius*.1:
@@ -769,14 +786,14 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     runtime = {
         'project': __version__, 'python': platform.python_version(), 'numpy': np.__version__
     }
-    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v7',
+    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v8',
                                  'source': source, 'parameters': parameters,
                                  'terrain_model': morphology})
     contour_levels = np.linspace(
         float(water_heights.min()), float(water_heights.max()),
         scenario.contour_level_count+2
     )[1:-1].tolist()
-    return {'schema_version': 'planet-exploration-v7', 'data_kind': 'PARAMETERIZED_SCENARIO',
+    return {'schema_version': 'planet-exploration-v8', 'data_kind': 'PARAMETERIZED_SCENARIO',
             'run_id': reader.manifest.run_id, 'world_id': reader.manifest.world_id,
             'source': source, 'parameters': parameters, 'scenario_sha256': scenario_hash,
             'runtime': runtime,
@@ -788,6 +805,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
             'visualization': {
                 'terrain_vertical_exaggeration': scenario.terrain_vertical_exaggeration,
                 'minimum_point_source_psf_px': 5,
+                'direct_star_display_floor_w_m2': DIRECT_STAR_DISPLAY_FLOOR_W_M2,
                 'background_stars_visible': not (
                     pressure >= 1000.0
                     and optics['sky_scattered_intensity_proxy_w_m2'] >= 1.0

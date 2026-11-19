@@ -90,12 +90,20 @@
         ' · 断裂指数 '+drivers.fracture_index.toFixed(3)+'（参数化先验，非板块反演）';
       summary.append(terrain);
     }
+    if(scene.atmospheric_optics.validity.startsWith('QUALITATIVE_ONLY')){
+      const warning=document.createElement('p');warning.className='warning';
+      warning.textContent='高压大气警告：当前三波段单路径消光只提供定性结果；未求解多次散射和真实气体。几何可见的恒星可能没有可显示的直达星盘。';
+      summary.append(warning);
+    }
     if(redrawMap)drawMap();
+    const visibilityLabel=s=>s.direct_disc_visibility==='VISIBLE_DIRECT_DISC'?'直达星盘可见':
+      s.direct_disc_visibility==='ATMOSPHERIC_EXTINCTION_BELOW_DISPLAY_FLOOR'?
+        '几何可见但被大气消光':'几何地平线下方';
     document.querySelector('#planet-sky').textContent=scene.sky.map(s=>s.id+' 方位 '+
       s.azimuth_deg.toFixed(2)+'° / 高度 '+s.altitude_deg.toFixed(2)+'° · 大气外 '+
       s.top_of_atmosphere_irradiance_w_m2.toPrecision(4)+' W/m² / 地表直达代理 '+
       s.surface_direct_irradiance_proxy_w_m2.toPrecision(4)+' W/m² '+
-      (s.above_geometric_horizon?'地平线上方':'地平线下方')).join(' · ')+
+      visibilityLabel(s)).join(' · ')+
       (ground?'':' · WebGL2不可用，保留地图与数值');
     document.querySelector('#planet-limitations').textContent='参数场景，不是地质/气候预测。'+
       scene.limitations.join(' ');

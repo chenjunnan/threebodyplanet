@@ -147,7 +147,8 @@
       }
     }
     function orient(scene){
-      const star=scene?.sky?.find(item=>item.id===lockedStar&&item.above_geometric_horizon);
+      const star=scene?.sky?.find(item=>item.id===lockedStar&&
+        item.above_geometric_horizon&&item.display_direct_disc!==false);
       if(!star)return;
       const az=star.azimuth_deg*Math.PI/180,alt=star.altitude_deg*Math.PI/180;
       const x=Math.cos(alt)*Math.sin(az),y=Math.sin(alt),z=-Math.cos(alt)*Math.cos(az);
@@ -250,7 +251,9 @@
         if(!star.above_geometric_horizon)continue;
         const az=star.azimuth_deg*Math.PI/180,alt=star.altitude_deg*Math.PI/180;
         const irradiance=star.surface_direct_irradiance_proxy_w_m2;
-        if(irradiance<=1e-9)continue;
+        const display=star.display_direct_disc??irradiance>=
+          (scene.visualization?.direct_star_display_floor_w_m2||1e-9);
+        if(!display)continue;
         const exposure=1-Math.exp(-irradiance/500);
         const transmitted=star.visible_transmittance_rgb;
         const raw=star.blackbody_rgb.map((value,i)=>value*transmitted[i]);

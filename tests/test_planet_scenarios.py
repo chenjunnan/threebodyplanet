@@ -14,10 +14,12 @@ from threebody.physics.environment.forcing import M5AOrbitForcing
 from threebody.physics.environment.solver import solve_environment
 from threebody.physics.longrun.runner import start_long_run
 from threebody.web.planet_scenarios import (
+    DIRECT_STAR_DISPLAY_FLOOR_W_M2,
     SIGMA,
     PlanetScenario,
     _air_mass,
     _atmospheric_optics,
+    _direct_disc_visibility,
     _stellar_disk_transmission,
     build_scenario,
     daily_mean_flux,
@@ -135,6 +137,13 @@ def test_finite_stellar_disc_crosses_horizon_continuously():
     )
     assert 0.0 < partial < .5
     assert 0.0 < attenuated[2] < attenuated[1] < attenuated[0] < partial
+    assert _direct_disc_visibility(0.0, 1.0) == 'BELOW_GEOMETRIC_HORIZON'
+    assert _direct_disc_visibility(.5, DIRECT_STAR_DISPLAY_FLOOR_W_M2/2) == (
+        'ATMOSPHERIC_EXTINCTION_BELOW_DISPLAY_FLOOR'
+    )
+    assert _direct_disc_visibility(.5, DIRECT_STAR_DISPLAY_FLOOR_W_M2) == (
+        'VISIBLE_DIRECT_DISC'
+    )
 
 
 def test_scenario_rejects_unphysical_or_unknown_inputs():
@@ -178,7 +187,7 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     assert all(-90 <= s['altitude_deg'] <= 90 for s in first['sky'])
     assert all(0 <= s['azimuth_deg'] < 360 for s in first['sky'])
     assert len(first['sky']) == 3
-    assert first['schema_version'] == 'planet-exploration-v7'
+    assert first['schema_version'] == 'planet-exploration-v8'
     assert first['terrain_model']['model'] == 'environment_morphology_proxy_v2'
     assert first['terrain_model'] == build_scenario(
         planet_archive, params.model_copy(update={'t_s': 50.0})
@@ -235,6 +244,12 @@ def test_supercritical_global_temperature_moves_surface_water_into_atmosphere(
     assert hot['water_surface_visible'] is False
     assert all(region['water_depth_m'] == 0.0 for region in hot['regions'])
     assert hot['water_vapor_partial_pressure_pa'] > 22.064e6
+    assert hot['atmospheric_optics']['validity'].startswith('QUALITATIVE_ONLY')
+    extinct = [star for star in hot['sky'] if star['above_geometric_horizon']
+               and not star['display_direct_disc']]
+    assert extinct
+    assert all(star['direct_disc_visibility'] ==
+               'ATMOSPHERIC_EXTINCTION_BELOW_DISPLAY_FLOOR' for star in extinct)
 
 
 def test_read_only_scenario_http_and_validation(planet_archive):
