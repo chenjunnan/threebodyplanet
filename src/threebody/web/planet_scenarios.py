@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import platform
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -23,6 +23,42 @@ WATER_CRITICAL_TEMPERATURE_K = 647.096
 WATER_CRITICAL_PRESSURE_PA = 22.064e6
 DIRECT_STAR_DISPLAY_FLOOR_W_M2 = 1e-9
 DISK_QUADRATURE_NODES, DISK_QUADRATURE_WEIGHTS = np.polynomial.legendre.leggauss(24)
+AVOGADRO = 6.02214076e23
+GAS_MOLAR_MASS_KG_MOL = {
+    'nitrogen': .0280134, 'oxygen': .0319988, 'carbon_dioxide': .0440095,
+    'nitrogen_dioxide': .0460055, 'methane': .0160425,
+    'sulfur_dioxide': .064066, 'water_vapor': .01801528,
+    'hydrogen': .00201588, 'helium': .004002602, 'ammonia': .01703052,
+    'argon': .039948,
+}
+# One-atmosphere phase-transition references used only as smooth availability
+# priors. They are not mixture phase-equilibrium calculations.
+GAS_VOLATILITY_REFERENCE_K = {
+    'helium': 4.22, 'hydrogen': 20.27, 'nitrogen': 77.36, 'argon': 87.30,
+    'oxygen': 90.19, 'methane': 111.66, 'carbon_dioxide': 194.67,
+    'ammonia': 239.82, 'sulfur_dioxide': 263.05,
+    'nitrogen_dioxide': 294.3, 'water_vapor': 373.15,
+}
+RAYLEIGH_CROSS_SECTION_550_M2 = {
+    'nitrogen': 5.1e-31, 'oxygen': 4.6e-31, 'carbon_dioxide': 1.2e-30,
+    'nitrogen_dioxide': 1.5e-30, 'methane': 1.13e-30,
+    'sulfur_dioxide': 1.8e-30, 'water_vapor': 2.5e-31,
+    'hydrogen': 8.0e-32, 'helium': 1.0e-32, 'ammonia': 7.0e-31,
+    'argon': 5.0e-31,
+}
+# Broad illustrative absorption cross-sections at 680/550/440 nm. These are
+# deliberately versioned proxies, not line-by-line HITRAN coefficients.
+ABSORPTION_CROSS_SECTION_RGB_M2 = {
+    'nitrogen': (0.0, 0.0, 0.0), 'helium': (0.0, 0.0, 0.0),
+    'hydrogen': (0.0, 0.0, 0.0), 'argon': (0.0, 0.0, 0.0),
+    'oxygen': (1.0e-30, 2.0e-31, 4.0e-31),
+    'carbon_dioxide': (3.0e-31, 2.0e-31, 2.0e-31),
+    'water_vapor': (2.0e-29, 3.0e-30, 8.0e-31),
+    'methane': (3.0e-29, 2.0e-30, 2.0e-31),
+    'nitrogen_dioxide': (2.0e-24, 8.0e-24, 4.0e-23),
+    'sulfur_dioxide': (1.0e-27, 2.0e-26, 5.0e-25),
+    'ammonia': (2.0e-29, 2.0e-28, 2.0e-27),
+}
 Finite = Annotated[float, Field(allow_inf_nan=False)]
 Rate = Annotated[float, Field(ge=0, le=1e6, allow_inf_nan=False)]
 
@@ -39,10 +75,17 @@ class PlanetScenario(BaseModel):
     conductivity_w_m_k: Finite = Field(default=3., ge=0, le=100)
     atmosphere_mass_kg: Finite = Field(default=5.15e18, ge=0, le=1e26)
     molar_mass_kg_mol: Finite = Field(default=.029, gt=.001, le=.3)
+    composition_mode: Literal['explicit', 'temperature_seeded_prior'] = 'explicit'
     oxygen_mole_fraction: Finite = Field(default=0., ge=0, le=1)
     water_vapor_mole_fraction: Finite = Field(default=0., ge=0, le=1)
     carbon_dioxide_mole_fraction: Finite = Field(default=0., ge=0, le=1)
     argon_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    nitrogen_dioxide_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    methane_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    sulfur_dioxide_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    hydrogen_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    helium_mole_fraction: Finite = Field(default=0., ge=0, le=1)
+    ammonia_mole_fraction: Finite = Field(default=0., ge=0, le=1)
     surface_water_kg: Finite = Field(default=1.4e21, ge=0, le=1e26)
     relief_m: Finite = Field(default=18000., gt=0, le=1e5)
     terrain_shape_exponent: Finite = Field(default=.72, ge=.5, le=1.5)
@@ -63,7 +106,10 @@ class PlanetScenario(BaseModel):
     @model_validator(mode='after')
     def validate_composition(self):
         if sum((self.oxygen_mole_fraction, self.water_vapor_mole_fraction,
-                self.carbon_dioxide_mole_fraction, self.argon_mole_fraction)) > 1:
+                self.carbon_dioxide_mole_fraction, self.argon_mole_fraction,
+                self.nitrogen_dioxide_mole_fraction, self.methane_mole_fraction,
+                self.sulfur_dioxide_mole_fraction, self.hydrogen_mole_fraction,
+                self.helium_mole_fraction, self.ammonia_mole_fraction)) > 1:
             raise ValueError('gas mole fractions exceed one')
         if self.wind_range_fraction_min >= self.wind_range_fraction_max:
             raise ValueError('wind range fractions must be increasing')
@@ -371,32 +417,94 @@ def _planck_rgb(temperature_k: float) -> list[float]:
     return [value / maximum for value in values]
 
 
-def _atmospheric_optics(pressure_pa: float, composition: dict[str, float]) -> dict:
+def temperature_seeded_composition(
+    seed: int, temperature_k: float,
+) -> tuple[dict[str, float], dict]:
+    """Seeded volatile prior filtered by smooth one-atmosphere phase proxies."""
+    alpha = {
+        'nitrogen': 5.0, 'oxygen': .06, 'carbon_dioxide': 1.3,
+        'nitrogen_dioxide': .015, 'methane': .35, 'sulfur_dioxide': .04,
+        'water_vapor': .35, 'hydrogen': .45, 'helium': .18, 'ammonia': .12,
+        'argon': .45,
+    }
+    rng = np.random.Generator(np.random.PCG64(
+        np.random.SeedSequence([seed, 0x41544D4F])
+    ))
+    availability = {}
+    weights = {}
+    for gas, transition in GAS_VOLATILITY_REFERENCE_K.items():
+        width = max(3.0, transition*.045)
+        exponent = max(-60.0, min(60.0, (transition-temperature_k)/width))
+        availability[gas] = 1.0/(1.0+math.exp(exponent))
+        weights[gas] = float(rng.gamma(alpha[gas], 1.0))*availability[gas]
+    total = sum(weights.values())
+    if total <= 0.0:
+        raise ValueError('temperature-filtered atmosphere prior has no gas support')
+    composition = {gas: value/total for gas, value in weights.items()}
+    return composition, {
+        'model': 'temperature_filtered_dirichlet_proxy_v1',
+        'reference_temperature_k': temperature_k,
+        'one_atmosphere_volatility_reference_k': GAS_VOLATILITY_REFERENCE_K,
+        'gas_availability_weight': availability,
+        'seed': seed,
+        'semantics': 'SEEDED_PHASE_AVAILABILITY_PRIOR_NOT_CHEMICAL_EQUILIBRIUM',
+    }
+
+
+def _atmospheric_optics(
+    pressure_pa: float, composition: dict[str, float], *,
+    temperature_k: float = 288.15, gravity_m_s2: float = 9.80665,
+    molar_mass_kg_mol: float = .028965,
+) -> dict:
     if pressure_pa <= 0.0:
         return {
             'model': 'vacuum', 'optical_depth_rgb': [0.0, 0.0, 0.0],
-            'composition_mole_fraction': composition,
+            'composition_mole_fraction': composition, 'scale_height_m': None,
+            'effective_thickness_99_9_percent_m': None,
+            'surface_number_density_m3': 0.0,
         }
-    rayleigh_factor = sum(composition[name] * factor for name, factor in {
-        'nitrogen': 1.0, 'oxygen': 1.08, 'carbon_dioxide': 1.45,
-        'argon': .94, 'water_vapor': .62,
-    }.items())
-    pressure_ratio = pressure_pa / 101325.0
-    depths = []
-    for wavelength_nm in (680.0, 550.0, 440.0):
-        rayleigh = .10 * pressure_ratio * rayleigh_factor * (550.0 / wavelength_nm) ** 4
-        # Three broad visible-band absorption proxies; not line-by-line spectroscopy.
-        absorption = pressure_ratio * (
-            composition['water_vapor'] * ({680.: .035, 550.: .004, 440.: .001}[wavelength_nm])
-            + composition['oxygen'] * ({680.: .008, 550.: .001, 440.: .002}[wavelength_nm])
-            + composition['carbon_dioxide'] * .001
-        )
-        depths.append(rayleigh + absorption)
+    if temperature_k <= 0.0 or gravity_m_s2 <= 0.0 or molar_mass_kg_mol <= 0.0:
+        raise ValueError('atmospheric column inputs must be positive')
+    scale_height = GAS_R*temperature_k/(molar_mass_kg_mol*gravity_m_s2)
+    number_density = pressure_pa/(BOLTZMANN*temperature_k)
+    column_molecules = number_density*scale_height
+    wavelengths = (680.0, 550.0, 440.0)
+    rayleigh_depths = [0.0, 0.0, 0.0]
+    absorption_depths = [0.0, 0.0, 0.0]
+    gas_diagnostics = {}
+    for gas, fraction in composition.items():
+        gas_column = column_molecules*fraction
+        rayleigh = [
+            gas_column*RAYLEIGH_CROSS_SECTION_550_M2[gas]*(550.0/wavelength)**4
+            for wavelength in wavelengths
+        ]
+        absorption = [
+            gas_column*cross_section
+            for cross_section in ABSORPTION_CROSS_SECTION_RGB_M2[gas]
+        ]
+        rayleigh_depths = [a+b for a, b in zip(rayleigh_depths, rayleigh, strict=True)]
+        absorption_depths = [
+            a+b for a, b in zip(absorption_depths, absorption, strict=True)
+        ]
+        gas_diagnostics[gas] = {
+            'column_molecules_m2': gas_column,
+            'rayleigh_optical_depth_rgb': rayleigh,
+            'absorption_optical_depth_rgb': absorption,
+        }
+    depths = [a+b for a, b in zip(rayleigh_depths, absorption_depths, strict=True)]
     return {
-        'model': 'three_band_rayleigh_absorption_proxy_v1',
-        'wavelength_nm_rgb': [680.0, 550.0, 440.0],
+        'model': 'column_density_three_band_optics_v2',
+        'wavelength_nm_rgb': list(wavelengths),
         'optical_depth_rgb': depths,
+        'rayleigh_optical_depth_rgb': rayleigh_depths,
+        'absorption_optical_depth_rgb': absorption_depths,
         'composition_mole_fraction': composition,
+        'surface_number_density_m3': number_density,
+        'scale_height_m': scale_height,
+        'effective_thickness_99_9_percent_m': scale_height*math.log(1000.0),
+        'vertical_column_molecules_m2': column_molecules,
+        'gas_optical_contributions': gas_diagnostics,
+        'semantics': 'BEER_LAMBERT_SINGLE_PATH_BROADBAND_PROXY_NOT_LINE_BY_LINE',
     }
 
 
@@ -498,6 +606,12 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         'water_vapor': scenario.water_vapor_mole_fraction,
         'carbon_dioxide': scenario.carbon_dioxide_mole_fraction,
         'argon': scenario.argon_mole_fraction,
+        'nitrogen_dioxide': scenario.nitrogen_dioxide_mole_fraction,
+        'methane': scenario.methane_mole_fraction,
+        'sulfur_dioxide': scenario.sulfur_dioxide_mole_fraction,
+        'hydrogen': scenario.hydrogen_mole_fraction,
+        'helium': scenario.helium_mole_fraction,
+        'ammonia': scenario.ammonia_mole_fraction,
     }
     base_composition['nitrogen'] = 1.0 - sum(base_composition.values())
     xyz = {b.id: np.asarray(b.position_m) for b in sample.bodies}
@@ -527,6 +641,16 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
         bands.append({'latitude_rad': latitude, 'temperature_k': temperature,
                       'diurnal_mean_flux_w_m2': flux})
     mean_band_temperature = sum(b['temperature_k'] for b in bands) / len(bands)
+    composition_prior = None
+    base_molar_mass = scenario.molar_mass_kg_mol
+    if scenario.composition_mode == 'temperature_seeded_prior':
+        base_composition, composition_prior = temperature_seeded_composition(
+            scenario.seed, mean_band_temperature
+        )
+        base_molar_mass = sum(
+            fraction*GAS_MOLAR_MASS_KG_MOL[gas]
+            for gas, fraction in base_composition.items()
+        )
     initial_sample = next(reader.iter_samples(), None)
     if initial_sample is None:
         raise ValueError('terrain reference requires the initial committed sample')
@@ -550,7 +674,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     )
     modes = terrain_modes(scenario.seed)
     base_moles = (
-        scenario.atmosphere_mass_kg / scenario.molar_mass_kg_mol
+        scenario.atmosphere_mass_kg / base_molar_mass
         if scenario.atmosphere_mass_kg > 0.0 else 0.0
     )
     base_water_mass = (
@@ -578,10 +702,13 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     atmosphere_mass_kg = scenario.atmosphere_mass_kg + transferred_water_kg
     effective_molar_mass = (
         atmosphere_mass_kg / total_moles
-        if total_moles > 0.0 else scenario.molar_mass_kg_mol
+        if total_moles > 0.0 else base_molar_mass
     )
     pressure = gravity * atmosphere_mass_kg / area_m2
-    optics = _atmospheric_optics(pressure, composition)
+    optics = _atmospheric_optics(
+        pressure, composition, temperature_k=mean_band_temperature,
+        gravity_m_s2=gravity, molar_mass_kg_mol=effective_molar_mass,
+    )
     water_partial_pressure = pressure * composition['water_vapor']
     if scenario.surface_water_kg == 0.0:
         inventory_state = 'NO_SEPARATE_SURFACE_WATER_INVENTORY'
@@ -786,14 +913,14 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
     runtime = {
         'project': __version__, 'python': platform.python_version(), 'numpy': np.__version__
     }
-    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v8',
+    scenario_hash = sha256_json({'runtime': runtime, 'model': 'planet-exploration-v9',
                                  'source': source, 'parameters': parameters,
                                  'terrain_model': morphology})
     contour_levels = np.linspace(
         float(water_heights.min()), float(water_heights.max()),
         scenario.contour_level_count+2
     )[1:-1].tolist()
-    return {'schema_version': 'planet-exploration-v8', 'data_kind': 'PARAMETERIZED_SCENARIO',
+    return {'schema_version': 'planet-exploration-v9', 'data_kind': 'PARAMETERIZED_SCENARIO',
             'run_id': reader.manifest.run_id, 'world_id': reader.manifest.world_id,
             'source': source, 'parameters': parameters, 'scenario_sha256': scenario_hash,
             'runtime': runtime,
@@ -819,6 +946,7 @@ def build_scenario(directory: Path, scenario: PlanetScenario) -> dict:
             'atmosphere_mass_kg': atmosphere_mass_kg,
             'effective_molar_mass_kg_mol': effective_molar_mass,
             'atmospheric_composition_mole_fraction': composition,
+            'atmospheric_composition_prior': composition_prior,
             'oxygen_partial_pressure_pa': pressure*composition['oxygen'],
             'water_vapor_partial_pressure_pa': water_partial_pressure,
             'carbon_dioxide_partial_pressure_pa': (

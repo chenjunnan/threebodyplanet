@@ -26,6 +26,7 @@ from threebody.web.planet_scenarios import (
     environment_terrain_height,
     environment_terrain_model,
     equilibrium_temperature,
+    temperature_seeded_composition,
     terrain_height,
     terrain_modes,
     water_phase_proxy,
@@ -125,6 +126,45 @@ def test_three_band_atmosphere_and_air_mass_limits():
         water_phase_proxy(300.0, -1.0)
 
 
+def test_temperature_seeded_extended_gases_are_reproducible_and_phase_weighted():
+    cold, cold_meta = temperature_seeded_composition(42, 180.0)
+    hot, hot_meta = temperature_seeded_composition(42, 700.0)
+    assert cold == temperature_seeded_composition(42, 180.0)[0]
+    assert set(hot) == {
+        'nitrogen', 'oxygen', 'carbon_dioxide', 'nitrogen_dioxide', 'methane',
+        'sulfur_dioxide', 'water_vapor', 'hydrogen', 'helium', 'ammonia', 'argon',
+    }
+    assert sum(cold.values()) == pytest.approx(1.0)
+    assert sum(hot.values()) == pytest.approx(1.0)
+    assert cold_meta['gas_availability_weight']['water_vapor'] < 1e-4
+    assert hot_meta['gas_availability_weight']['water_vapor'] > .99
+    assert cold != hot
+    assert 'NOT_CHEMICAL_EQUILIBRIUM' in hot_meta['semantics']
+
+
+def test_column_density_optics_uses_thickness_density_and_gas_absorption():
+    base = {gas: 0.0 for gas in (
+        'nitrogen', 'oxygen', 'carbon_dioxide', 'nitrogen_dioxide', 'methane',
+        'sulfur_dioxide', 'water_vapor', 'hydrogen', 'helium', 'ammonia', 'argon',
+    )}
+    base.update(nitrogen=.79, oxygen=.21)
+    clear = _atmospheric_optics(101325.0, base)
+    polluted_composition = dict(base)
+    polluted_composition['nitrogen'] -= 1e-6
+    polluted_composition['nitrogen_dioxide'] = 1e-6
+    polluted = _atmospheric_optics(101325.0, polluted_composition)
+    assert clear['model'] == 'column_density_three_band_optics_v2'
+    assert clear['scale_height_m'] > 7000
+    assert clear['effective_thickness_99_9_percent_m'] == pytest.approx(
+        clear['scale_height_m']*math.log(1000)
+    )
+    assert clear['surface_number_density_m3'] > 2e25
+    assert clear['optical_depth_rgb'][2] > clear['optical_depth_rgb'][0]
+    assert polluted['absorption_optical_depth_rgb'][2] > (
+        clear['absorption_optical_depth_rgb'][2]+1.0
+    )
+
+
 def test_finite_stellar_disc_crosses_horizon_continuously():
     radius = math.radians(5.0)
     fraction, transmission = _stellar_disk_transmission(0.0, radius, [0.0]*3)
@@ -187,7 +227,7 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     assert all(-90 <= s['altitude_deg'] <= 90 for s in first['sky'])
     assert all(0 <= s['azimuth_deg'] < 360 for s in first['sky'])
     assert len(first['sky']) == 3
-    assert first['schema_version'] == 'planet-exploration-v8'
+    assert first['schema_version'] == 'planet-exploration-v9'
     assert first['terrain_model']['model'] == 'environment_morphology_proxy_v2'
     assert first['terrain_model'] == build_scenario(
         planet_archive, params.model_copy(update={'t_s': 50.0})
@@ -213,6 +253,15 @@ def test_verified_scenario_water_mass_pressure_sky_and_unknown_hazards(planet_ar
     )
     assert doubled['pressure_pa'] - first['pressure_pa'] == pytest.approx(
         base_pressure, rel=1e-12
+    )
+    seeded = build_scenario(planet_archive, params.model_copy(update={
+        'composition_mode': 'temperature_seeded_prior',
+    }))
+    assert seeded['atmospheric_composition_prior']['model'] == (
+        'temperature_filtered_dirichlet_proxy_v1'
+    )
+    assert set(seeded['atmospheric_composition_mole_fraction']) == set(
+        seeded['atmospheric_optics']['gas_optical_contributions']
     )
     vacuum = build_scenario(planet_archive, params.model_copy(update={
         'atmosphere_mass_kg': 0., 'surface_water_kg': 0.}))

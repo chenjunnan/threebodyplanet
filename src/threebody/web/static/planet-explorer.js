@@ -3,16 +3,20 @@
   const map=document.querySelector('#planet-map'),ctx=map.getContext('2d');
   const status=document.querySelector('#planet-status');
   const lockSelect=document.querySelector('#planet-lock-star');
-  let scene=null,requestSerial=0,ground=null,playback=null,rebuildTimer=null;
+  let scene=null,requestSerial=0,ground=null,globe=null,playback=null,rebuildTimer=null;
   try{ground=window.createPlanetGround(document.querySelector('#planet-ground'));}
   catch(error){status.textContent='地表WebGL不可用：'+error.message;}
+  try{globe=window.createPlanetGlobe(document.querySelector('#planet-globe'));}
+  catch(error){status.textContent+=' · 行星球体WebGL不可用：'+error.message;}
 
   function clear(){
-    scene=null;ctx.clearRect(0,0,map.width,map.height);ground?.load(null);
+    scene=null;window.currentPlanetExplorationScene=null;
+    ctx.clearRect(0,0,map.width,map.height);ground?.load(null);globe?.load(null);
     document.querySelector('#planet-export').disabled=true;
     document.querySelector('#planet-goto-mountain').disabled=true;
     document.querySelector('#planet-goto-plain').disabled=true;
-    for(const id of ['planet-summary','planet-region','planet-sky','planet-limitations']){
+    for(const id of ['planet-summary','planet-region','planet-sky','planet-limitations',
+      'planet-atmosphere-composition']){
       document.getElementById(id).textContent='';
     }
   }
@@ -70,6 +74,8 @@
     for(const [label,value,unit] of [
       ['重力',scene.gravity_m_s2,'m/s²'],['赤道有效重力',scene.equatorial_effective_gravity_m_s2,'m/s²'],
       ['参数大气表面压力',scene.pressure_pa,'Pa'],['等温尺度高度',scene.scale_height_m,'m'],
+      ['99.9%柱质量有效厚度',scene.atmospheric_optics.effective_thickness_99_9_percent_m,'m'],
+      ['表面分子数密度',scene.atmospheric_optics.surface_number_density_m3,'m⁻³'],
       ['假设氧分压',scene.oxygen_partial_pressure_pa,'Pa'],['假设水蒸气分压',scene.water_vapor_partial_pressure_pa,'Pa'],
       ['假设二氧化碳分压',scene.carbon_dioxide_partial_pressure_pa,'Pa'],
       ['赤道平衡温度',scene.equator_temperature_k,'K'],['北极平衡温度',scene.north_pole_temperature_k,'K'],
@@ -95,6 +101,21 @@
       warning.textContent='高压大气警告：当前三波段单路径消光只提供定性结果；未求解多次散射和真实气体。几何可见的恒星可能没有可显示的直达星盘。';
       summary.append(warning);
     }
+    const gasNames={nitrogen:'氮气',oxygen:'氧气',carbon_dioxide:'二氧化碳',
+      nitrogen_dioxide:'二氧化氮',methane:'甲烷',sulfur_dioxide:'二氧化硫',
+      water_vapor:'水蒸气',hydrogen:'氢气',helium:'氦气',ammonia:'氨气',argon:'氩气'};
+    const composition=document.querySelector('#planet-atmosphere-composition');
+    composition.replaceChildren();const heading=document.createElement('h4');
+    heading.textContent='大气成分与垂直光学柱';composition.append(heading);
+    const list=document.createElement('ul');
+    for(const [gas,fraction] of Object.entries(scene.atmospheric_composition_mole_fraction)){
+      const item=document.createElement('li'),diagnostic=
+        scene.atmospheric_optics.gas_optical_contributions?.[gas];
+      item.textContent=(gasNames[gas]||gas)+'：'+(fraction*100).toPrecision(5)+'%'+
+        (diagnostic?' · 柱分子 '+diagnostic.column_molecules_m2.toExponential(3)+' m⁻²':'');
+      list.append(item);
+    }
+    composition.append(list);
     if(redrawMap)drawMap();
     const visibilityLabel=s=>s.direct_disc_visibility==='VISIBLE_DIRECT_DISC'?'直达星盘可见':
       s.direct_disc_visibility==='ATMOSPHERIC_EXTINCTION_BELOW_DISPLAY_FLOOR'?
@@ -107,7 +128,8 @@
       (ground?'':' · WebGL2不可用，保留地图与数值');
     document.querySelector('#planet-limitations').textContent='参数场景，不是地质/气候预测。'+
       scene.limitations.join(' ');
-    ground?.load(scene);ground?.lockStar(lockSelect.value,scene);
+    window.currentPlanetExplorationScene=scene;
+    ground?.load(scene);ground?.lockStar(lockSelect.value,scene);globe?.load(scene);
     document.querySelector('#planet-export').disabled=false;
     document.querySelector('#planet-goto-mountain').disabled=false;
     document.querySelector('#planet-goto-plain').disabled=false;
@@ -116,7 +138,8 @@
       '级等高线 · 固定灰色平衡，不替代M3历史';
   }
   function readParameters(t_s){
-    const parameters={t_s};
+    const parameters={t_s,composition_mode:
+      document.querySelector('#planet-composition-mode').value};
     for(const input of document.querySelectorAll('[data-planet]')){
       if(input.value!==''){
         const value=Number(input.value);if(!Number.isFinite(value))throw Error('参数必须为有限数值');
@@ -158,11 +181,17 @@
       molar_mass_kg_mol:prior.mean_molar_mass_kg_mol||.029,
       oxygen_mole_fraction:composition.oxygen,water_vapor_mole_fraction:composition.water_vapor,
       carbon_dioxide_mole_fraction:composition.carbon_dioxide,argon_mole_fraction:composition.argon,
+      nitrogen_dioxide_mole_fraction:composition.nitrogen_dioxide||0,
+      methane_mole_fraction:composition.methane||0,
+      sulfur_dioxide_mole_fraction:composition.sulfur_dioxide||0,
+      hydrogen_mole_fraction:composition.hydrogen||0,helium_mole_fraction:composition.helium||0,
+      ammonia_mole_fraction:composition.ammonia||0,
       albedo:prior.sampled_albedo,rotation_rate_rad_s:body.rotation_rate_rad_s};
     for(const [name,value] of Object.entries(values)){
       const input=document.querySelector('[data-planet="'+name+'"]');if(input)input.value=String(value);
     }
     document.querySelector('#planet-axis').value=JSON.stringify(body.rotation_axis_inertial_unit);
+    document.querySelector('#planet-composition-mode').value='explicit';
     document.querySelector('#planet-prior-source').textContent=prior.status+' · Jeans代理 '+
       prior.jeans_parameter_proxy.toFixed(2)+' · 保留权重 '+prior.retention_weight.toFixed(3)+
       '；这是可复现先验，不是大气观测。';
@@ -241,7 +270,7 @@
       clearTimeout(rebuildTimer);rebuildTimer=setTimeout(()=>calculate(orbitSamples[orbitIndex].t_s,{quiet:true}),120);
     }else invalidate();
   });
-  for(const selector of ['#planet-parameters','#planet-hazard-rates','#planet-hazard-definition','#planet-axis']){
+  for(const selector of ['#planet-parameters','#planet-composition-mode','#planet-hazard-rates','#planet-hazard-definition','#planet-axis']){
     document.querySelector(selector).addEventListener('input',invalidate);
   }
   document.querySelector('#observe-run-id').addEventListener('input',invalidate);

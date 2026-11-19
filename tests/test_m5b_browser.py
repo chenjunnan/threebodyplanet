@@ -274,10 +274,34 @@ def test_real_browser_world_3d_drag_science_and_report():
         with open(future_scenario.value.path(),encoding='utf-8') as handle:
             scenario=json.load(handle)
         assert scenario['data_kind']=='PARAMETERIZED_SCENARIO'
-        assert scenario['schema_version']=='planet-exploration-v8'
+        assert scenario['schema_version']=='planet-exploration-v9'
         assert scenario['terrain_model']['plains']
         assert scenario['terrain_model']['ridges']
         assert scenario['terrain_model']['faults']
+        assert len(scenario['atmospheric_composition_mole_fraction']) == 11
+        assert page.locator('#planet-atmosphere-composition li').count() == 11
+        globe=page.locator('#planet-globe')
+        assert globe.evaluate("n => n.getContext('webgl2')!==null")
+        assert globe.evaluate("n => n.getContext('webgl2').getError()") == 0
+        assert globe.evaluate("""n => {
+          const gl=n.getContext('webgl2'),pixels=new Uint8Array(n.width*n.height*4);
+          gl.readPixels(0,0,n.width,n.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+          const colors=new Set();
+          for(let i=0;i<pixels.length;i+=4096){
+            colors.add(pixels[i]+','+pixels[i+1]+','+pixels[i+2]);
+          }
+          return colors.size;
+        }""") > 8
+        globe_before=globe.evaluate('n => n.toDataURL()')
+        globe.scroll_into_view_if_needed()
+        globe_bounds=globe.bounding_box()
+        page.mouse.move(globe_bounds['x']+globe_bounds['width']*.5,
+                        globe_bounds['y']+globe_bounds['height']*.5)
+        page.mouse.down()
+        page.mouse.move(globe_bounds['x']+globe_bounds['width']*.65,
+                        globe_bounds['y']+globe_bounds['height']*.58)
+        page.mouse.up()
+        assert globe.evaluate('n => n.toDataURL()') != globe_before
         region=scenario['regions'][10*48+12]
         browser_height=page.evaluate("""args => planetSurfaceHeight(
           args.scene,args.latitude_deg*Math.PI/180,args.longitude_deg*Math.PI/180
@@ -290,10 +314,22 @@ def test_real_browser_world_3d_drag_science_and_report():
                                ".textContent.includes('真实源采样')",timeout=20000)
         assert page.locator('[data-planet="latitude_deg"]').input_value()!=latitude_before
         assert '参数化先验' in page.locator('#planet-summary').inner_text()
+        page.locator('#planet-composition-mode').select_option('temperature_seeded_prior')
+        assert page.locator('#planet-export').is_disabled()
+        page.locator('#planet-build').click()
+        page.wait_for_function("() => document.querySelector('#planet-status')"
+                               ".textContent.includes('真实源采样')",timeout=20000)
+        with page.expect_download() as seeded_download:
+            page.locator('#planet-export').click()
+        with open(seeded_download.value.path(),encoding='utf-8') as handle:
+            seeded_scenario=json.load(handle)
+        assert seeded_scenario['atmospheric_composition_prior']['model'] == (
+            'temperature_filtered_dirichlet_proxy_v1'
+        )
         assert scenario['source']['t_s']==60
         assert len(scenario['contour_levels_m'])==10
         assert scenario['atmospheric_optics']['model'] in {
-            'vacuum','three_band_rayleigh_absorption_proxy_v1'}
+            'vacuum','column_density_three_band_optics_v2'}
         if scenario['pressure_pa']>0:
             assert all(r['wind_speed_range_mps'] is not None for r in scenario['regions'])
         else:

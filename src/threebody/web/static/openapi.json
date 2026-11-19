@@ -708,6 +708,15 @@
             "title": "Molar Mass Kg Mol",
             "type": "number"
           },
+          "composition_mode": {
+            "default": "explicit",
+            "enum": [
+              "explicit",
+              "temperature_seeded_prior"
+            ],
+            "title": "Composition Mode",
+            "type": "string"
+          },
           "oxygen_mole_fraction": {
             "default": 0.0,
             "maximum": 1,
@@ -727,6 +736,48 @@
             "maximum": 1,
             "minimum": 0,
             "title": "Carbon Dioxide Mole Fraction",
+            "type": "number"
+          },
+          "nitrogen_dioxide_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Nitrogen Dioxide Mole Fraction",
+            "type": "number"
+          },
+          "methane_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Methane Mole Fraction",
+            "type": "number"
+          },
+          "sulfur_dioxide_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Sulfur Dioxide Mole Fraction",
+            "type": "number"
+          },
+          "hydrogen_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Hydrogen Mole Fraction",
+            "type": "number"
+          },
+          "helium_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Helium Mole Fraction",
+            "type": "number"
+          },
+          "ammonia_mole_fraction": {
+            "default": 0.0,
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Ammonia Mole Fraction",
             "type": "number"
           },
           "argon_mole_fraction": {
