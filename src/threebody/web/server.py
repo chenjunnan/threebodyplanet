@@ -16,6 +16,11 @@ from threebody.config.loader import resolve_mapping
 from threebody.errors import ConfigError
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.comparison import compare_runs
+from threebody.web.integrated_environment_science import (
+    query_integrated_environment_point,
+    query_integrated_environment_series,
+    query_integrated_environment_tile,
+)
 from threebody.web.jobs import LocalRunController
 from threebody.web.outcome_science import read_long_outcome
 from threebody.web.planet_scenarios import PlanetScenario, build_scenario
@@ -190,6 +195,89 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/runs":
                 self._json(HTTPStatus.OK, {"runs": list_runs(self.artifact_root)})
                 return
+            environment_match = re.fullmatch(
+                r"/api/v1/environment/([^/]+)/(point|series)", path
+            )
+            if environment_match:
+                run_id = unquote(environment_match.group(1))
+                source = _run_directory(self.artifact_root, run_id)
+                derived_root = self.artifact_root / "integrated_environments"
+                if derived_root.is_symlink() or not derived_root.is_dir():
+                    raise FileNotFoundError(run_id)
+                derived = _run_directory(derived_root, run_id)
+                params = parse_qs(
+                    parts.query, keep_blank_values=True, strict_parsing=True
+                )
+                endpoint = environment_match.group(2)
+                required = {"t_s", "latitude_deg", "longitude_deg"}
+                allowed = required if endpoint == "point" else {
+                    "latitude_deg", "longitude_deg", "start_s", "end_s",
+                    "max_points",
+                }
+                if set(params) - allowed:
+                    raise ValueError("unknown integrated environment query parameter")
+                if any(len(values) != 1 for values in params.values()):
+                    raise ValueError("duplicate integrated environment query parameter")
+
+                def finite_parameter(name: str, *, optional: bool = False) -> float | None:
+                    if name not in params:
+                        if optional:
+                            return None
+                        raise ValueError(f"missing integrated environment parameter: {name}")
+                    value = float(params[name][0])
+                    if not math.isfinite(value):
+                        raise ValueError(
+                            f"integrated environment parameter {name} must be finite"
+                        )
+                    return value
+
+                latitude = finite_parameter("latitude_deg")
+                longitude = finite_parameter("longitude_deg")
+                assert latitude is not None and longitude is not None
+                if endpoint == "point":
+                    if set(params) != required:
+                        raise ValueError(
+                            "point query requires t_s, latitude_deg and longitude_deg"
+                        )
+                    t_s = finite_parameter("t_s")
+                    assert t_s is not None
+                    result = query_integrated_environment_point(
+                        derived, source, t_s=t_s, latitude_deg=latitude,
+                        longitude_deg=longitude,
+                    )
+                else:
+                    if not {"latitude_deg", "longitude_deg"} <= set(params):
+                        raise ValueError(
+                            "series query requires latitude_deg and longitude_deg"
+                        )
+                    max_points = int(params.get("max_points", ["500"])[0])
+                    result = query_integrated_environment_series(
+                        derived, source, latitude_deg=latitude,
+                        longitude_deg=longitude,
+                        start_s=finite_parameter("start_s", optional=True),
+                        end_s=finite_parameter("end_s", optional=True),
+                        max_points=max_points,
+                    )
+                self._json(HTTPStatus.OK, result)
+                return
+            tile_match = re.fullmatch(
+                r"/api/v1/environment/([^/]+)/tiles/(\d+)/(\d+)", path
+            )
+            if tile_match:
+                if parts.query:
+                    raise ValueError("environment tile does not accept query parameters")
+                run_id = unquote(tile_match.group(1))
+                source = _run_directory(self.artifact_root, run_id)
+                derived_root = self.artifact_root / "integrated_environments"
+                if derived_root.is_symlink() or not derived_root.is_dir():
+                    raise FileNotFoundError(run_id)
+                derived = _run_directory(derived_root, run_id)
+                result = query_integrated_environment_tile(
+                    derived, source, time_index=int(tile_match.group(2)),
+                    level=int(tile_match.group(3)),
+                )
+                self._json(HTTPStatus.OK, result)
+                return
             job_match = re.fullmatch(r"/api/v1/jobs/([^/]+)", path)
             if job_match:
                 self._json(HTTPStatus.OK, self.jobs.status(unquote(job_match.group(1))))
@@ -307,6 +395,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             if path in {
                 "/web-core.js", "/navigation.js", "/planet-explorer.js", "/ground-view.js",
                 "/planet-globe.js",
+                "/integrated-environment.js",
             }:
                 self._static(path[1:], "text/javascript; charset=utf-8")
                 return

@@ -4,6 +4,9 @@ import argparse
 import json
 from pathlib import Path
 
+import yaml
+from pydantic import ValidationError
+
 from threebody import __version__
 from threebody.common.json import write_json_atomic
 from threebody.config.loader import load_and_resolve
@@ -73,6 +76,19 @@ def build_parser() -> argparse.ArgumentParser:
     assess_long.add_argument("--environment", type=Path)
     assess_long.add_argument("--config", type=Path, required=True)
     assess_long.add_argument("--out-dir", type=Path, required=True)
+    environment_long = world_commands.add_parser(
+        "environment-long",
+        help="Create or resume a source-verified M7.2/M7.3 environment archive",
+    )
+    environment_long.add_argument("--run", type=Path, required=True)
+    environment_long.add_argument("--config", type=Path, required=True)
+    environment_long.add_argument("--out-dir", type=Path, required=True)
+    environment_long.add_argument("--end-s", type=float)
+    environment_long.add_argument("--max-segments", type=int)
+    environment_long.add_argument(
+        "--atmosphere-from-world-prior", action="store_true",
+        help="Resolve the archived G2/M7.1 atmosphere hypothesis into the config",
+    )
     resume = world_commands.add_parser(
         "resume", help="Resume a safely paused segmented IAS15 run"
     )
@@ -185,6 +201,39 @@ def execute(args: argparse.Namespace) -> int:
             result = assess_long_run(
                 args.run, args.config, args.out_dir,
                 environment_dir=args.environment,
+            )
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 0
+        if args.command == "environment-long":
+            from threebody.physics.environment.integrated_archive import (
+                run_integrated_environment_archive,
+            )
+            from threebody.physics.environment.integrated_models import (
+                IntegratedEnvironmentConfig,
+                atmosphere_inventory_from_world_prior,
+            )
+            from threebody.world.models import WorldInitialState
+
+            try:
+                raw = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict):
+                    raise ValueError("integrated environment config must be a mapping")
+                if args.atmosphere_from_world_prior:
+                    state = WorldInitialState.model_validate_json(
+                        (args.run / "initial_state.json").read_text(encoding="utf-8"),
+                        strict=True,
+                    )
+                    raw["atmosphere"] = atmosphere_inventory_from_world_prior(
+                        state
+                    ).model_dump(mode="json")
+                config = IntegratedEnvironmentConfig.model_validate_json(
+                    json.dumps(raw, allow_nan=False), strict=True
+                )
+            except (OSError, yaml.YAMLError, ValidationError) as exc:
+                raise ValueError(f"invalid integrated environment config: {exc}") from exc
+            result = run_integrated_environment_archive(
+                args.run, args.out_dir, config,
+                end_t_s=args.end_s, max_segments=args.max_segments,
             )
             print(json.dumps(result, ensure_ascii=False, sort_keys=True))
             return 0

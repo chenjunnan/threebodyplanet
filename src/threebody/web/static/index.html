@@ -161,6 +161,24 @@
         <p id="c1-sphere-reading" aria-live="polite">将鼠标移到球面查看真实纬带温度。</p>
         <p id="thermal-cursor" aria-live="polite">物理时间与轨道观察时间同步。缺失的C0/C1数据不会被补造。</p>
       </section>
+      <section class="integrated-environment-panel" aria-labelledby="integrated-environment-heading">
+        <h3 id="integrated-environment-heading">M7.2 / M7.3 动态二维环境</h3>
+        <p>只读取同一个已提交环境归档；地图、地点状态和事件不会在浏览器中随机生成。</p>
+        <div class="world-controls">
+          <label>运行ID<input id="environment-run-id" value="web-run-001" maxlength="128"></label>
+          <label>图层<select id="environment-layer"><option value="surface_temperature_k">地表温度</option><option value="liquid_water_kg_m2">液态水</option><option value="ice_kg_m2">冰</option><option value="magma_fraction">熔融硅酸盐</option><option value="surface_pressure_pa">地表压强</option><option value="relative_humidity">相对湿度</option><option value="eastward_wind_m_s">东西风</option><option value="precipitation_rate_kg_m2_s">降水率</option></select></label>
+          <label>瓦片层级<select id="environment-level"><option value="0">完整归档网格</option><option value="1">2×降阶</option><option value="2">4×降阶</option></select></label>
+          <button id="environment-load" class="primary">读取动态环境</button>
+        </div>
+        <div class="actions"><button id="environment-previous">上一物理时刻</button><button id="environment-play">播放</button><button id="environment-pause">暂停</button><button id="environment-next">下一物理时刻</button></div>
+        <label for="environment-time">环境物理时间：<span id="environment-time-label">—</span></label>
+        <input id="environment-time" type="range" min="0" max="0" value="0" step="1">
+        <p id="integrated-environment-status" role="status">等待读取已完成的 integrated_environment_v1 归档。</p>
+        <canvas id="integrated-environment-map" width="960" height="480" tabindex="0" aria-label="已归档的全球二维动态环境地图，可点击地点查询"></canvas>
+        <p id="integrated-environment-point" aria-live="polite">点击地图查询同一归档中的地点状态。</p>
+        <div id="integrated-environment-events" class="environment-event-timeline" aria-label="参数化天气事件时间轴"></div>
+        <pre id="integrated-environment-provenance"></pre>
+      </section>
       <section class="world-outcome-panel" aria-labelledby="m4-heading">
         <h3 id="m4-heading">长期世界结局 · M4科学分类</h3>
         <p id="m4-outcome-summary" role="status">等待选择运行：M4将使用已归档的真实动力学和可用温度数据分类。</p>
@@ -244,5 +262,6 @@
   <script src="/ground-view.js" defer></script>
   <script src="/planet-globe.js" defer></script>
   <script src="/planet-explorer.js" defer></script>
+  <script src="/integrated-environment.js" defer></script>
 </body>
 </html>
