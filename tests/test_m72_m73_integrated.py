@@ -573,6 +573,7 @@ def test_p1_chromium_enters_archived_world_moves_and_restores(
         diagnostics = page.evaluate("window.__P1_DIAGNOSTICS__")
         assert diagnostics["terrainMeshes"] == 81
         assert diagnostics["uniqueTileKeys"] > 25
+        assert "NaN" not in page.locator("#position").inner_text()
         assert diagnostics["environmentHash"] == manifest["result_sha256"]
         assert diagnostics["webGlVersion"] == 2
         initial_position = page.locator("#position").inner_text()

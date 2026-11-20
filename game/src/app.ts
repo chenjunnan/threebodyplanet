@@ -105,7 +105,11 @@ class Game{
    get('#weather').textContent='天气 '+w.state+'　相态 '+w.phase+'　风 '+(east.value===null||north.value===null?'不可用':Math.hypot(east.value,north.value).toFixed(1)+' m/s')+'　云 '+(cloud.value===null?'不可用':(cloud.value*100).toFixed(0)+'%')+'　降水 '+formatField(rain,6)+(w.events.length?'　事件 '+w.events.join(', '):'');
    get('#material').textContent='地表相态：液水 '+(style.liquidWater*100).toFixed(1)+'%　冰 '+(style.ice*100).toFixed(1)+'%　熔融物质 '+(style.magma*100).toFixed(1)+'%　'+(style.uncertain?'UNCERTAIN':'归档计算');
    get('#quality-state').textContent='模型 '+String(e.model_id??'unknown')+' · '+String(e.fidelity_mode??'quality unknown')+' · '+String(e.result_sha256??'').slice(0,12);
-   const c=cloud.value??0;this.scene.fogMode=c>.35?Scene.FOGMODE_EXP2:Scene.FOGMODE_NONE;this.scene.fogDensity=.000012*c;this.scene.clearColor=temp.value!==null&&temp.value>700?new Color4(.18,.05,.02,1):new Color4(.02+.12*c,.04+.14*c,.07+.18*c,1);
+   const c=cloud.value??0;this.scene.fogMode=c>.35?Scene.FOGMODE_EXP2:Scene.FOGMODE_NONE;this.scene.fogDensity=.000012*c;
+   const sky=this.sc.atmospheric_optics?.sky_display_srgb;
+   this.scene.clearColor=sky&&sky.every(Number.isFinite)
+    ?new Color4(.04+.24*sky[0]+.1*c,.04+.24*sky[1]+.1*c,.05+.24*sky[2]+.1*c,1)
+    :new Color4(.02+.12*c,.04+.14*c,.07+.18*c,1);
   }catch(error){if(serial!==this.serial)return;this.env=null;get('#environment').textContent='环境不可用（不使用虚构值）：'+String(error);get('#weather').textContent='天气 UNAVAILABLE';get('#material').textContent='地表相态 UNAVAILABLE';get('#quality-state').textContent='UNAVAILABLE'}
  }
  private frame(){

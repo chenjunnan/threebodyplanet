@@ -295,6 +295,11 @@ export class TerrainManager {
   private applyMaterials(): void {
     this.surfaceMaterial?.dispose();
     const material = new StandardMaterial('surface-state', this.scene);
+    // Height vertices use the scientific right-handed east/up/north frame,
+    // while Babylon's default scene is left-handed. Render both windings so
+    // the physically shared height field remains visible from its upper side.
+    material.backFaceCulling = false;
+    material.twoSidedLighting = true;
     const magma = Math.max(0, Math.min(1, this.style.magma));
     const ice = Math.max(0, Math.min(1 - magma, this.style.ice * (1 - magma)));
     const water = Math.max(

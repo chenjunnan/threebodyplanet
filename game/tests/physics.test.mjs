@@ -65,6 +65,37 @@ test('terrain boundary sampling is deterministic and continuous', () => {
   assert.equal(a, b);
 });
 
+test('current environment morphology v2 produces finite relief', () => {
+  const model = {
+    model: 'environment_morphology_proxy_v2',
+    base_scale: 0.56,
+    rugged_modes: [{
+      amplitude_fraction: 0.02,
+      direction: [0, 1, 0],
+      frequency: 17,
+      phase: 0.4,
+    }],
+    plains: [],
+    ridges: [],
+    faults: [],
+  };
+  const height = terrainHeight(
+    geodeticUnit(0, 0),
+    [{ direction: [1, 0, 0], phase: 0.3, frequency: 2.4, amplitude: 0.38 }],
+    model,
+    18_000,
+    0.72,
+  );
+  assert.ok(Number.isFinite(height));
+  assert.ok(Math.abs(height) <= 18_000);
+});
+
+test('unknown terrain contracts fail instead of silently creating NaN vertices', () => {
+  assert.throws(() => terrainHeight(
+    geodeticUnit(0, 0), [], {}, 18_000, 0.72,
+  ), /unsupported terrain model/);
+});
+
 test('floating origin has a deterministic SI-metre threshold', () => {
   assert.equal(floatingOriginRequired(900, 1200), false);
   assert.equal(floatingOriginRequired(901, 1200), true);
