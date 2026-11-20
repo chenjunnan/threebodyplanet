@@ -663,3 +663,17 @@ python scripts/m6_five_year_acceptance.py --artifact-root /tmp/m7-new-five-year
 板块形成及经校准灾害预报尚未实现。M7 基线见
 [M7 报告](docs/development/M7_REPORT.md)，本轮实现与实测见
 [M7.1 报告](docs/development/M71_REPORT.md)。
+
+## P1 3D 行星探索（开发分支）
+
+P1 使用 TypeScript、Vite 与 Babylon.js，构建后由科学服务器在 `/game/` 提供。启动后
+访问 `http://127.0.0.1:8765/game/`。客户端只读取已提交的 M5A 和 M7.2/M7.3 归档；
+缺失环境显示 `UNAVAILABLE`，不生成替代天气。
+
+```bash
+cd game && npm ci && npm run build
+cd ..
+threebody web serve --artifact-root <归档目录>
+```
+
+操作：WASD 移动、Shift 奔跑、Space 跳跃、V 切换第一/第三人称、R 重置。

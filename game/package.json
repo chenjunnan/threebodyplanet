@@ -1,0 +1,23 @@
+{
+  "name": "three-body-planet-p1-client",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@babylonjs/core": "latest",
+    "@babylonjs/loaders": "latest",
+    "three": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/three": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
+}

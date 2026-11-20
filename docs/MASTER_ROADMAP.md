@@ -57,3 +57,15 @@ M7.2-a/b 已合并。`integrated_environment_v1` 在单一集成分支中完成 
 本轮进展见 `docs/development/M72_M73_REPORT.md`；既有行星场景科学模型见
 `docs/PLANET_EXPLORATION_MODEL.md`。
 历史规格与验收文档继续保留以追溯设计，旧“当前状态”不得当作最新发布状态。
+# P1 顺序调整（2026-11）
+
+P1 以已合并的 M7.2/M7.3 集成归档为基线，依赖链为
+`M5A 轨道 → M7.2 动态环境 → M7.3 参数化天气 → P1 只读游戏适配器`。
+客户端采用 Babylon.js、TypeScript 与 Vite；Three.js 仅用于同场景选型基准。
+P1 保留科学控制台且不修改或覆盖历史科学归档。
+
+## P1 当前状态（2026-11）
+
+`feature/p1-3d-planet-exploration` 已完成浏览器探索客户端功能与统一回归，等待集成 PR
+技术复审。实现包括球面 LOD/浮动原点、角色移动、三星天空、M7.2 相态、M7.3 天气、
+地图/HUD 和来源绑定存档。P1 仍是只读科学消费者，不改变 M5A/M7.2/M7.3 归档。
