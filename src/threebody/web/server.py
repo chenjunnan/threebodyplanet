@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from threebody.config.loader import resolve_mapping
 from threebody.errors import ConfigError
+from threebody.physics.environment.integrated_models import IntegratedEnvironmentConfig
 from threebody.physics.longrun.models import LongRunSettings
 from threebody.web.comparison import compare_runs
 from threebody.web.integrated_environment_science import (
@@ -90,6 +91,46 @@ def list_runs(root: Path) -> list[dict[str, Any]]:
         if summary is not None:
             results.append(summary)
     return results
+
+
+def list_game_worlds(root: Path) -> list[dict[str, Any]]:
+    """List only worlds with completed M5A and integrated environment archives."""
+    integrated_root = root / "integrated_environments"
+    if integrated_root.is_symlink() or not integrated_root.is_dir():
+        return []
+    available = []
+    for run in list_runs(root):
+        run_id = run["run_id"]
+        source = root / run_id
+        derived = integrated_root / run_id
+        if (
+            source.is_symlink()
+            or derived.is_symlink()
+            or not (source / "long_run_manifest.json").is_file()
+            or not (derived / "integrated_environment_manifest.json").is_file()
+        ):
+            continue
+        manifest = _load_json(derived / "integrated_environment_manifest.json")
+        if not isinstance(manifest, dict):
+            raise ValueError("integrated environment manifest must contain an object")
+        if (
+            manifest.get("status") != "COMPLETED"
+            or manifest.get("run_id") != run_id
+            or manifest.get("world_id") != run.get("world_id")
+            or not isinstance(manifest.get("result_sha256"), str)
+        ):
+            continue
+        available.append({
+            **run,
+            "environment": {
+                "model_id": manifest.get("model_id"),
+                "coverage_s": manifest.get("coverage_s"),
+                "fidelity_mode": manifest.get("fidelity_mode"),
+                "result_sha256": manifest["result_sha256"],
+                "grid": manifest.get("grid"),
+            },
+        })
+    return available
 
 
 def _run_directory(root: Path, run_id: str) -> Path:
@@ -203,6 +244,78 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/v1/runs":
                 self._json(HTTPStatus.OK, {"runs": list_runs(self.artifact_root)})
+                return
+            if path == "/api/v1/game/worlds":
+                self._json(
+                    HTTPStatus.OK,
+                    {"worlds": list_game_worlds(self.artifact_root), "read_only": True},
+                )
+                return
+            game_scenario = re.fullmatch(r"/api/v1/game/worlds/([^/]+)/scenario", path)
+            if game_scenario:
+                params = parse_qs(parts.query, keep_blank_values=True, strict_parsing=True)
+                if set(params) != {"t_s"} or len(params["t_s"]) != 1:
+                    raise ValueError("game scenario requires one finite t_s")
+                t_s = float(params["t_s"][0])
+                if not math.isfinite(t_s):
+                    raise ValueError("game scenario time must be finite")
+                run_id = unquote(game_scenario.group(1))
+                source = _run_directory(self.artifact_root, run_id)
+                derived = _run_directory(
+                    self.artifact_root / "integrated_environments", run_id
+                )
+                manifest = _load_json(
+                    derived / "integrated_environment_manifest.json"
+                )
+                config = IntegratedEnvironmentConfig.model_validate_json(
+                    (derived / "resolved_config.json").read_text(encoding="utf-8"),
+                    strict=True,
+                )
+                if (
+                    manifest.get("status") != "COMPLETED"
+                    or manifest.get("run_id") != run_id
+                    or manifest.get("config_sha256") != config.config_sha256
+                ):
+                    raise ValueError("game scenario environment identity mismatch")
+                area = 4.0 * math.pi * config.planet_radius_m**2
+                composition = config.atmosphere.mole_fractions
+                scenario_parameters = {
+                    "t_s": t_s,
+                    "seed": config.world_seed,
+                    "albedo": config.bond_albedo,
+                    "emissivity": config.emissivity,
+                    "atmosphere_mass_kg": (
+                        config.atmosphere.column_mass_kg_m2 * area
+                    ),
+                    "molar_mass_kg_mol": (
+                        config.atmosphere.mean_molar_mass_kg_mol
+                    ),
+                    "surface_water_kg": (
+                        config.initial_surface_liquid_water_kg_m2
+                        + config.initial_surface_ice_kg_m2
+                    ) * area,
+                    "rotation_rate_rad_s": config.rotation_rate_rad_s,
+                    "rotation_axis": config.rotation_axis,
+                    "longitude_phase_rad": config.longitude_phase_rad,
+                    "oxygen_mole_fraction": composition["oxygen"],
+                    "water_vapor_mole_fraction": composition["water_vapor"],
+                    "carbon_dioxide_mole_fraction": composition["carbon_dioxide"],
+                    "argon_mole_fraction": composition["argon"],
+                    "nitrogen_dioxide_mole_fraction": composition["nitrogen_dioxide"],
+                    "methane_mole_fraction": composition["methane"],
+                    "sulfur_dioxide_mole_fraction": composition["sulfur_dioxide"],
+                    "hydrogen_mole_fraction": composition["hydrogen"],
+                    "helium_mole_fraction": composition["helium"],
+                    "ammonia_mole_fraction": composition["ammonia"],
+                }
+                result = build_scenario(
+                    source, PlanetScenario.model_validate(scenario_parameters)
+                )
+                result["integrated_environment_result_sha256"] = manifest[
+                    "result_sha256"
+                ]
+                result["integrated_environment_coverage_s"] = manifest["coverage_s"]
+                self._json(HTTPStatus.OK, result)
                 return
             environment_match = re.fullmatch(
                 r"/api/v1/environment/([^/]+)/(point|series)", path

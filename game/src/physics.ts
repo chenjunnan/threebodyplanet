@@ -35,3 +35,6 @@ export function planetSurfaceBasis(axis0:Vec3,latDeg:number,lonDeg:number,angle:
  const east=normalize(add(scale(e0,-Math.sin(lon)),scale(e1,Math.cos(lon))));
  return{up,east,north:normalize(cross(up,east))};
 }
+export function floatingOriginRequired(eastM:number,northM:number,thresholdM=1500):boolean{
+ return Math.hypot(eastM,northM)>thresholdM;
+}

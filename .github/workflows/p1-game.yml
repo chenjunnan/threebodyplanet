@@ -1,0 +1,72 @@
+name: P1 Browser Game Acceptance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'game/**'
+      - 'src/threebody/web/**'
+      - 'tests/test_p1_game_contract.py'
+      - 'tests/test_p1_game_worlds.py'
+      - 'tests/test_m72_m73_integrated.py'
+      - 'pyproject.toml'
+      - '.github/workflows/p1-game.yml'
+  pull_request:
+    paths:
+      - 'game/**'
+      - 'src/threebody/web/**'
+      - 'tests/test_p1_game_contract.py'
+      - 'tests/test_p1_game_worlds.py'
+      - 'tests/test_m72_m73_integrated.py'
+      - 'pyproject.toml'
+      - '.github/workflows/p1-game.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  game-and-chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: game/package-lock.json
+      - name: Test and build TypeScript client
+        working-directory: game
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install scientific stack and Chromium
+        run: |
+          python -m pip install -e '.[dev,physics,viz]'
+          python -m pip install 'playwright>=1.55,<2'
+          python -m playwright install --with-deps chromium
+      - name: Verify packaged game and authority contracts
+        run: |
+          python -m pip wheel --no-deps --no-build-isolation -w /tmp/p1-wheel .
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheels = list(Path('/tmp/p1-wheel').glob('*.whl'))
+          assert len(wheels) == 1, wheels
+          with ZipFile(wheels[0]) as archive:
+              names = archive.namelist()
+              assert 'threebody/web/static/game/index.html' in names
+              assert any(name.endswith('.js') and '/game/assets/' in name for name in names)
+              assert any(name.endswith('.css') and '/game/assets/' in name for name in names)
+          PY
+          pytest -q tests/test_p1_game_contract.py tests/test_p1_game_worlds.py
+      - name: Real archived-world Chromium acceptance
+        run: >-
+          pytest -q tests/test_m72_m73_integrated.py::test_p1_chromium_enters_archived_world_moves_and_restores

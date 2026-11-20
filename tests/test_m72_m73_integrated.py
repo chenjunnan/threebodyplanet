@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import runpy
 import shutil
@@ -527,5 +528,103 @@ def test_chromium_reads_archive_tile_point_and_physical_time(
         )
         provenance = page.locator("#integrated-environment-provenance").inner_text()
         assert "forcing_source_sha256" in provenance
+        assert not errors
+        browser.close()
+
+
+@pytest.mark.browser
+def test_p1_chromium_enters_archived_world_moves_and_restores(
+    integrated_orbit, tmp_path,
+):
+    import os
+
+    from test_m5b_browser import _live_server, sync_playwright
+
+    run_id = "integrated-source"
+    source = tmp_path / run_id
+    shutil.copytree(integrated_orbit, source)
+    environment = tmp_path / "integrated_environments" / run_id
+    manifest = run_integrated_environment_archive(
+        source, environment, integrated_config(), end_t_s=86400.0
+    )
+    with _live_server(tmp_path) as base, sync_playwright() as api:
+        browser = api.chromium.launch(
+            executable_path=os.environ.get("THREEBODY_TEST_CHROMIUM"), headless=True
+        )
+        context = browser.new_context(viewport={"width": 1280, "height": 800})
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(base + "/game/", wait_until="domcontentloaded")
+        page.locator("#runs option").wait_for(state="attached")
+        assert page.locator("#runs").input_value() == run_id
+        page.locator("#enter").click()
+        page.wait_for_timeout(5000)
+        assert page.evaluate("() => window.__P1_GAME_READY__ === true"), (
+            page.locator("#state").inner_text(), errors
+        )
+        page.wait_for_function(
+            "() => window.__P1_GAME_READY__ === true", timeout=30_000
+        )
+        page.wait_for_function(
+            "() => document.querySelector('#quality-state').textContent"
+            ".includes('integrated_environment_v1')"
+        )
+        diagnostics = page.evaluate("window.__P1_DIAGNOSTICS__")
+        assert diagnostics["terrainMeshes"] == 81
+        assert diagnostics["uniqueTileKeys"] > 25
+        assert diagnostics["environmentHash"] == manifest["result_sha256"]
+        assert diagnostics["webGlVersion"] == 2
+        initial_position = page.locator("#position").inner_text()
+        page.keyboard.down("KeyW")
+        page.wait_for_timeout(600)
+        page.keyboard.up("KeyW")
+        page.wait_for_function(
+            "(initial) => document.querySelector('#position').textContent !== initial",
+            arg=initial_position,
+        )
+        assert "透过率" in page.locator("#stars").inner_text()
+        assert "地表相态" in page.locator("#material").inner_text()
+        assert "UNAVAILABLE" not in page.locator("#weather").inner_text()
+        map_has_pixels = page.locator("#map canvas").evaluate(
+            "canvas => Array.from(canvas.getContext('2d').getImageData("
+            "0,0,canvas.width,canvas.height).data).some("
+            "(value,index)=>index%4!==3&&value>0)"
+        )
+        assert map_has_pixels
+        page.keyboard.press("KeyV")
+        page.wait_for_function("() => window.__P1_DIAGNOSTICS__.firstPerson === true")
+        page.keyboard.press("KeyR")
+        page.wait_for_function("() => window.__P1_METRICS__.rebaseP95Ms !== null")
+        page.locator("#time").evaluate(
+            "node => {node.value=node.max;"
+            "node.dispatchEvent(new Event('input',{bubbles:true}));}"
+        )
+        page.wait_for_function(
+            "() => document.querySelector('#time-text').textContent.includes('86400.00')"
+        )
+        page.wait_for_timeout(200)
+        stored = page.evaluate(
+            "run => localStorage.getItem('threebody:p1:player:'+run)", run_id
+        )
+        assert stored is not None
+        saved = page.evaluate("window.__P1_DIAGNOSTICS__")
+        metrics = page.evaluate("window.__P1_METRICS__")
+        assert metrics["samples"] > 30
+        assert 0 < metrics["frameP50Ms"] <= metrics["frameP95Ms"]
+        assert metrics["rebaseP95Ms"] > 0
+        assert metrics["transferMiB"] > 0
+        print("P1_BROWSER_METRICS=" + json.dumps(metrics, sort_keys=True))
+        assert not errors
+        page.reload(wait_until="domcontentloaded")
+        page.locator("#runs option").wait_for(state="attached")
+        page.locator("#enter").click()
+        page.wait_for_function(
+            "() => window.__P1_GAME_READY__ === true", timeout=30_000
+        )
+        restored = page.evaluate("window.__P1_DIAGNOSTICS__")
+        assert restored["latitudeDeg"] == pytest.approx(saved["latitudeDeg"])
+        assert restored["longitudeDeg"] == pytest.approx(saved["longitudeDeg"])
+        assert restored["environmentHash"] == manifest["result_sha256"]
         assert not errors
         browser.close()
