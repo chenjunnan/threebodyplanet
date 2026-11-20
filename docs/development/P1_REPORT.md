@@ -15,12 +15,13 @@
 ## 已执行验证
 
 - `npm run build`：通过。
-- P1 Python 路由/契约：3 passed。
+- 完整 `pytest -q`：305 passed（含既有科学与浏览器回归）。
+- P1 Python 路由/契约子集：3 passed。
 - 变更 Python `ruff check`：通过；`compileall`：通过。
 - 两引擎各 360 个计量帧，均无 page error。
 
 ## 尚未完成
 
 动态四叉树 LOD/浮动原点重定位、云雨雪粒子、相态材质、真实归档游戏 E2E、长距离跨块
-碰撞、桌面 GPU 性能、完整 `pytest -q` 和最终 PR 仍待完成。当前实现不能描述为已满足
+碰撞、桌面 GPU 性能和最终 PR 仍待完成。当前实现不能描述为已满足
 P1 最终验收。
