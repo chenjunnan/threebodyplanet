@@ -14,13 +14,7 @@ import {
   terrainHeight,
   type Vec3,
 } from './physics';
-
-export interface SurfaceStyle {
-  liquidWater: number;
-  ice: number;
-  magma: number;
-  uncertain: boolean;
-}
+import { surfacePalette, type SurfaceStyle } from './surface-material';
 
 export interface TerrainLocation {
   latitudeDeg: number;
@@ -72,6 +66,8 @@ export class TerrainManager {
     liquidWater: 0,
     ice: 0,
     magma: 0,
+    temperatureK: null,
+    temperatureQuality: 'UNAVAILABLE',
     uncertain: true,
   };
   private surfaceMaterial: StandardMaterial | null = null;
@@ -228,16 +224,16 @@ export class TerrainManager {
             - (eastM * eastM + northM * northM) / (2 * this.scenario.radius_m),
           northM,
         );
-        const wet = elevationM < this.scenario.sea_level_m;
+        const wet = this.scenario.water_surface_visible === true
+          && elevationM < this.scenario.sea_level_m;
         wetMask.push(wet);
-        const snowy = !wet && elevationM > this.scenario.parameters.relief_m * 0.45;
         colors.push(...(wet
-          ? [0.02, 0.17, 0.28, 1]
-          : snowy
-            ? [0.85, 0.88, 0.9, 1]
+          ? [0.2, 0.45, 0.65, 1]
+          : elevationM > this.scenario.parameters.relief_m * 0.45
+            ? [1.0, 0.94, 0.86, 1]
             : elevationM > 0
-              ? [0.3, 0.23, 0.14, 1]
-              : [0.16, 0.25, 0.11, 1]));
+              ? [0.92, 0.84, 0.74, 1]
+              : [0.72, 0.7, 0.68, 1]));
       }
     }
     for (let z = 0; z < resolution; z += 1) {
@@ -300,22 +296,15 @@ export class TerrainManager {
     // the physically shared height field remains visible from its upper side.
     material.backFaceCulling = false;
     material.twoSidedLighting = true;
-    const magma = Math.max(0, Math.min(1, this.style.magma));
-    const ice = Math.max(0, Math.min(1 - magma, this.style.ice * (1 - magma)));
-    const water = Math.max(
-      0,
-      Math.min(1 - magma - ice, this.style.liquidWater * (1 - magma)),
+    const palette = surfacePalette(
+      this.style,
+      this.scenario.environment_material_profile,
     );
-    const solid = Math.max(0, 1 - magma - ice - water);
-    material.diffuseColor = new Color3(
-      1 * magma + 0.65 * ice + 0.08 * water + 0.45 * solid,
-      0.08 * magma + 0.78 * ice + 0.28 * water + 0.42 * solid,
-      0.01 * magma + 0.9 * ice + 0.45 * water + 0.35 * solid,
-    );
-    material.emissiveColor = new Color3(0.8 * magma, 0.06 * magma, 0);
+    material.diffuseColor = Color3.FromArray(palette.diffuse);
+    material.emissiveColor = Color3.FromArray(palette.emissive);
     material.specularColor = this.style.uncertain
       ? new Color3(0.15, 0.05, 0.15)
-      : new Color3(0.05 + 0.6 * water, 0.05 + 0.6 * water, 0.05 + 0.6 * water);
+      : new Color3(0.04, 0.04, 0.04);
     for (const mesh of this.meshes) mesh.material = material;
     this.surfaceMaterial = material;
   }

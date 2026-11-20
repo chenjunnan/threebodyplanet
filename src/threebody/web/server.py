@@ -315,6 +315,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     "result_sha256"
                 ]
                 result["integrated_environment_coverage_s"] = manifest["coverage_s"]
+                result["environment_material_profile"] = (
+                    config.material_profile.model_dump(mode="json")
+                )
                 self._json(HTTPStatus.OK, result)
                 return
             environment_match = re.fullmatch(

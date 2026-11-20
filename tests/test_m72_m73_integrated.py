@@ -585,7 +585,7 @@ def test_p1_chromium_enters_archived_world_moves_and_restores(
             arg=initial_position,
         )
         assert "透过率" in page.locator("#stars").inner_text()
-        assert "地表相态" in page.locator("#material").inner_text()
+        assert "地表材质" in page.locator("#material").inner_text()
         assert "UNAVAILABLE" not in page.locator("#weather").inner_text()
         map_has_pixels = page.locator("#map canvas").evaluate(
             "canvas => Array.from(canvas.getContext('2d').getImageData("

@@ -1,5 +1,5 @@
 import type { EnvironmentPoint } from './api';
-import type { SurfaceStyle } from './terrain-manager';
+import type { SurfaceStyle } from './surface-material';
 
 export interface FieldValue {
   value: number | null;
@@ -43,12 +43,15 @@ export function surfaceStyle(environment: EnvironmentPoint): SurfaceStyle {
   const liquid = environmentField(environment, 'liquid_water');
   const ice = environmentField(environment, 'ice');
   const magma = environmentField(environment, 'magma_fraction');
+  const temperature = environmentField(environment, 'surface_temperature');
   const totalWater = Math.max(1, (liquid.value ?? 0) + (ice.value ?? 0));
   return {
     liquidWater: Math.max(0, Math.min(1, (liquid.value ?? 0) / totalWater)),
     ice: Math.max(0, Math.min(1, (ice.value ?? 0) / totalWater)),
     magma: Math.max(0, Math.min(1, magma.value ?? 0)),
-    uncertain: [liquid, ice, magma].some(
+    temperatureK: temperature.value,
+    temperatureQuality: temperature.quality,
+    uncertain: [liquid, ice, magma, temperature].some(
       (entry) => entry.quality === 'UNCERTAIN' || entry.quality === 'UNAVAILABLE',
     ),
   };
