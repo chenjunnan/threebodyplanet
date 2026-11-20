@@ -57,3 +57,9 @@ M7.2-a/b 已合并。`integrated_environment_v1` 在单一集成分支中完成 
 本轮进展见 `docs/development/M72_M73_REPORT.md`；既有行星场景科学模型见
 `docs/PLANET_EXPLORATION_MODEL.md`。
 历史规格与验收文档继续保留以追溯设计，旧“当前状态”不得当作最新发布状态。
+# P1 顺序调整（2026-11）
+
+P1 以已合并的 M7.2/M7.3 集成归档为基线，依赖链为
+`M5A 轨道 → M7.2 动态环境 → M7.3 参数化天气 → P1 只读游戏适配器`。
+客户端采用 Babylon.js、TypeScript 与 Vite；Three.js 仅用于同场景选型基准。
+P1 保留科学控制台且不修改或覆盖历史科学归档。

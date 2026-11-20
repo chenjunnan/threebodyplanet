@@ -7,4 +7,7 @@ __pycache__/
 build/
 dist/
 runs/
+game/node_modules/
+game/.vite/
+game/test-results/
 *:Zone.Identifier

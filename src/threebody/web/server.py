@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import mimetypes
 import re
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -163,6 +164,14 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         self._headers(HTTPStatus.OK, content_type, len(body))
         self.wfile.write(body)
 
+    def _game_static(self, name: str) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9._/-]+", name) or ".." in name.split("/"):
+            raise ValueError("invalid game asset path")
+        content_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        if content_type in {"text/html", "text/css", "text/javascript", "application/javascript"}:
+            content_type += "; charset=utf-8"
+        self._static("game/" + name, content_type)
+
     def do_GET(self) -> None:  # noqa: N802
         parts = urlsplit(self.path)
         path = parts.path
@@ -284,6 +293,13 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/v1/openapi.json":
                 self._static("openapi.json", "application/json; charset=utf-8")
+                return
+            if path in {"/game", "/game/", "/game/index.html"}:
+                self._game_static("index.html")
+                return
+            game_asset = re.fullmatch(r"/game/(.+)", path)
+            if game_asset:
+                self._game_static(unquote(game_asset.group(1)))
                 return
             outcome_match = re.fullmatch(r"/api/v1/runs/([^/]+)/outcome", path)
             if outcome_match:
