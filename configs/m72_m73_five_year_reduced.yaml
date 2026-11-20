@@ -1,0 +1,63 @@
+schema_version: 1.0.0
+model_id: integrated_environment_v1
+fidelity_mode: FIVE_YEAR_REDUCED
+world_seed: 20261119
+latitude_count: 6
+longitude_count: 12
+planet_radius_m: 6371000.0
+surface_gravity_m_s2: 9.81
+rotation_axis: [0.0, 0.0, 1.0]
+rotation_rate_rad_s: 0.0000727220521664304
+longitude_phase_rad: 0.0
+bond_albedo: 0.3
+emissivity: 0.95
+internal_heat_flux_w_m2: 0.08
+surface_material_column_mass_kg_m2: 200000.0
+shallow_rock_column_mass_kg_m2: 10000000.0
+shallow_rock_specific_heat_j_kg_k: 850.0
+ocean_mixed_layer_column_mass_kg_m2: 100.0
+initial_surface_temperature_k: 288.0
+initial_rock_temperature_k: 288.0
+initial_ocean_temperature_k: 288.0
+initial_air_temperature_k: 288.0
+initial_surface_liquid_water_kg_m2: 20.0
+initial_surface_ice_kg_m2: 10.0
+material_profile:
+  model_id: seeded_planet_material_prior_v1
+  seed: 20261119
+  semantics: RANDOM_PRIOR_NOT_COMPOSITION_OBSERVATION
+  components:
+    - {material_id: basaltic_silicate, mass_fraction: 0.62}
+    - {material_id: granitic_silicate, mass_fraction: 0.12}
+    - {material_id: iron_nickel, mass_fraction: 0.18}
+    - {material_id: sulfur_compounds, mass_fraction: 0.03}
+    - {material_id: water_ice, mass_fraction: 0.05}
+atmosphere:
+  column_mass_kg_m2: 10330.0
+  mole_fractions:
+    nitrogen: 0.78
+    oxygen: 0.21
+    carbon_dioxide: 0.0004
+    nitrogen_dioxide: 0.0
+    methane: 0.0
+    sulfur_dioxide: 0.0
+    water_vapor: 0.0003
+    hydrogen: 0.0
+    helium: 0.0
+    ammonia: 0.0
+    argon: 0.0093
+surface_rock_exchange_w_m2_k: 0.8
+surface_ocean_exchange_w_m2_k: 8.0
+surface_air_exchange_w_m2_k: 12.0
+horizontal_surface_exchange_w_m2_k: 0.2
+horizontal_air_exchange_w_m2_k: 0.5
+moisture_exchange_s_inv: 0.000002
+evaporation_coefficient_kg_m2_s_pa: 0.0000000002
+precipitation_timescale_s: 10800.0
+cloud_threshold_kg_m2: 0.1
+wind_relaxation_s: 21600.0
+surface_drag_s: 43200.0
+max_internal_step_s: 3600.0
+output_interval_s: 86400.0
+segment_output_count: 64
+max_orbit_sample_interval_s: 21600.0

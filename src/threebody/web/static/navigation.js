@@ -18,6 +18,7 @@
   move('.hero','worlds');move('.world-builder','worlds');move('.runs','tasks');move('.task','tasks');
   move('.validator','settings');move('.experiment-comparison','reports');
   move('.thermal-panels','environment');move('.world-outcome-panel','environment');
+  move('.integrated-environment-panel','environment');
   move('.surface-gallery','surface');move('.planet-exploration','surface');
   const observer=document.querySelector('.observer');
   const shared=document.createElement('section');shared.className='shared-timeline panel';

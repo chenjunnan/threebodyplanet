@@ -634,6 +634,46 @@
           }
         }
       }
+    },
+    "/api/v1/environment/{run_id}/point": {
+      "get": {
+        "operationId": "getIntegratedEnvironmentPoint",
+        "description": "Linearly interpolate numeric fields from one verified committed environment archive; categorical fields use the nearest committed state.",
+        "parameters": [
+          {"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "t_s", "in": "query", "required": true, "schema": {"type": "number"}},
+          {"name": "latitude_deg", "in": "query", "required": true, "schema": {"type": "number", "minimum": -90, "maximum": 90}},
+          {"name": "longitude_deg", "in": "query", "required": true, "schema": {"type": "number", "minimum": -180, "maximum": 180}}
+        ],
+        "responses": {"200": {"description": "SI point state with field quality and archive hashes"}, "422": {"description": "Invalid query or invalid archive"}}
+      }
+    },
+    "/api/v1/environment/{run_id}/series": {
+      "get": {
+        "operationId": "getIntegratedEnvironmentSeries",
+        "description": "Bounded time series and parameterized weather events from the same committed archive.",
+        "parameters": [
+          {"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "latitude_deg", "in": "query", "required": true, "schema": {"type": "number"}},
+          {"name": "longitude_deg", "in": "query", "required": true, "schema": {"type": "number"}},
+          {"name": "start_s", "in": "query", "schema": {"type": "number"}},
+          {"name": "end_s", "in": "query", "schema": {"type": "number"}},
+          {"name": "max_points", "in": "query", "schema": {"type": "integer", "minimum": 2, "maximum": 5000}}
+        ],
+        "responses": {"200": {"description": "Endpoint-preserving SI series and event timeline"}}
+      }
+    },
+    "/api/v1/environment/{run_id}/tiles/{time_index}/{level}": {
+      "get": {
+        "operationId": "getIntegratedEnvironmentTile",
+        "description": "Read a stored time index at native resolution or an explicitly labelled arithmetic display aggregation; no physics is recomputed.",
+        "parameters": [
+          {"name": "run_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "time_index", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 0}},
+          {"name": "level", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 0, "maximum": 4}}
+        ],
+        "responses": {"200": {"description": "Global equal-area environment tile with SI units, quality and hashes"}}
+      }
     }
   },
   "components": {

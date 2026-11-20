@@ -1,0 +1,34 @@
+{
+  "status": "PASS",
+  "source": "REAL_REBOUND_IAS15_M5A_CARTESIAN_FORCING",
+  "run_id": "m72-m73-five-year",
+  "duration_s": 157788000.0,
+  "orbit_sample_count": 7306,
+  "environment_output_count": 1828,
+  "grid": [6, 12],
+  "internal_step_s": 3600.0,
+  "physical_wall_s_this_invocation": 6.946630591992289,
+  "environment_wall_s_this_invocation": 42.19612012396101,
+  "environment_performance": {
+    "wall_seconds": 41.91155631199945,
+    "cpu_seconds": 41.472215,
+    "peak_rss_mib": 173.26171875,
+    "internal_step_count": 43830,
+    "output_count": 1828
+  },
+  "diagnostics": {
+    "maximum_scaled_energy_residual": 2.062499751477213e-15,
+    "maximum_water_mass_relative_residual": 4.1214130712951907e-13,
+    "maximum_dry_atmosphere_relative_residual": 0.0,
+    "maximum_material_mass_relative_residual": 0.0,
+    "wind_stability_limit_hits": 0,
+    "orbital_forcing_max_gap_s": 21600.0,
+    "internal_step_count": 43830
+  },
+  "minimum_surface_temperature_k": 293.98835621789743,
+  "maximum_surface_temperature_k": 324.1656236259715,
+  "weather_event_count": 96,
+  "api_result_sha256": "d9708b9b5b5b0b9a4a5e8a3c5d8a9e9a9eda74af0bdd17e3f11fe92fd4656b0e",
+  "config_sha256": "1c12c404a95a927ba86145a5eaccc256bd7b1ed1316e5265388298a4a47a1823",
+  "forcing_source_sha256": "a5e764b34ac84fe829eecd0c0fa34030cdd3c4dc15a51590c590794c1737e565"
+}

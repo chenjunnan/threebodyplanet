@@ -141,6 +141,10 @@ body::before {opacity:.45;background-image:radial-gradient(1px 1px at 17px 31px,
 .hero {padding:2rem;}.hero h2 {font-size:clamp(28px,4vw,46px);}
 .shared-timeline {min-height:0;padding:1rem;}.shared-timeline .actions {margin:0;}
 [data-page] .panel {min-height:0;border:1px solid #293a4b;border-radius:10px;margin-bottom:1rem;}
+.integrated-environment-panel {border-top:1px solid #293a4b;padding-top:1rem;margin-top:1rem;}
+#integrated-environment-map {width:100%;height:auto;background:#101722;cursor:crosshair;image-rendering:auto;}
+.environment-event-timeline {max-height:16rem;overflow:auto;border-left:3px solid #607d8b;padding:.5rem 1rem;margin:1rem 0;}
+.environment-event-timeline p {margin:.35rem 0;color:#c8d4df;}
 #planet-map,#planet-ground {display:block;width:100%;height:auto;margin-top:1rem;background:#040812;}
 #planet-globe {display:block;width:min(100%,640px);height:auto;margin:1rem auto;
   background:#040812;border:1px solid var(--line);touch-action:none;cursor:grab;}

@@ -1,6 +1,10 @@
 # 三体星（Three-Body Planet）— P0 四体科学模拟与 Web 控制台
 
-当前开发方向：**M7.2-a 动态环境三热库原型 + M7.1 地表观测修正**。整体进度见 [总体路线图](docs/MASTER_ROADMAP.md)，M7.2 技术边界见 [实施规格](docs/P0-M72_IMPLEMENTATION_SPEC.md)。新动态状态与已归档的 IAS15/M3/M4/C0/C1 数据分开，不能把程序地形、气体先验、风速范围或条件概率当成行星实测结论。
+当前开发方向：**M7.2 二维动态环境 + M7.3 简化大气、水循环和基础天气**。整体进度见
+[总体路线图](docs/MASTER_ROADMAP.md)，冻结门限见
+[集成实施规格](docs/P0-M72_M73_INTEGRATED_IMPLEMENTATION_SPEC.md)，科学层级见
+[模型说明](docs/INTEGRATED_ENVIRONMENT_MODEL.md)。新环境归档与 IAS15/M3/M4/C0/C1 旧数据
+分开，程序地形、气体先验、参数化风和天气事件都不是行星实测结论。
 
 使用界面已拆为独立路由工作区：
 
@@ -9,7 +13,7 @@
 | `#/worlds` 创建世界 | 随机初态、候选选择、启动模拟 |
 | `#/tasks` 任务与归档 | 进度、暂停/恢复、服务重启后恢复状态 |
 | `#/orbit` 轨道观察 | WebGL/Canvas、真实采样回放、事件跳转 |
-| `#/environment` 科学环境 | 归档辐照、C0/C1温度、能量与M4 |
+| `#/environment` 科学环境 | C0/C1基准、二维温度/水相/大气/风/降水、天气事件与M4 |
 | `#/surface` 行星地表 | 程序地形、水盆、参数化大气/内热/纬度温度、地表观星 |
 | `#/reports` 比较报告 | 多世界比较、原科学归档导出 |
 | `#/settings` 高级配置 | 严格配置验证 |
@@ -50,10 +54,12 @@ M7.2-a 新增独立 `m72_three_reservoir_v1`：地表、浅层岩石和海洋混
 检查点绑定配置与来源哈希，恢复是在边界重新启动 SciPy 求解器，不声称序列化内部 RK 阶段。
 M3/C0/C1 仍是独立科学基准，旧归档不被覆盖。
 
-M7.2-b 的新分支模型把 M7.2-a 扩展为等面积多纬带三储热系统，使用守恒的带间热输送并
-提供版本化环境点查询。随机主要表层物质和固相线/液相线只形成可追溯的熔融概率先验；
-当前不包含潜热、岩浆迁移或天气。后续顺序固定为二维温度与相变长期计算，再进入 M7.3
-简化大气、水循环和基础天气；正式 P1 游戏客户端在稳定环境 API 之后启动。
+M7.2-b 继续作为等面积多纬带三储热基准。新的 `integrated_environment_v1` 使用真实 M5A
+三星笛卡尔轨道、自转轴/角速度和等面积二维网格计算昼夜、季节与多星照射，积分地表、浅层
+岩石、海洋混合层和空气温度，并把水、冰、蒸汽、超临界不确定代理及硅酸盐岩浆分开报告。
+M7.3 在同一守恒状态上增加气体柱、湿度、水循环、有界风和带迟滞天气事件；它是游戏需求
+驱动的参数化模型，不是 GCM。分段检查点可安全恢复，三个环境 API 和 Web 图层只读取同一个
+已提交结果。正式 P1 游戏客户端仍需等待该集成 PR 技术复审。
 
 ### G2.1 0.4.2 兼容基线与 M7.1 0.4.3 随机行星
 
@@ -257,6 +263,33 @@ IAS15 显式使用 SI 引力常数 `G=6.67430e-11`，不进行 `move_to_com`，�
 动力学；近接距离只是在 IAS15 内步端点观察到的最小值，不是连续轨道的严格数学极小值。
 `ESCAPE_CANDIDATE` 使用边界、向外速度、近似比能和持续时间，只是启发式分类，
 不等同于永久逃逸证明。
+
+## M7.2/M7.3 长期动态环境
+
+在一个已完成的 M5A 分段轨道上创建或恢复独立环境归档：
+
+```bash
+threebody world environment-long \
+  --run runs/m72-m73-five-year \
+  --config configs/m72_m73_five_year_reduced.yaml \
+  --out-dir runs/integrated_environments/m72-m73-five-year
+```
+
+对含 G2/M7.1 `atmosphere_hypothesis` 的世界，可增加
+`--atmosphere-from-world-prior`，把已归档随机先验严格解析为柱库存；它仍是先验，不是观测。
+`--max-segments` 可在安全段边界暂停，下次使用完全相同命令恢复。归档完成后启动 Web 服务，
+`#/environment` 可显示二维温度、水/冰/熔融、压强、湿度、风、降水及事件时间轴。
+
+客户端稳定接口为：
+
+```text
+GET /api/v1/environment/{run_id}/point?t_s=&latitude_deg=&longitude_deg=
+GET /api/v1/environment/{run_id}/series?latitude_deg=&longitude_deg=&max_points=
+GET /api/v1/environment/{run_id}/tiles/{time_index}/{level}
+```
+
+三类数据来自同一不可变归档并返回 SI 单位、字段质量与配置/来源/结果 SHA-256。瓦片高层级
+只是明确标识的显示聚合，不重新求解物理；浏览器播放速度不会改变环境积分速度。
 
 ## VIS1 四体轨道查看器
 
